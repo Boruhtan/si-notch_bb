@@ -1,1 +1,2 @@
 - Fixed intermittent missing sessions and stale task or subagent status on remote connections.
+- Kept background subagents active after their parent finishes a turn.

@@ -109,8 +109,11 @@ public struct SessionStore: Sendable {
                 session.currentTool = nil
                 session.approvalID = nil
                 if event.kind == .sessionEnded { explicitlyEndedIDs.insert(session.id) }
-                for index in session.subagents.indices where session.subagents[index].status.isActive {
-                    session.subagents[index].status = event.kind == .failed ? .failed : .ended
+                // Background children can outlive a completed parent turn.
+                if event.kind != .completed {
+                    for index in session.subagents.indices where session.subagents[index].status.isActive {
+                        session.subagents[index].status = event.kind == .failed ? .failed : .ended
+                    }
                 }
             case .subagentStarted:
                 if session.status == .idle { session.status = .working }
@@ -133,7 +136,7 @@ public struct SessionStore: Sendable {
         guard timeout.isFinite, timeout >= 0, now.timeIntervalSince1970.isFinite else { return [] }
         var expired: [String] = []
         for id in sessions.keys.sorted() {
-            guard var session = sessions[id], session.status.isActive || session.status == .idle,
+            guard var session = sessions[id], Self.hasLiveWork(session),
                   now.timeIntervalSince(session.updatedAt) >= timeout else { continue }
             session.status = .ended
             session.currentTool = nil
@@ -151,7 +154,7 @@ public struct SessionStore: Sendable {
     public mutating func pruneSessions(now: Date = Date(), retention: TimeInterval = 86400) -> [String] {
         guard retention.isFinite, retention >= 0 else { return [] }
         let removed = sessions.values.filter {
-            !$0.status.isActive && $0.status != .idle && now.timeIntervalSince($0.updatedAt) >= retention
+            !Self.hasLiveWork($0) && now.timeIntervalSince($0.updatedAt) >= retention
         }.map(\.id).sorted()
         for id in removed { removeSession(id: id) }
         return removed
@@ -181,14 +184,18 @@ public struct SessionStore: Sendable {
         while sessions.count > maximumSessions {
             // Evict inactive sessions before live work, then choose oldest deterministically.
             let oldest = sessions.values.sorted {
-                let lhsActive = $0.status.isActive || $0.status == .idle
-                let rhsActive = $1.status.isActive || $1.status == .idle
+                let lhsActive = Self.hasLiveWork($0)
+                let rhsActive = Self.hasLiveWork($1)
                 if lhsActive != rhsActive { return !lhsActive }
                 if $0.updatedAt != $1.updatedAt { return $0.updatedAt < $1.updatedAt }
                 return $0.id < $1.id
             }.first!
             removeSession(id: oldest.id)
         }
+    }
+
+    private static func hasLiveWork(_ session: AgentSession) -> Bool {
+        session.status.isActive || session.status == .idle || session.subagents.contains { $0.status.isActive }
     }
 
     private static func upsert<T: Identifiable>(_ item: T, in items: inout [T], limit: Int) where T.ID == String {

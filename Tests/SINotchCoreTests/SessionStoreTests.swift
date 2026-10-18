@@ -110,6 +110,52 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(session.usage?.usedPercent, 25)
     }
 
+    func testBackgroundSubagentOutlivesCompletedParentTurn() {
+        var store = SessionStore()
+        var child = event(.subagentStarted)
+        child.subagent = AgentSubagent(id: "child", name: "Background check", status: .working)
+        _ = store.apply(child)
+        _ = store.apply(event(.completed, at: 101))
+        XCTAssertEqual(store.sessions["s"]?.status, .completed)
+        XCTAssertEqual(store.sessions["s"]?.subagents.first?.status, .working)
+        child.kind = .subagentEnded
+        child.timestamp = Date(timeIntervalSince1970: 102)
+        child.subagent?.status = .completed
+        _ = store.apply(child)
+        XCTAssertEqual(store.sessions["s"]?.subagents.first?.status, .completed)
+        XCTAssertEqual(store.sessions["s"]?.status, .completed)
+    }
+
+    func testBackgroundSubagentStillExpiresOrEndsWithItsSession() {
+        for explicitEnd in [false, true] {
+            var store = SessionStore()
+            var child = event(.subagentStarted)
+            child.subagent = AgentSubagent(id: "child", name: "Background check", status: .working)
+            _ = store.apply(child, receivedAt: Date(timeIntervalSince1970: 100))
+            _ = store.apply(event(.completed), receivedAt: Date(timeIntervalSince1970: 100))
+            if explicitEnd { _ = store.apply(event(.sessionEnded, at: 101)) }
+            else { XCTAssertEqual(store.expireStaleSessions(now: Date(timeIntervalSince1970: 160), timeout: 60), ["s"]) }
+            XCTAssertEqual(store.sessions["s"]?.status, .ended)
+            XCTAssertEqual(store.sessions["s"]?.subagents.first?.status, .ended)
+        }
+    }
+
+    func testRetentionKeepsCompletedParentWhileItsChildIsWorking() {
+        var store = SessionStore(maximumSessions: 2)
+        let now = Date(timeIntervalSince1970: 100)
+        var child = event(.subagentStarted)
+        child.subagent = AgentSubagent(id: "child", name: "Background check", status: .working)
+        _ = store.apply(child, receivedAt: now)
+        _ = store.apply(event(.completed), receivedAt: now)
+        _ = store.apply(event(.completed, session: "done"), receivedAt: now)
+        XCTAssertEqual(store.pruneSessions(now: Date(timeIntervalSince1970: 200), retention: 50), ["done"])
+        _ = store.apply(event(.completed, session: "done"), receivedAt: now)
+        _ = store.apply(event(.working, session: "live"), receivedAt: now)
+        XCTAssertNotNil(store.sessions["s"])
+        XCTAssertNotNil(store.sessions["live"])
+        XCTAssertNil(store.sessions["done"])
+    }
+
     func testApprovalAndToolStateClearOnCompletion() {
         var store = SessionStore()
         var approval = event(.approvalRequested, tool: "Bash")
