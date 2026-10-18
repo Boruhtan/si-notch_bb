@@ -1,4 +1,4 @@
-![si-notch](docs/assets/readme-banner.png)
+https://github.com/user-attachments/assets/52cdd435-e6e2-4eb0-9136-d9001ee9d0f5
 
 [English](README.md) · [Русский](README.ru.md) · [简体中文](README.zh-CN.md)
 
