@@ -1,24 +1,22 @@
 # Tested revision
 
-Plugin version: **1.5**.
+Plugin version: **1.6**. App release: **0.4.10-beta.1**.
 
-Immutable installation source: [`1bddbd627250a37dcba89faa442769896357d505`](https://github.com/eugeneb1ack/si-notch/tree/1bddbd627250a37dcba89faa442769896357d505/plugins/hermes).
+Immutable runtime source: [`15df9693d98c9cc47c55d3fc1a5e843e908392d1`](https://github.com/eugeneb1ack/si-notch/tree/15df9693d98c9cc47c55d3fc1a5e843e908392d1/plugins/hermes).
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 1bddbd627250a37dcba89faa442769896357d505 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 15df9693d98c9cc47c55d3fc1a5e843e908392d1 --no-enable
 ```
 
-The native Hermes installer downloaded the runtime in an isolated `HERMES_HOME` on macOS, then updated it to this exact subdirectory revision with `--force --no-enable`. The update preserved `si-notch.json` byte for byte and left production configuration unchanged. The four runtime files remained identical to the initially installed revision `fb8396cb8a846d1f2c3b57228a5582a0450a9289`. It found the plugin under `plugins/si-notch`, left it disabled as requested, and its files matched the source hashes below. `configure.py setup` succeeded with text sharing disabled and a private socket directory. The production Hermes configuration hash stayed unchanged.
+The beta application bundles these exact runtime files. Native PluginManager and TodoStore on the remote macOS Hermes host produced model, reasoning, session cwd, task, subagent and activity events through an isolated SSH-forwarded Unix socket. The test used synthetic lifecycle inputs and no model call. Eight existing enabled profiles loaded plugin 1.6 through the app setup protocol with no configuration actions and with native reload confirmation.
 
 | File | SHA-256 |
 | --- | --- |
-| `__init__.py` | `e0a1871b54b64fcf973635a234dad958577f209d1762d37a9f17ead5e3739068` |
-| `plugin.yaml` | `38f616518f107ecb21becb2eb03209bb16fa4c966873d4b1df5c0599a33a3e67` |
+| `__init__.py` | `4e431583bc6499bbc04eb3fe34f02e0f9a5cd98236acc31bfc4fcd2c414c2c91` |
+| `plugin.yaml` | `8f41d8e7b2d192be59ed3d27d6ab19bd7036d68530e80dd914124699e16a6b82` |
 | `relay.py` | `96939a4aca0e194207fdbd9fc6a24e99c9a0222fbd1a223a5cfc71958da5e3f2` |
 | `configure.py` | `eed5b0c81a73a8aefa33c2e7fb226539b6d98ac0ffeeb9db971e6bc273ce06f8` |
 
-The installed package's bundled relay also acknowledged a presence event through an isolated Unix test peer. The native install remained disabled throughout that packaging check.
+All six Display detail switches were checked on native card bitmap exports, with local reducer, helper/socket and adapter regression coverage. Request bodies, reasoning text, child goals/summaries and unrelated tool content are excluded. Task titles follow the profile text-sharing preference.
 
-The same runtime source was then loaded in three existing profiles on a remote macOS Hermes host (revision `2ef69b1ae6571d5a2e02d4efa1ec044075326e6e`). On si-notch `0.4.9-beta.1`, the actual UI showed three separate Working/terminal cards, two sequential terminal calls in each, final text and Done. Task and final text were verified; interim text depends on the runtime emitting its message hook. Profile configuration and unrelated hooks were preserved.
-
-The current documentation can be newer than this runtime pin. Installer success proves installation, not a live model turn or the Mac UI. Follow the README's acknowledged delivery check and new-session smoke test for your own host and profile. Other platforms and Hermes versions are not established by this macOS check.
+A successful installation or synthetic event does not establish every real model turn. Other Hermes versions and platforms may omit metadata; actual values are shown only when the runtime supplies them.
