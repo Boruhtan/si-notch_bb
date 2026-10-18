@@ -26,7 +26,7 @@
 此目录是名为 `si-notch` 的完整插件。内置 `relay.py` 通过 Python 运行，不依赖可执行权限。使用 [REVISION.md](REVISION.md) 中经验证的 40 位提交 SHA：
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 15df9693d98c9cc47c55d3fc1a5e843e908392d1 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 05ab16ff4306e3a466502372aa0d8d95b89b0810 --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "Remote Hermes" --hide-text
 hermes plugins enable si-notch
 ```

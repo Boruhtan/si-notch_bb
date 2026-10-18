@@ -2,10 +2,10 @@
 
 Plugin version: **1.6**. App release: **0.4.10**.
 
-Immutable runtime source: [`15df9693d98c9cc47c55d3fc1a5e843e908392d1`](https://github.com/eugeneb1ack/si-notch/tree/15df9693d98c9cc47c55d3fc1a5e843e908392d1/plugins/hermes).
+Immutable runtime source: [`05ab16ff4306e3a466502372aa0d8d95b89b0810`](https://github.com/eugeneb1ack/si-notch/tree/05ab16ff4306e3a466502372aa0d8d95b89b0810/plugins/hermes).
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 15df9693d98c9cc47c55d3fc1a5e843e908392d1 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 05ab16ff4306e3a466502372aa0d8d95b89b0810 --no-enable
 ```
 
 The application bundles these exact runtime files. Native PluginManager and TodoStore on the remote macOS Hermes host produced model, reasoning, session cwd, task, subagent and activity events through an isolated SSH-forwarded Unix socket. The test used synthetic lifecycle inputs and no model call. Eight existing enabled profiles loaded plugin 1.6 through the app setup protocol with no configuration actions and with native reload confirmation.
