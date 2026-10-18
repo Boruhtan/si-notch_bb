@@ -117,7 +117,8 @@ private func sendEvent(_ object: [String: Any], client: IPCClient, silent: Bool 
 private func hookObservation(_ raw: [String: Any], provider: String, timestamp: TimeInterval) -> [String: Any] {
     var observation: [String: Any] = ["provider": provider, "timestamp": timestamp]
     for key in ["hook_event_name", "session_id", "cwd", "notification_type", "tool_name",
-                "tool_use_id", "agent_id", "agent_type", "subagent_id", "subagent_type"] {
+                "tool_use_id", "agent_id", "agent_type", "subagent_id", "subagent_type",
+                "model", "model_name", "reasoning_effort", "task_id", "task_subject", "task_description"] {
         if let value = raw[key] as? String { observation[key] = value }
     }
     return observation

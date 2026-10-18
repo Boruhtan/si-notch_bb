@@ -104,7 +104,7 @@ function createOpenCodeHooks({ directory } = {}, send = makeSender()) {
     if (!state) return;
     return send({ event: kind, session_id: id, provider: "opencode", id: randomUUID(),
       sequence: ++state.sequence, timestamp: Date.now() / 1000,
-      title: "OpenCode", cwd, ...extra });
+      title: "OpenCode", cwd, ...state.metadata, ...extra });
   }
   function ensure(id) {
     const state = session(id);
@@ -138,6 +138,18 @@ function createOpenCodeHooks({ directory } = {}, send = makeSender()) {
     emit(id, kind, { tool_name: String(tool || "tool").slice(0, 512) });
   }
   return {
+    "chat.params": (input, output) => {
+      const state = ensure(input?.sessionID);
+      if (!state) return;
+      const name = input?.model?.id ?? input?.model?.modelID;
+      const effort = output?.options?.reasoningEffort ?? input?.model?.variant;
+      const metadata = {};
+      if (typeof name === "string" && name.length > 0 && Buffer.byteLength(name) <= 256 && !/[\x00-\x1f\x7f]/.test(name)) metadata.model = name;
+      if (["none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(effort)) metadata.reasoning_effort = effort;
+      else if (metadata.model) metadata.reasoning_effort = "";
+      state.metadata = metadata;
+      return emit(input.sessionID, "usage.update");
+    },
     event: ({ event }) => {
       const p = event?.properties || event?.data || {};
       switch (event?.type) {
@@ -212,6 +224,9 @@ export default {
   id: "si-notch",
   async setup(ctx) {
     const hooks = createOpenCodeHooks({ directory: ctx.location?.directory });
+    if (ctx.session?.hook) await ctx.session.hook("context", (event) => {
+      try { hooks["chat.params"]({ sessionID: event.sessionID, model: event.model }, { options: event.options }); } catch {}
+    });
     const controller = new AbortController();
     void (async () => {
       try {

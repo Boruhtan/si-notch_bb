@@ -316,7 +316,7 @@ struct SessionCard: View {
                                 Label(info.providerName, systemImage: providerStyle.symbol)
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(providerStyle.color).lineLimit(1)
-                                if let project = info.projectName, !info.projectIsTitle {
+                                if showProject, let project = info.projectName, !info.projectIsTitle {
                                     Text("·").foregroundStyle(NotchDesign.muted)
                                     Label(project, systemImage: "folder").lineLimit(1).truncationMode(.middle)
                                 }
@@ -354,9 +354,20 @@ struct SessionCard: View {
                         .lineLimit(1).foregroundStyle(NotchDesign.secondary)
                 }
                 Spacer()
+                if showTasks, !session.tasks.isEmpty {
+                    Label("\(session.tasks.filter(\.completed).count)/\(session.tasks.count)", systemImage: "checklist")
+                        .font(.system(size: 9)).foregroundStyle(NotchDesign.secondary)
+                }
                 if showSubagents, !session.subagents.isEmpty { Label("\(session.subagents.count)", systemImage: "person.2").font(.system(size: 9)).foregroundStyle(NotchDesign.secondary) }
             }.foregroundStyle(session.status.tint)
                 .contentShape(Rectangle()).onTapGesture { model.activateSession(session) }
+            if (showModel && info.modelName != nil) || (showReasoning && info.reasoningEffort != nil) {
+                HStack(spacing: 10) {
+                    if showModel, let name = info.modelName { Label(name, systemImage: "cpu").help(name) }
+                    if showReasoning, let effort = info.reasoningEffort { Label(effort, systemImage: "brain").help(effort) }
+                }.font(.system(size: max(10, min(16, fontSize)) - 1))
+                    .foregroundStyle(NotchDesign.secondary).lineLimit(1).truncationMode(.middle)
+            }
             if !selected, showActivity, let summary = info.summary, model.pending[session.id] == nil {
                 Text(summary).font(.system(size: max(10, min(16, fontSize)))).foregroundStyle(NotchDesign.secondary)
                     .lineSpacing(2).lineLimit(2).fixedSize(horizontal: false, vertical: true)
@@ -383,12 +394,6 @@ struct SessionCard: View {
                     } label: {
                         Text(L10n.tr("session.task")).font(.system(size: 10, weight: .medium)).foregroundStyle(NotchDesign.muted)
                     }.tint(NotchDesign.muted).padding(.top, 2)
-                }
-                if (showModel && session.modelName != nil) || (showReasoning && session.reasoningEffort != nil) {
-                    HStack(spacing: 8) {
-                        if showModel, let name = session.modelName { Label(name, systemImage: "cpu") }
-                        if showReasoning, let effort = session.reasoningEffort { Text(effort) }
-                    }.font(.system(size: max(10, min(16, fontSize)) - 1)).foregroundStyle(NotchDesign.secondary).lineLimit(1).truncationMode(.middle)
                 }
                 if showTasks, !session.tasks.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {

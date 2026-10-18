@@ -1,4 +1,4 @@
-"""Hermes Agent observer plugin for si-notch. Session text is opt-in; tool content is excluded."""
+"""Hermes Agent observer plugin for si-notch. Task text is opt-in; raw tool content is excluded."""
 
 from __future__ import annotations
 
@@ -22,6 +22,10 @@ _LOCK = threading.Lock()
 _SEQUENCES: dict[str, int] = {}
 _STARTED: set[str] = set()
 _TASK_TITLES: dict[str, str] = {}
+_METADATA: dict[str, dict] = {}
+_TODO_IDS: dict[str, set[str]] = {}
+_CONTEXT = None
+_EFFORTS = frozenset({"none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "auto", "adaptive", "enabled", "disabled"})
 _DISABLED_UNTIL = 0.0
 _TIMEOUT_SECONDS = 1.2
 _RETRY_SECONDS = 5.0
@@ -75,6 +79,76 @@ def _session_text(value: object, *, prompt: bool = False) -> str | None:
     value = "".join(char for char in value if ord(char) >= 32 or char in "\n\t").replace("\x7f", "").strip()
     limit = 1600 if prompt else 4000
     return (value[:limit - 1] + "…" if len(value) > limit else value) or None
+
+
+def _metadata_text(value: object, limit: int = 256) -> str | None:
+    if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > limit:
+        return None
+    return value.strip() if not any(ord(c) < 32 or ord(c) == 127 for c in value) else None
+
+
+def _reasoning(body: dict) -> str | None:
+    reasoning = body.get("reasoning")
+    candidates = [body.get("reasoning_effort"), reasoning.get("effort") if isinstance(reasoning, dict) else None]
+    extra = body.get("extra_body")
+    if isinstance(extra, dict):
+        candidates += [extra.get("reasoning_effort")]
+        if isinstance(extra.get("reasoning"), dict): candidates.append(extra["reasoning"].get("effort"))
+    for value in candidates:
+        if isinstance(value, str) and value in _EFFORTS: return value
+    thinking = body.get("thinking")
+    if isinstance(thinking, dict):
+        if thinking.get("type") == "disabled": return "off"
+        budget = thinking.get("budget_tokens")
+        if type(budget) is int and 0 < budget <= 10_000_000: return str(budget) + " tokens"
+        if thinking.get("type") in ("adaptive", "enabled"): return thinking["type"]
+    return None
+
+
+def _observe_metadata(session_id: object, model=None, request=None, reasoning_effort=None) -> None:
+    session = _session_key(session_id)
+    if session is None: return
+    body = request.get("body", request) if isinstance(request, dict) else None
+    if not isinstance(body, dict): body = None
+    name = _metadata_text(body.get("model")) if body is not None else None
+    name = name or _metadata_text(model)
+    effort = reasoning_effort if isinstance(reasoning_effort, str) and reasoning_effort in _EFFORTS else None
+    cwd = None
+    try:
+        value = _CONTEXT.session_cwd() if _CONTEXT is not None else None
+        if isinstance(value, str) and value.startswith("/"):
+            cwd = _metadata_text(value, 4096)
+    except Exception:
+        pass  # Older Hermes versions need not expose the session-cwd API.
+    with _LOCK:
+        data = _METADATA.setdefault(session, {})
+        if name:
+            if name != data.get("model"): data["reasoning_effort"] = ""
+            data["model"] = name
+        if body is not None: data["reasoning_effort"] = _reasoning(body) or ""
+        elif effort is not None: data["reasoning_effort"] = effort
+        if cwd: data["cwd"] = cwd
+
+
+def _observe_todos(session_id: object, outcome: dict) -> None:
+    todos = outcome.get("todos")
+    session = _session_key(session_id)
+    if session is None or not isinstance(todos, list) or len(todos) > 256: return
+    current = {}
+    for index, item in enumerate(todos):
+        if not isinstance(item, dict): continue
+        identifier = _opaque_id(item.get("id"), "task-")
+        if not identifier: continue
+        title = _session_text(item.get("content"), prompt=True) or "Task " + str(index + 1)
+        title = title.encode("utf-8")[:512].decode("utf-8", errors="ignore")
+        status = {"completed": "completed", "cancelled": "ended", "in_progress": "working"}.get(item.get("status"), "idle")
+        current[identifier] = {"id": identifier, "title": title, "status": status}
+    with _LOCK:
+        previous = _TODO_IDS.get(session, set())
+        _TODO_IDS[session] = set(current)
+    for identifier in sorted(previous - current.keys()):
+        _emit("task.update", session_id, task={"id": identifier, "title": "Task", "status": "ended"})
+    for item in current.values(): _emit("task.update", session_id, task=item)
 
 
 def _helper_path() -> Path | None:
@@ -138,7 +212,8 @@ def _send(payload: dict) -> bool:
 
 def _emit(kind: str, session_id: object, *, tool_name: object = None,
           approval_id: object = None, message: str | None = None,
-          first_prompt: str | None = None, turn_id: object = None) -> bool:
+          first_prompt: str | None = None, turn_id: object = None,
+          task: dict | None = None, subagent: dict | None = None) -> bool:
     session = _session_key(session_id)
     if session is None:
         return False
@@ -146,6 +221,7 @@ def _emit(kind: str, session_id: object, *, tool_name: object = None,
         sequence = _SEQUENCES.get(session, 0) + 1
         _SEQUENCES[session] = sequence
         task_title = _TASK_TITLES.get(session)
+        metadata = dict(_METADATA.get(session, {}))
     title = _display_name()
     if task_title and _settings().get("showSessionText") is True:
         title += " · " + task_title
@@ -158,7 +234,10 @@ def _emit(kind: str, session_id: object, *, tool_name: object = None,
         "sequence": sequence,
         "timestamp": time.time(),
         "title": title,
+        **metadata,
     }
+    if task is not None: payload["task"] = task
+    if subagent is not None: payload["subagent"] = subagent
     if connection := _connection_id():
         payload["connection_id"] = connection
         payload["connection_name"] = _display_name()
@@ -188,16 +267,19 @@ def _start_once(session_id: object) -> None:
     _emit("session.start", session_id)
 
 
-def on_session_start(session_id=None, **kwargs) -> None:
+def on_session_start(session_id=None, model=None, **kwargs) -> None:
+    _observe_metadata(session_id, model, reasoning_effort=kwargs.get("reasoning_effort"))
     _start_once(session_id)
 
 
-def pre_api_request(session_id=None, turn_id=None, **kwargs) -> None:
+def pre_api_request(session_id=None, turn_id=None, model=None, request=None, **kwargs) -> None:
+    _observe_metadata(session_id, model, request, kwargs.get("reasoning_effort"))
     _start_once(session_id)
     _emit("agent.working", session_id, turn_id=turn_id)
 
 
-def pre_llm_call(session_id=None, user_message=None, turn_id=None, **kwargs) -> None:
+def pre_llm_call(session_id=None, user_message=None, turn_id=None, model=None, **kwargs) -> None:
+    _observe_metadata(session_id, model, reasoning_effort=kwargs.get("reasoning_effort"))
     text = _session_text(user_message, prompt=True)
     if text and (session := _session_key(session_id)):
         with _LOCK:
@@ -217,6 +299,7 @@ def pre_tool_call(session_id=None, tool_name=None, turn_id=None, task_id=None, *
 def post_tool_call(session_id=None, tool_name=None, status=None, turn_id=None, task_id=None, result=None, **kwargs) -> None:
     session_id = session_id or task_id
     failed = status in ("error", "failed", "blocked")
+    outcome = None
     # Inspect outcome flags only; never forward result content or errors.
     if not failed and isinstance(result, str) and len(result) <= 128 * 1024:
         try:
@@ -228,6 +311,25 @@ def post_tool_call(session_id=None, tool_name=None, status=None, turn_id=None, t
     _start_once(session_id)
     _emit("tool.failed" if failed else "tool.finish", session_id,
           tool_name=tool_name, turn_id=turn_id)
+    if not failed and tool_name in ("todo", "todo_list") and isinstance(outcome, dict):
+        _observe_todos(session_id, outcome)
+
+
+def _subagent(parent_session_id, child_session_id, child_role, status) -> None:
+    identifier = _opaque_id(child_session_id, "subagent-")
+    if identifier is None: return
+    role = _metadata_text(child_role, 128)
+    name = role if role and re.fullmatch(r"[a-zA-Z0-9_./ -]+", role) else "Subagent"
+    _emit("subagent.start" if status == "working" else "subagent.end", parent_session_id,
+          subagent={"id": identifier, "name": name, "status": status})
+
+
+def subagent_start(parent_session_id=None, child_session_id=None, child_role=None, **kwargs) -> None:
+    _subagent(parent_session_id, child_session_id, child_role, "working")
+
+
+def subagent_stop(parent_session_id=None, child_session_id=None, child_role=None, child_status=None, **kwargs) -> None:
+    _subagent(parent_session_id, child_session_id, child_role, "failed" if child_status == "failed" else "completed")
 
 
 def on_interim_message(session_id=None, text=None, turn_id=None, **kwargs) -> None:
@@ -276,10 +378,14 @@ def on_session_finalize(session_id=None, **kwargs) -> None:
             _STARTED.discard(session)
             _SEQUENCES.pop(session, None)
             _TASK_TITLES.pop(session, None)
+            _METADATA.pop(session, None)
+            _TODO_IDS.pop(session, None)
 
 
 def register(ctx) -> None:
     """Register only observer hooks; Hermes' authorization path is untouched."""
+    global _CONTEXT
+    _CONTEXT = ctx
     for name, callback in (
         ("on_session_start", on_session_start),
         ("pre_llm_call", pre_llm_call),
@@ -292,6 +398,8 @@ def register(ctx) -> None:
         ("on_human_input_resolved", on_human_input_resolved),
         ("on_session_end", on_session_end),
         ("on_session_finalize", on_session_finalize),
+        ("subagent_start", subagent_start),
+        ("subagent_stop", subagent_stop),
     ):
         ctx.register_hook(name, callback)
     if connection := _connection_id():

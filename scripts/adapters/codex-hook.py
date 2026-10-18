@@ -81,6 +81,9 @@ def event_from_hook(hook):
     model = hook.get("model")
     if isinstance(model, str) and 0 < len(model.encode("utf-8")) <= 256 and not any(ord(c) < 32 for c in model):
         event["model"] = model
+    effort = hook.get("reasoning_effort")
+    if isinstance(effort, str) and effort in {"none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}:
+        event["reasoning_effort"] = effort
     if name in ("PreToolUse", "PostToolUse", "PermissionRequest"):
         tool = hook.get("tool_name")
         if isinstance(tool, str) and SAFE_TOOL.fullmatch(tool):

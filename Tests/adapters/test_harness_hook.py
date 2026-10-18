@@ -21,6 +21,16 @@ spec.loader.exec_module(adapter)
 
 
 class HookContractTests(unittest.TestCase):
+    def test_native_model_metadata_excludes_reasoning_text_and_credentials(self):
+        event = adapter.normalized_event("gemini", "BeforeAgent", {"session_id": "s", "model": "model-name",
+            "reasoning_effort": "high", "reasoning": "PRIVATE THOUGHTS", "api_key": "PRIVATE KEY"})
+        self.assertEqual(event["model"], "model-name")
+        self.assertEqual(event["reasoning_effort"], "high")
+        self.assertNotIn("PRIVATE", json.dumps(event))
+        invalid = adapter.normalized_event("gemini", "BeforeAgent", {"session_id": "s", "model": "bad\nmodel",
+            "reasoning_effort": "PRIVATE THOUGHTS"})
+        self.assertNotIn("model", invalid)
+        self.assertNotIn("reasoning_effort", invalid)
     def test_documented_lifecycle_payloads_and_privacy_allowlist(self):
         samples = [
             ("gemini", "BeforeAgent", {"hook_event_name": "BeforeAgent", "session_id": "gemini-1",

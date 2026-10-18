@@ -1,5 +1,5 @@
 name: si-notch
-version: "1.5"
+version: "1.6"
 description: Observe Hermes Agent lifecycle in si-notch, with optional session text
 provides_hooks:
   - on_session_start
@@ -13,3 +13,5 @@ provides_hooks:
   - on_human_input_resolved
   - on_session_end
   - on_session_finalize
+  - subagent_start
+  - subagent_stop

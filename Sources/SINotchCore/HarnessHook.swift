@@ -37,8 +37,18 @@ public enum HarnessHook {
         }
         if let path = cwd, !path.hasPrefix("/") || path.utf8.count > 4096 || path.contains("\0") { cwd = nil }
         let event = AgentEvent(sessionID: session, provider: provider, kind: kind,
-                               timestamp: timestamp, projectPath: cwd)
+                               timestamp: timestamp, projectPath: cwd,
+                               modelName: metadataText(raw["model"] ?? raw["model_name"], maximum: 256),
+                               reasoningEffort: (raw["reasoning_effort"] as? String).flatMap {
+                                   ["none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].contains($0) ? $0 : nil
+                               })
         try event.validate()
         return event
+    }
+
+    private static func metadataText(_ value: Any?, maximum: Int) -> String? {
+        guard let text = value as? String, !text.isEmpty, text.utf8.count <= maximum,
+              !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+        return text
     }
 }

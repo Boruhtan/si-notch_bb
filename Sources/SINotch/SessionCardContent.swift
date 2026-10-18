@@ -13,9 +13,13 @@ struct SessionCardContent: Equatable {
     let summary: String?
     let message: String?
     let taskPrompt: String?
+    let modelName: String?
+    let reasoningEffort: String?
 
     init(session: AgentSession, displayTitle: String? = nil, displayMessage: String? = nil, statusLabel: String? = nil) {
         providerName = Self.providerName(session.provider)
+        modelName = Self.singleLine(session.modelName, limit: 256)
+        reasoningEffort = Self.singleLine(session.reasoningEffort, limit: 128)
         shortID = String(session.id.suffix(8))
         projectName = session.projectPath.flatMap { path in
             guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -49,9 +53,11 @@ struct SessionCardContent: Equatable {
 
     /// Conservative budget for a two-line title and optional two-line update.
     /// The real list remains scrollable; expanded task/usage/request sections vary.
-    func estimatedCollapsedHeight(fontSize: Double = 11, showActivity: Bool = true) -> Double {
+    func estimatedCollapsedHeight(fontSize: Double = 11, showActivity: Bool = true,
+                                  showModel: Bool = true, showReasoning: Bool = true) -> Double {
         let messageLine = max(10, min(16, fontSize)) * 1.4
-        return 108 + (showActivity && summary != nil ? messageLine * 2 + 7 : 0)
+        let metadata = (showModel && modelName != nil) || (showReasoning && reasoningEffort != nil)
+        return 108 + (metadata ? messageLine + 7 : 0) + (showActivity && summary != nil ? messageLine * 2 + 7 : 0)
     }
 
     private static func providerName(_ rawValue: String) -> String {

@@ -8,6 +8,37 @@ import { pathToFileURL } from "node:url";
 import { registerPiEvents, displaySummary, makeSender as makePiSender } from "../../scripts/adapters/pi-si-notch.js";
 import OpenCodeV2Plugin, { SINotchPlugin } from "../../scripts/adapters/opencode-si-notch.js";
 
+test("Pi forwards the active native model and thinking level without model configuration or thoughts", () => {
+  const handlers = new Map(), events = [];
+  let effort = "high";
+  registerPiEvents({ on(name, handler) { handlers.set(name, handler); }, getThinkingLevel() { return effort; } }, e => events.push(e));
+  const ctx = { cwd: "/work/pi", model: { id: "first-model", apiKey: "PRIVATE KEY" }, sessionManager: { getSessionId: () => "pi-metadata" } };
+  handlers.get("agent_start")({}, ctx);
+  assert.equal(events.at(-1).model, "first-model");
+  assert.equal(events.at(-1).reasoning_effort, "high");
+  ctx.model.id = "second-model";
+  effort = "off";
+  handlers.get("model_select")({}, ctx);
+  assert.equal(events.at(-1).model, "second-model");
+  assert.equal(events.at(-1).reasoning_effort, "off");
+  assert.ok(!JSON.stringify(events).includes("PRIVATE"));
+});
+
+test("OpenCode observes model request metadata without modifying parameters or forwarding content", () => {
+  const events = [];
+  const hooks = SINotchPlugin.createHooksForTest({}, e => events.push(e));
+  const input = { sessionID: "oc-metadata", model: { id: "first-model", variant: "high" }, messages: ["PRIVATE PROMPT"] };
+  const output = { options: { reasoningEffort: "low", apiKey: "PRIVATE KEY" } };
+  const before = JSON.stringify(output);
+  hooks["chat.params"](input, output);
+  assert.equal(events.at(-1).model, "first-model");
+  assert.equal(events.at(-1).reasoning_effort, "low");
+  assert.equal(JSON.stringify(output), before);
+  hooks["chat.params"]({ sessionID: "oc-metadata", model: { id: "second-model" } }, {});
+  assert.equal(events.at(-1).reasoning_effort, "");
+  assert.ok(!JSON.stringify(events).includes("PRIVATE"));
+});
+
 test("OpenCode observer resolves system, user and custom app installs without running a harness", (t) => {
   const root = mkdtempSync(join(tmpdir(), "si-notch-adapter-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

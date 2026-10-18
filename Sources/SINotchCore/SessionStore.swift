@@ -62,13 +62,19 @@ public struct SessionStore: Sendable {
         if let message = event.message { session.lastMessage = message }
         if let terminalBundleID = event.terminalBundleID { session.terminalBundleID = terminalBundleID }
         if let targetURL = event.targetURL { session.targetURL = targetURL }
-        if let modelName = event.modelName { session.modelName = modelName }
+        if let modelName = event.modelName {
+            if modelName != session.modelName { session.reasoningEffort = nil }
+            session.modelName = modelName
+        }
         if let reasoningEffort = event.reasoningEffort { session.reasoningEffort = reasoningEffort }
         if session.firstPrompt == nil { session.firstPrompt = event.firstPrompt }
         if let usage = event.usage { session.usage = session.usage?.merging(usage) ?? usage }
-        if let task = event.task { Self.upsert(task, in: &session.tasks, limit: maximumTasksPerSession) }
+        if let task = event.task {
+            if task.status == .ended { session.tasks.removeAll { $0.id == task.id } }
+            else { Self.upsert(task, in: &session.tasks, limit: maximumTasksPerSession) }
+        }
         if var subagent = event.subagent {
-            if event.kind == .subagentEnded { subagent.status = .completed }
+            if event.kind == .subagentEnded && subagent.status.isActive { subagent.status = .completed }
             Self.upsert(subagent, in: &session.subagents, limit: maximumSubagentsPerSession)
         }
 

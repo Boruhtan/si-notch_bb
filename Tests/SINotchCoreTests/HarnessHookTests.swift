@@ -3,6 +3,18 @@ import XCTest
 @testable import SINotchCore
 
 final class HarnessHookTests: XCTestCase {
+    func testSuppliedModelAndReasoningAreForwardedWithoutOtherRequestFields() throws {
+        let event = try XCTUnwrap(HarnessHook.observation(provider: "gemini", hook: "BeforeAgent", raw: [
+            "session_id": "s", "model": "model-name", "reasoning_effort": "high",
+            "reasoning": "PRIVATE THOUGHTS", "request": ["api_key": "PRIVATE KEY"]]))
+        XCTAssertEqual(event.modelName, "model-name")
+        XCTAssertEqual(event.reasoningEffort, "high")
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(event), as: UTF8.self).contains("PRIVATE"))
+        let invalid = try XCTUnwrap(HarnessHook.observation(provider: "gemini", hook: "BeforeAgent", raw: [
+            "session_id": "s", "model": "bad\nmodel", "reasoning_effort": "PRIVATE THOUGHTS"]))
+        XCTAssertNil(invalid.modelName)
+        XCTAssertNil(invalid.reasoningEffort)
+    }
     func testDocumentedLifecycleEventsPreserveSessionIdentityAndExcludeContent() throws {
         for (provider, mappings) in HarnessHook.events {
             for (hook, kind) in mappings {

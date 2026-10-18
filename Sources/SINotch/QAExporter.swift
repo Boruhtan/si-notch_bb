@@ -582,7 +582,7 @@ enum QAExporter {
             check("display-manual-close", !delegate.panel.isVisible, "Closing an empty manually opened panel hides it again.")
             delegate.settingsPresented = true
             presentation.refresh()
-            check("display-settings-visible", delegate.panel.isVisible, "Settings preserve the island preview on screen.")
+            check("display-settings-hidden", !delegate.panel.isVisible, "The session-only switch applies while Settings are open too.")
             delegate.settingsPresented = false
             presentation.refresh()
             check("display-settings-close-hidden", !delegate.panel.isVisible, "Closing Settings restores session-only visibility.")
@@ -601,6 +601,32 @@ enum QAExporter {
                     .preferredColorScheme(.dark).toggleStyle(SettingsSwitchStyle())
                     .groupBoxStyle(SettingsCardGroupBoxStyle()).tint(NotchDesign.accent),
                     name: "settings-display-full-\(language)", language: language, size: NSSize(width: 600, height: 1450))
+            }
+            clearFixtures()
+            overrides["appLanguage"] = "en"
+            let detailKeys = ["showModel", "showReasoning", "showProject", "showTasks", "showSubagents", "showActivity"]
+            for key in detailKeys { overrides[key] = true }
+            applyOverrides()
+            let id = "qa-metadata"
+            model.inject(["event": "agent.working", "session_id": id, "provider": "hermes",
+                "title": "Verify native session details", "model": "example-model", "reasoning_effort": "high",
+                "cwd": "/work/metadata-project", "message": "Checking model metadata and card controls."])
+            model.inject(["event": "tool.start", "session_id": id, "provider": "hermes", "tool_name": "read_file"])
+            model.inject(["event": "task.update", "session_id": id, "provider": "hermes",
+                "task": ["id": "metadata-task", "title": "Verify all six detail switches", "status": "working"]])
+            model.inject(["event": "subagent.start", "session_id": id, "provider": "hermes",
+                "subagent": ["id": "metadata-child", "name": "reviewer", "status": "working"]])
+            model.selectedID = id
+            guard let session = model.store.sessions[id] else { throw ExportError.fixtureNotApplied("session-metadata") }
+            check("display-complete-metadata", session.modelName == "example-model" && session.reasoningEffort == "high" &&
+                  session.projectPath != nil && session.tasks.count == 1 && session.subagents.count == 1 && !model.activity[id, default: []].isEmpty,
+                  "A single native event stream supplies model, reasoning, project, tasks, subagents and activity.")
+            for hidden in ["none"] + detailKeys {
+                for key in detailKeys { overrides[key] = key != hidden }
+                applyOverrides()
+                try await captureHosted(SessionCard(session: session, model: model).padding(16)
+                    .frame(maxHeight: .infinity, alignment: .top).background(Color.black).preferredColorScheme(.dark),
+                    name: "session-details-hidden-\(hidden)", language: "en", size: NSSize(width: 600, height: 640))
             }
         }
 

@@ -4,6 +4,21 @@ import SINotchCore
 @testable import SINotch
 
 final class SessionCardContentTests: XCTestCase {
+    func testModelAndReasoningAreAvailableBeforeSelectionAndRespectIndependentHeightBudgets() {
+        var session = AgentSession(id: "s", provider: "hermes", title: "Check metadata")
+        session.modelName = "  model-name  "
+        session.reasoningEffort = "high"
+        let content = SessionCardContent(session: session)
+        XCTAssertEqual(content.modelName, "model-name")
+        XCTAssertEqual(content.reasoningEffort, "high")
+        let hidden = content.estimatedCollapsedHeight(showModel: false, showReasoning: false)
+        XCTAssertGreaterThan(content.estimatedCollapsedHeight(showModel: true, showReasoning: false), hidden)
+        XCTAssertGreaterThan(content.estimatedCollapsedHeight(showModel: false, showReasoning: true), hidden)
+        session.modelName = ""
+        session.reasoningEffort = "  "
+        XCTAssertNil(SessionCardContent(session: session).modelName)
+        XCTAssertNil(SessionCardContent(session: session).reasoningEffort)
+    }
     func testActualTaskTitleWinsAndProjectIsRetained() {
         let session = AgentSession(id: "codex-12345678", provider: "codex", title: "Fix sidebar spacing", projectPath: "/Users/me/Projects/si-notch", status: .working)
         let content = SessionCardContent(session: session)

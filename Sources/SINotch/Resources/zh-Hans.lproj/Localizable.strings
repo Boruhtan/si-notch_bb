@@ -567,3 +567,5 @@
 "settings.showOnlyWithSessionsHelp" = "会话列表为空时隐藏灵动岛。已完成的任务也计入其中。仍可通过菜单栏或键盘快捷键手动打开灵动岛。";
 "settings.resetDisplay" = "恢复默认设置";
 "settings.resetDisplayHelp" = "恢复默认位置、尺寸、显示时机和卡片详情。";
+
+"settings.cardDetailsHelp" = "这些开关控制代理提供的信息。模型和推理模式直接显示在卡片上；任务、子代理和完整活动显示在卡片详情中。请更新已安装的插件以接收新增元数据。";

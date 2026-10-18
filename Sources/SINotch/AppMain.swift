@@ -146,7 +146,9 @@ final class AppModel: ObservableObject {
             let estimate = SessionCardContent(session: session, displayTitle: displayTitle(session),
                 displayMessage: session.lastMessage.map { displayMessage(session, $0) })
                 .estimatedCollapsedHeight(fontSize: defaults.double(forKey: "fontSize"),
-                                          showActivity: defaults.bool(forKey: "showActivity"))
+                                          showActivity: defaults.bool(forKey: "showActivity"),
+                                          showModel: defaults.bool(forKey: "showModel"),
+                                          showReasoning: defaults.bool(forKey: "showReasoning"))
             return height + (measuredSessionHeights[session.id] ??
                             (estimate + (selectedID == session.id || pending[session.id] != nil ? 100 : 0))) + 2
         }

@@ -321,6 +321,9 @@ struct SettingsView: View {
                     Toggle(L10n.tr("settings.showTasks"), isOn: $showTasks)
                     Toggle(L10n.tr("settings.showSubagents"), isOn: $showSubagents)
                     Toggle(L10n.tr("settings.showActivity"), isOn: $showActivity)
+                    Text(L10n.tr("settings.cardDetailsHelp"))
+                        .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }.padding(10)
             }
         }.font(.system(size: 12))

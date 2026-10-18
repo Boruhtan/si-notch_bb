@@ -99,7 +99,7 @@ public struct IslandPresentationPolicy: Sendable {
         let reason: IslandHiddenReason?
         if options.hideInFullScreen && state.isNativeFullScreen && !state.isSettingsVisible { reason = .fullScreen }
         else if options.showOnlyWithSessions && !state.hasSessions && !state.hasPendingRequest &&
-                    !state.isSettingsVisible && !(state.isExpanded && expansionOrigin == .manual) { reason = .noSessions }
+                    !(state.isExpanded && expansionOrigin == .manual) { reason = .noSessions }
         else if let deadline, now.isFinite, now >= deadline { reason = .idle }
         else { reason = nil }
         return IslandPresentationDecision(hiddenReason: reason, idleDeadline: deadline)

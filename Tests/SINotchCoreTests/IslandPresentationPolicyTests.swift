@@ -38,7 +38,7 @@ final class IslandPresentationPolicyTests: XCTestCase {
         var policy = IslandPresentationPolicy(now: 0)
         var options = IslandPresentationOptions()
         options.showOnlyWithSessions = true
-        XCTAssertTrue(policy.decision(options: options, state: .init(isSettingsVisible: true), at: 0).isVisible)
+        XCTAssertEqual(policy.decision(options: options, state: .init(isSettingsVisible: true), at: 0).hiddenReason, .noSessions)
         XCTAssertTrue(policy.decision(options: options, state: .init(hasPendingRequest: true), at: 0).isVisible)
         policy.expansionChanged(true, origin: .hover, at: 1)
         XCTAssertEqual(policy.decision(options: options, state: .init(isExpanded: true), at: 1).hiddenReason, .noSessions)

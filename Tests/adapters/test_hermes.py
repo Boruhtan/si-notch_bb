@@ -29,6 +29,9 @@ class HermesPluginTests(unittest.TestCase):
         plugin._STARTED.clear()
         plugin._SEQUENCES.clear()
         plugin._TASK_TITLES.clear()
+        plugin._METADATA.clear()
+        plugin._TODO_IDS.clear()
+        plugin._CONTEXT = None
         plugin._DISABLED_UNTIL = 0
 
     def test_native_task_id_alias_and_failure_flags_never_forward_result_content(self):
@@ -78,6 +81,7 @@ class HermesPluginTests(unittest.TestCase):
             "on_interim_message", "post_llm_call",
             "on_human_input_request", "on_human_input_resolved",
             "on_session_end", "on_session_finalize",
+            "subagent_start", "subagent_stop",
         })
         output = []
         with mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
@@ -105,6 +109,73 @@ class HermesPluginTests(unittest.TestCase):
         self.assertEqual([event["sequence"] for event in output], list(range(1, 9)))
         self.assertEqual(output[3]["tool_name"], "tool")
         self.assertTrue(output[4]["approval_id"].startswith("request-"))
+
+    def test_model_and_effort_follow_actual_requests_without_forwarding_request_content(self):
+        output = []
+        with mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.on_session_start(session_id="s", model="configured-alias")
+            plugin.pre_api_request(session_id="s", model="configured-alias", request={"method": "POST", "body": {
+                "model": "actual-model", "reasoning": {"effort": "high"},
+                "messages": [{"content": "PRIVATE PROMPT"}], "api_key": "PRIVATE KEY"}})
+            plugin.pre_tool_call(session_id="s", tool_name="terminal")
+            self.assertEqual(output[-1]["model"], "actual-model")
+            self.assertEqual(output[-1]["reasoning_effort"], "high")
+            plugin.pre_api_request(session_id="s", request={"body": {"model": "actual-model"}})
+            self.assertEqual(output[-1]["reasoning_effort"], "")
+            plugin.pre_api_request(session_id="s", request={"body": {
+                "model": "fallback-model", "extra_body": {"reasoning_effort": "low"}}})
+            self.assertEqual(output[-1]["model"], "fallback-model")
+            self.assertEqual(output[-1]["reasoning_effort"], "low")
+            plugin.on_session_finalize(session_id="s")
+        self.assertFalse(plugin._METADATA)
+        self.assertNotIn("PRIVATE", json.dumps(output))
+
+    def test_reasoning_metadata_rejects_text_and_handles_native_thinking_settings(self):
+        self.assertIsNone(plugin._reasoning({"reasoning": "PRIVATE THOUGHTS", "reasoning_effort": "PRIVATE THOUGHTS"}))
+        self.assertEqual(plugin._reasoning({"thinking": {"type": "enabled", "budget_tokens": 8192}}), "8192 tokens")
+        self.assertEqual(plugin._reasoning({"thinking": {"type": "disabled"}}), "off")
+        self.assertEqual(plugin._reasoning({"thinking": {"type": "adaptive"}}), "adaptive")
+        self.assertIsNone(plugin._metadata_text("bad\nmodel"))
+        self.assertIsNone(plugin._metadata_text("я" * 129))
+
+    def test_native_context_supplies_session_project_without_using_process_cwd(self):
+        output = []
+        ctx = Context()
+        ctx.session_cwd = lambda: "/work/session-project"
+        plugin.register(ctx)
+        with mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.pre_llm_call(session_id="s", model="model")
+        self.assertEqual(output[-1]["cwd"], "/work/session-project")
+        self.assertEqual(output[-1]["model"], "model")
+
+    def test_native_todos_sync_titles_status_and_removals_without_other_tool_content(self):
+        output = []
+        settings = {"showSessionText": True}
+        with mock.patch.object(plugin, "_settings", return_value=settings), \
+             mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.post_tool_call(session_id="s", tool_name="todo_list", result=json.dumps({"todos": [
+                {"id": "one", "content": "Check metadata", "status": "in_progress"},
+                {"id": "two", "content": "Check settings", "status": "completed"}], "output": "PRIVATE OUTPUT"}))
+            tasks = [event["task"] for event in output if "task" in event]
+            self.assertEqual([task["title"] for task in tasks], ["Check metadata", "Check settings"])
+            self.assertEqual([task["status"] for task in tasks], ["working", "completed"])
+            plugin.post_tool_call(session_id="s", tool_name="todo", result='{"todos":[]}')
+            self.assertEqual([event["task"]["status"] for event in output if "task" in event][-2:], ["ended", "ended"])
+            settings["showSessionText"] = False
+            plugin.post_tool_call(session_id="s", tool_name="todo", result='{"todos":[{"id":"three","content":"PRIVATE TASK","status":"pending"}]}')
+            self.assertEqual(output[-1]["task"]["title"], "Task 1")
+        self.assertNotIn("PRIVATE", json.dumps(output))
+
+    def test_native_subagent_lifecycle_updates_parent_and_excludes_child_content(self):
+        output = []
+        with mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.subagent_start(parent_session_id="parent", child_session_id="child", child_role="reviewer", child_goal="PRIVATE GOAL")
+            plugin.subagent_stop(parent_session_id="parent", child_session_id="child", child_role="reviewer", child_status="failed", child_summary="PRIVATE SUMMARY")
+        self.assertEqual([event["event"] for event in output], ["subagent.start", "subagent.end"])
+        self.assertEqual(output[0]["session_id"], output[1]["session_id"])
+        self.assertEqual(output[0]["subagent"]["id"], output[1]["subagent"]["id"])
+        self.assertEqual(output[1]["subagent"]["status"], "failed")
+        self.assertNotIn("PRIVATE", json.dumps(output))
 
     def test_turn_outcomes_do_not_end_durable_session(self):
         output = []

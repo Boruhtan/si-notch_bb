@@ -86,11 +86,12 @@ export function registerPiEvents(pi, send = makeSender()) {
   let outcome = "completed";
   let taskSummary;
   let latestResult;
+  let metadata = {};
 
   function emit(kind, extra = {}) {
     if (!sessionID || sessionID.length > 256) return;
     return send({ event: kind, session_id: sessionID, provider: "pi", id: randomUUID(),
-      sequence: ++sequence, timestamp: Date.now() / 1000, cwd, ...extra });
+      sequence: ++sequence, timestamp: Date.now() / 1000, cwd, ...metadata, ...extra });
   }
   function ensureSession(ctx) {
     const id = ctx?.sessionManager?.getSessionId?.();
@@ -105,11 +106,18 @@ export function registerPiEvents(pi, send = makeSender()) {
       taskSummary = undefined;
       latestResult = undefined;
     }
+    const name = ctx?.model?.id;
+    const effort = ctx?.thinkingLevel ?? pi.getThinkingLevel?.();
+    metadata = {};
+    if (typeof name === "string" && name.length > 0 && Buffer.byteLength(name) <= 256 && !/[\x00-\x1f\x7f]/.test(name)) metadata.model = name;
+    if (["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(effort)) metadata.reasoning_effort = effort;
     if (!started) { started = true; emit("session.start", { title: displaySummary(cwd && basename(cwd), 100) || "Pi" }); }
     return true;
   }
 
   pi.on("session_start", (_event, ctx) => { ensureSession(ctx); });
+  pi.on("model_select", (_event, ctx) => { if (ensureSession(ctx)) emit("usage.update"); });
+  pi.on("thinking_level_select", (_event, ctx) => { if (ensureSession(ctx)) emit("usage.update"); });
   pi.on("before_agent_start", (event, ctx) => {
     if (!ensureSession(ctx)) return;
     taskSummary = event.messageType === "user" ? displaySummary(event.prompt) : undefined;

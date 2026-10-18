@@ -55,8 +55,9 @@ class HermesSocketTests(unittest.TestCase):
             thread.start()
             try:
                 with mock.patch.dict(os.environ, {"SI_NOTCH_CLI": str(helper), "SI_NOTCH_SOCKET": endpoint}):
-                    plugin.on_session_start(session_id="secret-id", prompt="PRIVATE PROMPT")
-                    plugin.pre_api_request(session_id="secret-id", user_message="PRIVATE PROMPT")
+                    plugin.on_session_start(session_id="secret-id", model="test-model", prompt="PRIVATE PROMPT")
+                    plugin.pre_api_request(session_id="secret-id", model="test-model", user_message="PRIVATE PROMPT",
+                                           request={"body": {"model": "test-model", "reasoning_effort": "high", "messages": ["PRIVATE PROMPT"]}})
                     plugin.post_tool_call(session_id="secret-id", tool_name="terminal", status="success",
                                           args={"token": "PRIVATE TOKEN"}, result="PRIVATE RESULT")
                     plugin.on_session_end(session_id="secret-id", completed=True, output="PRIVATE RESULT")
@@ -71,9 +72,11 @@ class HermesSocketTests(unittest.TestCase):
                 for event in seen:
                     self.assertEqual(event["provider"], "hermes")
                     self.assertEqual(event["session_id"], seen[0]["session_id"])
+                    self.assertEqual(event["model"], "test-model")
                     self.assertEqual(set(event) - {"tool_name"}, {
-                        "event", "session_id", "provider", "id", "sequence", "timestamp", "title",
+                        "event", "session_id", "provider", "id", "sequence", "timestamp", "title", "model", "reasoning_effort",
                     })
+                self.assertEqual(seen[1]["reasoning_effort"], "high")
                 combined = json.dumps(seen)
                 for secret in ("secret-id", "PRIVATE PROMPT", "PRIVATE TOKEN", "PRIVATE RESULT"):
                     self.assertNotIn(secret, combined)

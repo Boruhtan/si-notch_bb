@@ -68,6 +68,12 @@ def normalized_event(source: str, hook: str, raw: object) -> dict | None:
             return None
 
     event = {"event": kind, "session_id": session_id, "provider": source}
+    model = raw.get("model", raw.get("model_name"))
+    if isinstance(model, str) and 0 < len(model.encode("utf-8")) <= 256 and not any(ord(c) < 32 or ord(c) == 127 for c in model):
+        event["model"] = model
+    effort = raw.get("reasoning_effort")
+    if isinstance(effort, str) and effort in {"none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}:
+        event["reasoning_effort"] = effort
     cwd = raw.get("cwd")
     if source == "cursor":
         roots = raw.get("workspace_roots")
