@@ -24,10 +24,10 @@ This directory is a complete Hermes plugin, named `si-notch`. Its own `relay.py`
 Use the tested immutable revision in [REVISION.md](REVISION.md):
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref PLUGIN_COMMIT_SHA --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref fb8396cb8a846d1f2c3b57228a5582a0450a9289 --no-enable
 ```
 
-For a named profile, put `-p PROFILE` before `plugins` in each Hermes command. Replace `PLUGIN_COMMIT_SHA` with the full 40-character revision. The source is this repository, not an entry in the Hermes plugin catalog. Review it before enabling; retain the normal installer checks and consent prompts.
+For a named profile, put `-p PROFILE` before `plugins` in each Hermes command. The command pins the full tested revision. The source is this repository, not an entry in the Hermes plugin catalog. Review it before enabling; retain the normal installer checks and consent prompts.
 
 For the default Hermes home, configure the installed plugin:
 

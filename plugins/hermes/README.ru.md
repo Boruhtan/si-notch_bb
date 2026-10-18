@@ -24,12 +24,12 @@
 Возьмите проверенный полный SHA из [REVISION.md](REVISION.md):
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref PLUGIN_COMMIT_SHA --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref fb8396cb8a846d1f2c3b57228a5582a0450a9289 --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "Мой Hermes" --hide-text
 hermes plugins enable si-notch
 ```
 
-Замените `PLUGIN_COMMIT_SHA` полным SHA из 40 символов. Это установка из данного репозитория, а не запись каталога Hermes. Проверьте исходники и сохраните штатные проверки/согласования установщика. Для именованного профиля добавляйте `-p PROFILE` перед `plugins`; для `configure.py` используйте фактический home этого профиля. Если `python3` недоступен, используйте Python установленного Hermes.
+Команда использует полный проверенный SHA. Это установка из данного репозитория, а не запись каталога Hermes. Проверьте исходники и сохраните штатные проверки/согласования установщика. Для именованного профиля добавляйте `-p PROFILE` перед `plugins`; для `configure.py` используйте фактический home этого профиля. Если `python3` недоступен, используйте Python установленного Hermes.
 
 `setup` меняет только собственный `si-notch.json`, создаёт приватный каталог сокета при необходимости и сохраняет предыдущие настройки перед изменением. Конфигурация Hermes, hooks, `.env`, модели, правила согласования и службы не редактируются. Активацией управляет штатная команда `plugins enable`. Если перезагрузка недоступна, после окончания текущего хода откройте новую сессию.
 

@@ -22,12 +22,12 @@
 此目录是名为 `si-notch` 的完整插件。内置 `relay.py` 通过 Python 运行，不依赖可执行权限。使用 [REVISION.md](REVISION.md) 中经验证的 40 位提交 SHA：
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref PLUGIN_COMMIT_SHA --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref fb8396cb8a846d1f2c3b57228a5582a0450a9289 --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "Remote Hermes" --hide-text
 hermes plugins enable si-notch
 ```
 
-将 `PLUGIN_COMMIT_SHA` 替换为完整 SHA。这是从本仓库安装，不是 Hermes 插件目录条目。保留原生扫描与确认流程。命名配置需在每个 Hermes 命令的 `plugins` 前加 `-p PROFILE`，并使用该配置实际 home 中的 `configure.py` 路径。不要安装到项目本地 `.hermes`。
+命令固定到经验证的完整 SHA。这是从本仓库安装，不是 Hermes 插件目录条目。保留原生扫描与确认流程。命名配置需在每个 Hermes 命令的 `plugins` 前加 `-p PROFILE`，并使用该配置实际 home 中的 `configure.py` 路径。不要安装到项目本地 `.hermes`。
 
 `setup` 仅合并插件自己的 `si-notch.json`，必要时创建私有套接字目录，并在修改前备份旧设置。它不修改 Hermes 配置、hooks、`.env`、模型、批准策略或服务。激活由原生 `plugins enable` 完成；无法热加载时，请在本轮结束后打开新会话。
 
