@@ -1,0 +1,1 @@
+- Fixed intermittent missing sessions and stale task or subagent status on remote connections.

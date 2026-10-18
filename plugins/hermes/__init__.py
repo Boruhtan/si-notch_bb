@@ -27,7 +27,7 @@ _TODO_IDS: dict[str, set[str]] = {}
 _CONTEXT = None
 _EFFORTS = frozenset({"none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "auto", "adaptive", "enabled", "disabled"})
 _DISABLED_UNTIL = 0.0
-_TIMEOUT_SECONDS = 1.2
+_TIMEOUT_SECONDS = 2.5
 _RETRY_SECONDS = 5.0
 
 
@@ -180,6 +180,17 @@ def _send(payload: dict) -> bool:
         return False
     helper = _helper_path()
     command = [str(helper)] if helper else None
+    if helper:
+        try:
+            with helper.open("rb") as stream:
+                portable_relay = stream.read(128).startswith(
+                    b'#!/usr/bin/env python3\n"""Portable remote-side si-notchctl subset')
+            if portable_relay:
+                # Hermes may put a Python bootstrap shim first on PATH. Reuse
+                # its running interpreter and leave time for the relay's ACK.
+                command.insert(0, sys.executable)
+        except OSError:
+            return False
     if command is None and "SI_NOTCH_CLI" not in os.environ and "helperPath" not in _settings():
         # Git subdirectory installs may not preserve executable bits. Use the
         # running Hermes interpreter for our bundled, dependency-free relay.

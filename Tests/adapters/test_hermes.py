@@ -209,6 +209,26 @@ class HermesPluginTests(unittest.TestCase):
                 self.assertFalse(plugin._send({"event": "agent.working"}))
                 run.assert_not_called()
 
+    def test_portable_helper_uses_running_python_instead_of_path_bootstrap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            helper = root / "si-notchctl"
+            output = root / "event.json"
+            helper.write_text('#!/usr/bin/env python3\n'
+                              '"""Portable remote-side si-notchctl subset fixture."""\n'
+                              'import os, pathlib, sys, time\n'
+                              'time.sleep(1.3)\n'
+                              'pathlib.Path(os.environ["SI_NOTCH_TEST_OUTPUT"]).write_text(sys.argv[2])\n')
+            helper.chmod(0o700)
+            bootstrap = root / "python3"
+            bootstrap.write_text("#!/bin/sh\nexit 99\n")
+            bootstrap.chmod(0o700)
+            with mock.patch.dict(os.environ, {"SI_NOTCH_CLI": str(helper), "PATH": str(root),
+                                               "SI_NOTCH_TEST_OUTPUT": str(output)}):
+                self.assertTrue(plugin._send({"event": "agent.working", "provider": "hermes"}))
+            self.assertEqual(json.loads(output.read_text()),
+                             {"event": "agent.working", "provider": "hermes"})
+
     def test_system_app_install_is_supported(self):
         expected = Path("/Applications/si-notch.app/Contents/Helpers/si-notchctl")
         with mock.patch.dict(os.environ, {}, clear=True), \
@@ -236,9 +256,9 @@ class HermesPluginTests(unittest.TestCase):
             helper.write_text("#!/bin/sh\nexit 0\n")
             helper.chmod(0o700)
             with mock.patch.dict(os.environ, {"SI_NOTCH_CLI": str(helper)}):
-                with mock.patch.object(plugin.subprocess, "run", side_effect=subprocess.TimeoutExpired(str(helper), 1.2)) as run:
+                with mock.patch.object(plugin.subprocess, "run", side_effect=subprocess.TimeoutExpired(str(helper), 2.5)) as run:
                     self.assertFalse(plugin._send({"event": "agent.working"}))
-                    self.assertEqual(run.call_args.kwargs["timeout"], 1.2)
+                    self.assertEqual(run.call_args.kwargs["timeout"], 2.5)
                 with mock.patch.object(plugin.subprocess, "run") as run:
                     self.assertFalse(plugin._send({"event": "agent.completed"}))
                     run.assert_not_called()
