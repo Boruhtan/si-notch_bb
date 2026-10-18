@@ -20,14 +20,14 @@ cp "$bindir/si-notchctl" "$app/Contents/Helpers/si-notchctl"
 cp LICENSE "$app/Contents/Resources/LICENSE.txt"
 mkdir -p "$app/Contents/Resources/adapters"
 cp scripts/adapters/*.js scripts/adapters/package.json "$app/Contents/Resources/adapters/"
-if [[ -d scripts/adapters/hermes-si-notch ]]; then
+if [[ -d plugins/hermes ]]; then
   mkdir -p "$app/Contents/Resources/adapters/hermes-si-notch"
-  cp scripts/adapters/hermes-si-notch/__init__.py scripts/adapters/hermes-si-notch/plugin.yaml "$app/Contents/Resources/adapters/hermes-si-notch/"
+  cp plugins/hermes/__init__.py plugins/hermes/plugin.yaml plugins/hermes/relay.py plugins/hermes/configure.py "$app/Contents/Resources/adapters/hermes-si-notch/"
 fi
 if [[ -f scripts/adapters/codex-hook.py ]]; then cp scripts/adapters/codex-hook.py "$app/Contents/Resources/adapters/"; fi
 if [[ -f scripts/adapters/harness-hook.py ]]; then cp scripts/adapters/harness-hook.py "$app/Contents/Resources/adapters/"; fi
 cp scripts/remote-hermes-setup.py "$app/Contents/Resources/adapters/"
-if [[ -f scripts/remote-relay.py ]]; then cp scripts/remote-relay.py "$app/Contents/Resources/adapters/"; fi
+if [[ -f plugins/hermes/relay.py ]]; then cp plugins/hermes/relay.py "$app/Contents/Resources/adapters/remote-relay.py"; fi
 if [[ -f scripts/claude-permission.py ]]; then cp scripts/claude-permission.py "$app/Contents/Resources/adapters/claude-permission.py"; fi
 iconset="$scratch/AppIcon.iconset"
 mkdir -p "$iconset"

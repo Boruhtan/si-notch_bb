@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 import subprocess
+import sys
 import threading
 import time
 from uuid import uuid4
@@ -104,7 +105,14 @@ def _send(payload: dict) -> bool:
     if time.monotonic() < _DISABLED_UNTIL:
         return False
     helper = _helper_path()
-    if helper is None:
+    command = [str(helper)] if helper else None
+    if command is None and "SI_NOTCH_CLI" not in os.environ and "helperPath" not in _settings():
+        # Git subdirectory installs may not preserve executable bits. Use the
+        # running Hermes interpreter for our bundled, dependency-free relay.
+        relay = Path(__file__).resolve().parent / "relay.py"
+        if relay.is_file() and not relay.is_symlink():
+            command = [sys.executable, str(relay)]
+    if command is None:
         return False
     environment = dict(os.environ)
     socket_path = _settings().get("socketPath")
@@ -112,7 +120,7 @@ def _send(payload: dict) -> bool:
         environment["SI_NOTCH_SOCKET"] = socket_path
     try:
         result = subprocess.run(
-            [str(helper), "emit", json.dumps(payload, separators=(",", ":"))],
+            [*command, "emit", json.dumps(payload, separators=(",", ":"))],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -198,15 +206,27 @@ def pre_llm_call(session_id=None, user_message=None, turn_id=None, **kwargs) -> 
     _emit("agent.working", session_id, message=text, first_prompt=text, turn_id=turn_id)
 
 
-def pre_tool_call(session_id=None, tool_name=None, turn_id=None, **kwargs) -> None:
+def pre_tool_call(session_id=None, tool_name=None, turn_id=None, task_id=None, **kwargs) -> None:
+    # Hermes tool hooks also use task_id on some supported runtimes.
+    session_id = session_id or task_id
     # Always return None: this callback observes tools and never supplies a directive.
     _start_once(session_id)
     _emit("tool.start", session_id, tool_name=tool_name, turn_id=turn_id)
 
 
-def post_tool_call(session_id=None, tool_name=None, status=None, turn_id=None, **kwargs) -> None:
+def post_tool_call(session_id=None, tool_name=None, status=None, turn_id=None, task_id=None, result=None, **kwargs) -> None:
+    session_id = session_id or task_id
+    failed = status in ("error", "failed", "blocked")
+    # Inspect outcome flags only; never forward result content or errors.
+    if not failed and isinstance(result, str) and len(result) <= 128 * 1024:
+        try:
+            outcome = json.loads(result)
+            if isinstance(outcome, dict):
+                failed = bool(outcome.get("error")) or outcome.get("success") is False
+        except ValueError:
+            pass
     _start_once(session_id)
-    _emit("tool.failed" if status in {"error", "failed", "blocked"} else "tool.finish", session_id,
+    _emit("tool.failed" if failed else "tool.finish", session_id,
           tool_name=tool_name, turn_id=turn_id)
 
 

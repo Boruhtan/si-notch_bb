@@ -15,7 +15,7 @@ Available features and verification scope for 0.4.9-beta.1 on Apple Silicon. Aut
 | Hermes | Remote API model turns, parallel sessions, task/final text and terminal events verified on one macOS host. Plugin setup and profile isolation have automated coverage. Other agent versions and entry points remain unverified. |
 | Claude Code, Gemini CLI, Copilot CLI, Cursor | Configuration merging, backups and hook events have automated coverage. Complete model sessions remain unverified. |
 | Custom API | Event delivery, duplicates, timeouts and request/reply are tested. |
-| SSH | External-host forwarding and relay delivery verified on one macOS host. Multiple independent tunnel controllers, SSH checks, saved profiles and migration have automated coverage. Manual beta UI validation remains pending. |
+| SSH | External-host forwarding and relay delivery verified on one macOS host. Multiple independent tunnel controllers, SSH checks, saved profiles and migration have automated coverage. Three live beta profile cards, tool activity and completion were checked in the actual UI. |
 | Interface | Layout, session states, transparency, companions and three languages have automated coverage. |
 | Sounds | Levels, fades, mute controls, duplicate suppression and parallel sessions are tested. |
 | Codex account limits | Read-only CLI requests and manual refresh are tested. |

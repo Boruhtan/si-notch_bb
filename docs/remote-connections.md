@@ -37,3 +37,5 @@ export SI_NOTCH_CLI="$HOME/.local/bin/si-notchctl"
 ```
 
 Connect only trusted accounts: they can send events and explicit decision requests. Existing sockets are not replaced. Check authentication, the known host key, forwarding policy and an occupied socket path if connection fails. Quitting the app stops all its tunnels. [Verification scope](parity.md).
+
+[Standalone Hermes plugin, native installation and ready-to-use setup prompt](../plugins/hermes/README.md).

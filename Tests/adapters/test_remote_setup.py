@@ -58,9 +58,9 @@ path.write_text(json.dumps(config))
         self.request = {"profiles": [{"id": "default", "display_name": "lain", "enabled": True, "show_session_text": True},
                                       {"id": "editor", "display_name": "Editor", "enabled": True, "show_session_text": False}],
                         "sources": {key: base64.b64encode((ROOT / path).read_bytes()).decode()
-                                    for key, path in {"plugin_python": "scripts/adapters/hermes-si-notch/__init__.py",
-                                                      "manifest": "scripts/adapters/hermes-si-notch/plugin.yaml",
-                                                      "relay": "scripts/remote-relay.py"}.items()}}
+                                    for key, path in {"plugin_python": "plugins/hermes/__init__.py",
+                                                      "manifest": "plugins/hermes/plugin.yaml",
+                                                      "relay": "plugins/hermes/relay.py"}.items()}}
         self.request["snapshot"] = setup.inspect(self.home, self.relay, self.socket)[0]["snapshot"]
 
     def preview(self):
@@ -140,7 +140,7 @@ path.write_text(json.dumps(config))
         self.assertEqual((self.home / "plugins/si-notch/__init__.py").read_bytes(), before)
 
     def test_profile_identity_matches_the_plugin(self):
-        spec = importlib.util.spec_from_file_location("plugin_identity_fixture", ROOT / "scripts/adapters/hermes-si-notch/__init__.py")
+        spec = importlib.util.spec_from_file_location("plugin_identity_fixture", ROOT / "plugins/hermes/__init__.py")
         plugin = importlib.util.module_from_spec(spec); spec.loader.exec_module(plugin)
         current, _ = setup.inspect(self.home, self.relay, self.socket)
         instance = setup.sha((setup.platform.node() + ":" + str(self.home)).encode())

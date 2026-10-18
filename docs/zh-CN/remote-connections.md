@@ -37,3 +37,5 @@ export SI_NOTCH_CLI="$HOME/.local/bin/si-notchctl"
 ```
 
 仅连接可信账户，它们可以发送事件与明确的决策请求。现有套接字不会被覆盖。连接失败时检查认证、主机密钥、转发策略和套接字占用情况。退出应用会停止所有隧道。[验证范围](parity.md)。
+
+[Hermes 独立插件、原生安装及提示词](../../plugins/hermes/README.zh-CN.md)。

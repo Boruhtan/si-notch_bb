@@ -46,3 +46,5 @@ Session data is processed locally and kept in memory. Short task and response ex
 [si-notch Source License 1.0](LICENSE) allows study, installation, building, modification and free redistribution. Selling the app or modified versions is prohibited. It is based on MIT with an added no-sale condition.
 
 Contact: [dis/root](https://disroot.website/).
+
+[Agent plugins](plugins/README.md) · [Hermes setup and installation prompt](plugins/hermes/README.md)

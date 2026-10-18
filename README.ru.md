@@ -46,3 +46,5 @@ scripts/build-dmg.sh
 [si-notch Source License 1.0](LICENSE) разрешает изучение, установку, сборку, изменение и бесплатное распространение. Продажа приложения и его модификаций запрещена. Основа лицензии — MIT с дополнительным запретом продажи.
 
 Связь: [dis/root](https://disroot.website/).
+
+[Плагины агентов](plugins/README.md) · [Hermes: установка и готовый промпт](plugins/hermes/README.ru.md)

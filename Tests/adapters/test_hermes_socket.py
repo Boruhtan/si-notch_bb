@@ -12,7 +12,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PLUGIN = ROOT / "scripts/adapters/hermes-si-notch/__init__.py"
+PLUGIN = ROOT / "plugins/hermes/__init__.py"
 spec = importlib.util.spec_from_file_location("si_notch_hermes_socket_test", PLUGIN)
 plugin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugin)

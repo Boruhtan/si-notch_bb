@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 
-PLUGIN = Path(__file__).resolve().parents[2] / "scripts/adapters/hermes-si-notch/__init__.py"
+PLUGIN = Path(__file__).resolve().parents[2] / "plugins/hermes/__init__.py"
 spec = importlib.util.spec_from_file_location("si_notch_hermes_plugin", PLUGIN)
 plugin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugin)
@@ -30,6 +30,26 @@ class HermesPluginTests(unittest.TestCase):
         plugin._SEQUENCES.clear()
         plugin._TASK_TITLES.clear()
         plugin._DISABLED_UNTIL = 0
+
+    def test_native_task_id_alias_and_failure_flags_never_forward_result_content(self):
+        output=[]
+        with mock.patch.object(plugin,"_send",side_effect=lambda event: output.append(event) or True):
+            plugin.pre_llm_call(session_id="native-session",user_message="Test")
+            plugin.pre_tool_call(task_id="native-session",tool_name="terminal")
+            plugin.post_tool_call(task_id="native-session",tool_name="terminal",result='{"success":false,"error":"PRIVATE ERROR","output":"PRIVATE RESULT"}')
+        self.assertEqual(output[-1]["event"],"tool.failed")
+        self.assertEqual(output[-1]["session_id"],output[0]["session_id"])
+        self.assertEqual(output[-2]["event"],"tool.start")
+        self.assertNotIn("PRIVATE",json.dumps(output))
+
+    def test_subdirectory_install_falls_back_to_the_bundled_relay(self):
+        with mock.patch.object(plugin,"_helper_path",return_value=None), \
+             mock.patch.object(plugin,"_settings",return_value={}), \
+             mock.patch.dict(os.environ,{},clear=True), \
+             mock.patch.object(plugin.subprocess,"run") as run:
+            run.return_value.returncode=0
+            self.assertTrue(plugin._send({"event":"agent.working"}))
+            self.assertEqual(run.call_args.args[0][:2],[plugin.sys.executable,str(PLUGIN.parent/"relay.py")])
 
     def test_custom_tools_remain_visible_without_their_arguments_and_custom_socket_is_child_only(self):
         output = []
