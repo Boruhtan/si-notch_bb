@@ -1,0 +1,2 @@
+- Reduced CPU usage during companion animations and background monitoring.
+- Stopped closed settings windows from consuming resources.

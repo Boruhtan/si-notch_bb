@@ -3,7 +3,7 @@ import SINotchCore
 
 /// ASCII-authored sprites. Each character is one pixel; animation changes cells
 /// without scaling or rotating the artwork.
-struct PixelCompanion: Equatable {
+struct PixelCompanion: Hashable {
     static let side = 20
     let dimension: Int
     private(set) var cells: [Character]

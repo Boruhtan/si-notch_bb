@@ -47,6 +47,7 @@ struct SettingsView: View {
     @State var showAgentDiscovery = true
     @State var copied = false
     @State var launchAtLogin = SMAppService.mainApp.status == .enabled
+    var onSelectionChange: ((Int, String) -> Void)?
     var cliPath: String {
         let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/si-notchctl").path
         return FileManager.default.fileExists(atPath: bundled) ? bundled : Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("si-notchctl").path ?? "si-notchctl"
@@ -148,6 +149,8 @@ struct SettingsView: View {
             .controlSize(.regular)
             .groupBoxStyle(SettingsCardGroupBoxStyle())
             .environment(\.locale, Locale(identifier: L10n.language))
+            .onChange(of: tab) { _, _ in onSelectionChange?(tab, selectedProvider) }
+            .onChange(of: selectedProvider) { _, _ in onSelectionChange?(tab, selectedProvider) }
     }
     func sidebarGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 4) {

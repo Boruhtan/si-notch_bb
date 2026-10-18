@@ -18,4 +18,13 @@ final class SessionSnippetTests: XCTestCase {
         XCTAssertFalse(value.contains("\u{0000}"))
         XCTAssertEqual(SessionSnippet.text(String(repeating: "я", count: 3000))?.count, 1200)
     }
+    func testCompiledRedactionsPreserveUnicodeAndAllCredentialRules() {
+        XCTAssertEqual(SessionSnippet.text("Привет 👋 \u{001B}[31mred\u{001B}[0m"), "Привет 👋 red")
+        for token in ["sk-abcdefghijklmnop", "ghp_abcdefghijklmnop", "github_pat_abcdefghijklmnop", "AKIA1234567890ABCDEF"] {
+            XCTAssertEqual(SessionSnippet.text("Привет 👋 \(token) end"), "Привет 👋 [redacted] end")
+        }
+        XCTAssertEqual(SessionSnippet.text("Bearer abc.def==; password=private; api_key=hidden"),
+                       "Bearer [redacted]; password=[redacted]; api_key=[redacted]")
+        XCTAssertEqual(SessionSnippet.text("key\n-----BEGIN RSA PRIVATE KEY-----\nprivate\nend"), "key\n[redacted]")
+    }
 }

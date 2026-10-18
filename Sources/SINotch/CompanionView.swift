@@ -40,17 +40,9 @@ struct CompanionView: View {
     var body: some View {
         let _ = appLanguage
         let selectedStyle = style ?? CompanionStyle(rawValue: storedStyle) ?? .robot
-        TimelineView(CompanionTimelineSchedule(status: status, motion: motion,
-            greetingStartedAt: greetingStartedAt, paused: reduceMotion || previewTime != nil)) { timeline in
-            let time = previewTime ?? timeline.date.timeIntervalSinceReferenceDate
-            let pose = previewTime == nil ? motion.value(at: time, reduceMotion: reduceMotion) : CompanionPose.target(status)
-            let age = previewTime ?? max(0, time - motion.startedAt)
-            let greetingAge = greetingStartedAt.map { max(0, timeline.date.timeIntervalSince($0)) }
-            Canvas { context, canvas in
-                draw(context: context, canvas: canvas, time: time, pose: pose,
-                     poseAge: age, greetingAge: greetingAge, selectedStyle: selectedStyle)
-            }
-        }
+        CompanionArtwork(configuration: .init(status: status, style: selectedStyle, motion: motion,
+            greetingStartedAt: greetingStartedAt, reduceMotion: reduceMotion,
+            previewTime: previewTime, displayScale: displayScale))
         .frame(width: size, height: size)
         .contentShape(Rectangle())
         .onAppear { motion = CompanionPoseTransition(status: status, at: Date().timeIntervalSinceReferenceDate) }
@@ -71,57 +63,6 @@ struct CompanionView: View {
         .accessibilityAction { greet() }
     }
     private func greet() { if interactive { greetingStartedAt = Date() } }
-
-    private func draw(context originalContext: GraphicsContext, canvas: CGSize, time: TimeInterval,
-                      pose: CompanionPose, poseAge: TimeInterval, greetingAge: TimeInterval?, selectedStyle: CompanionStyle) {
-        let sprite = PixelCompanion.frame(style: selectedStyle, status: status, time: time,
-                                          stateAge: poseAge, greetingAge: greetingAge,
-                                          reduceMotion: reduceMotion,
-                                          detailed: min(canvas.width, canvas.height) * displayScale >= 40)
-        let layout = PixelCompanionLayout(width: canvas.width, height: canvas.height,
-                                         displayScale: displayScale, side: sprite.dimension)
-        let soft = 0.20
-        let red = pose.red * (1 - soft) + soft
-        let green = pose.green * (1 - soft) + soft
-        let blue = pose.blue * (1 - soft) + soft
-        let tint = Color(red: red, green: green, blue: blue)
-        let colors: [Character: Color] = [
-            "#": tint,
-            "H": Color(red: red * 0.55 + 0.45, green: green * 0.55 + 0.45, blue: blue * 0.55 + 0.45),
-            "S": Color(red: red * 0.55, green: green * 0.55, blue: blue * 0.55),
-            "D": Color(red: red * 0.28, green: green * 0.28, blue: blue * 0.28),
-            "E": Color(red: 0.035, green: 0.06, blue: 0.055),
-            "T": Color(red: 0.98, green: 0.98, blue: 0.94),
-            "M": Color(red: 0.98, green: 0.92, blue: 0.79),
-            "P": Color(red: 0.95, green: 0.64, blue: 0.60),
-            "F": Color(red: 0.91, green: 0.68, blue: 0.51),
-            "B": Color(red: 0.39, green: 0.26, blue: 0.22),
-            "C": Color(red: red * 0.35 + 0.65, green: green * 0.35 + 0.65, blue: blue * 0.35 + 0.65),
-            "K": Color(red: 0.16, green: 0.19, blue: 0.22),
-            "W": Color(red: 0.49, green: 0.55, blue: 0.57)
-        ]
-        var context = originalContext
-        context.opacity = pose.opacity
-        var paths: [Character: Path] = [:]
-        for y in 0..<sprite.dimension {
-            for x in 0..<sprite.dimension {
-                let ink = sprite[x, y]
-                guard colors[ink] != nil else { continue }
-                let rect = CGRect(x: layout.originX + Double(x) * layout.cell,
-                                  y: layout.originY + Double(y) * layout.cell,
-                                  width: layout.cell, height: layout.cell)
-                paths[ink, default: Path()].addRect(rect)
-            }
-        }
-        // A detailed sprite has hundreds of cells but only a few palette colors.
-        // Batch each color into one draw instead of submitting every pixel.
-        for (ink, path) in paths {
-            if let color = colors[ink] {
-                context.fill(path, with: .color(color), style: FillStyle(antialiased: false))
-            }
-        }
-    }
-
 }
 
 struct ActivityBars: View {

@@ -25,6 +25,7 @@ struct CodexDesktopScanner {
     let logsRoot: URL
     private var cursors: [String: Cursor] = [:]
     private var activities: [String: Activity] = [:]
+    private var directories = SessionDirectoryCache()
     private let limit = 2 * 1024 * 1024
     private let freshness: TimeInterval = 180
 
@@ -105,14 +106,14 @@ struct CodexDesktopScanner {
     }
 
     static func parse(_ line: String) -> Signal? {
-        guard line.utf8.count <= 16 * 1024,
-              let stamp = line.split(separator: " ", maxSplits: 1).first,
-              let date = ISO8601DateFormatter.fractional.date(from: String(stamp)) else { return nil }
+        guard line.utf8.count <= 16 * 1024 else { return nil }
         let working = line.contains(" info [electron-message-handler] Reasoning summary item completed ")
         let starting = line.contains(" info [AppServerConnection] response_routed ") &&
             line.contains(" method=turn/start ") && line.contains(" errorCode=null ")
         let complete = line.contains(" info [electron-message-handler] [desktop-notifications] received turn-completed")
         guard working || starting || complete,
+              let stamp = line.split(separator: " ", maxSplits: 1).first,
+              let date = ISO8601DateFormatter.fractional.date(from: String(stamp)),
               let session = field(working ? "threadId" : "conversationId", in: line),
               UUID(uuidString: session) != nil else { return nil }
         let turn = field("turnId", in: line).flatMap { UUID(uuidString: $0) != nil ? $0 : nil }
@@ -131,8 +132,7 @@ struct CodexDesktopScanner {
         return CodexSessionObservation(event: event, isBootstrap: bootstrap)
     }
 
-    private func candidates(now: Date) -> [URL] {
-        let fm = FileManager.default
+    private mutating func candidates(now: Date) -> [URL] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         var found: [(URL, Date)] = []
@@ -140,7 +140,7 @@ struct CodexDesktopScanner {
             let date = calendar.date(byAdding: .day, value: -back, to: now)!
             let parts = calendar.dateComponents([.year, .month, .day], from: date)
             let folder = logsRoot.appendingPathComponent(String(format: "%04d/%02d/%02d", parts.year!, parts.month!, parts.day!))
-            guard let urls = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { continue }
+            let urls = directories.contents(of: folder)
             for url in urls where url.lastPathComponent.hasPrefix("codex-desktop-") && url.pathExtension == "log" && url.lastPathComponent.contains("-t0-") {
                 guard let metadata = SessionFileMetadata(url), metadata.isRegularFile,
                       metadata.owner == getuid(), now.timeIntervalSince(metadata.modified) < 3600 else { continue }

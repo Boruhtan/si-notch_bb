@@ -601,6 +601,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusItem: NSStatusItem!
     var settingsWindow: NSWindow?
     var settingsPresented = false
+    private var settingsTab = 0
+    private var settingsProvider = "codex"
     var hotKey: EventHotKeyRef?
     var eventHandler: EventHandlerRef?
     var panelKeyMonitor: Any?
@@ -630,7 +632,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.openIntegrations = { [weak self] in
             guard let self else { return }
             self.showSettings()
-            self.settingsWindow?.contentView = NSHostingView(rootView: SettingsView(model: self.model, tab: 1, selectedProvider: "codex"))
+            self.setSettingsContent(tab: 1, provider: "codex")
         }
         model.closeSettings = { [weak self] in self?.settingsWindow?.close() }
         model.focusPanel = { [weak self] in self?.panel.makeKey() }
@@ -790,7 +792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc func showUpdates() {
         showSettings()
-        settingsWindow?.contentView = NSHostingView(rootView: SettingsView(model: model, tab: 9))
+        setSettingsContent(tab: 9)
     }
     @objc func toggleIsland() { let hidden = !panel.isVisible; model.presentationPolicy?.noteActivity(); model.setExpanded(hidden || !model.expanded) }
     @objc func togglePause() { model.paused.toggle(); rebuildMenu() }
@@ -803,9 +805,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 660), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
             w.title = L10n.tr("si-notch · Настройки"); w.isReleasedWhenClosed = false
             w.delegate = self
-            w.contentView = NSHostingView(rootView: SettingsView(model: model))
             w.center(); settingsWindow = w
         }
+        if !(settingsWindow?.contentView is NSHostingView<SettingsView>) { setSettingsContent() }
         model.setExpanded(false)
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -818,9 +820,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard let closing = notification.object as? NSWindow, closing === settingsWindow else { return }
         settingsPresented = false
+        // A retained NSHostingView keeps observing agent events and animating
+        // companion previews after its window closes. Recreate it on demand.
+        closing.contentView = nil
         model.setExpanded(false)
         model.presentationPolicy?.noteActivity()
         model.presentationPolicy?.refresh(forceVisibilityUpdate: true)
+    }
+    private func setSettingsContent(tab: Int? = nil, provider: String? = nil) {
+        if let tab { settingsTab = tab }
+        if let provider { settingsProvider = provider }
+        settingsWindow?.contentView = NSHostingView(rootView: SettingsView(model: model,
+            tab: settingsTab, selectedProvider: settingsProvider, onSelectionChange: { [weak self] tab, provider in
+                self?.settingsTab = tab
+                self?.settingsProvider = provider
+            }))
     }
     func installMainMenu() {
         let root = NSMenu()

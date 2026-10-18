@@ -3,10 +3,11 @@ import Foundation
 
 /// One syscall per candidate, without Foundation's attribute dictionaries or
 /// URL resource prefetching. lstat preserves the scanners' symlink rejection.
-struct SessionFileMetadata {
+struct SessionFileMetadata: Equatable {
     let inode: UInt64
     let size: UInt64
     let modified: Date
+    let changed: Date
     let owner: uid_t
     let isRegularFile: Bool
     let isDirectory: Bool
@@ -21,6 +22,8 @@ struct SessionFileMetadata {
         size = UInt64(info.st_size)
         modified = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec) +
                         Double(info.st_mtimespec.tv_nsec) / 1_000_000_000)
+        changed = Date(timeIntervalSince1970: Double(info.st_ctimespec.tv_sec) +
+                       Double(info.st_ctimespec.tv_nsec) / 1_000_000_000)
         owner = info.st_uid
         isRegularFile = info.st_mode & S_IFMT == S_IFREG
         isDirectory = info.st_mode & S_IFMT == S_IFDIR

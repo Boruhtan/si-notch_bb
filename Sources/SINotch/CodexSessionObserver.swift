@@ -42,6 +42,7 @@ struct CodexRolloutScanner {
     let includeContent: Bool
     var silenceInterval: TimeInterval = 15 * 60
     private var files: [String: FileState] = [:]
+    private var directories = SessionDirectoryCache()
 
     private let maximumFiles = 16
     private let maximumLineBytes = 256 * 1_024
@@ -56,7 +57,8 @@ struct CodexRolloutScanner {
 
     mutating func poll(now: Date = Date()) -> [CodexSessionObservation] {
         var observations: [CodexSessionObservation] = []
-        for candidate in candidates(now: now) {
+        let selected = candidates(now: now)
+        for candidate in selected {
             let key = candidate.url.path
             if var state = files[key], state.inode == candidate.inode, candidate.size >= state.offset {
                 if candidate.size > state.offset {
@@ -77,15 +79,14 @@ struct CodexRolloutScanner {
             files[key] = state
         }
         if files.count > maximumFiles * 2 {
-            let live = Set(candidates(now: now).map { $0.url.path })
+            let live = Set(selected.map { $0.url.path })
             files = files.filter { live.contains($0.key) }
         }
         return observations
     }
 
-    private func candidates(now: Date) -> [Candidate] {
-        let fm = FileManager.default
-        var directories = Set<String>()
+    private mutating func candidates(now: Date) -> [Candidate] {
+        var folders = Set<String>()
         for zone in [TimeZone.current, TimeZone(secondsFromGMT: 0)!] {
             var calendar = Calendar(identifier: .gregorian)
             calendar.timeZone = zone
@@ -93,13 +94,12 @@ struct CodexRolloutScanner {
                 guard let date = calendar.date(byAdding: .day, value: -daysBack, to: now) else { continue }
                 let dateParts = calendar.dateComponents([.year, .month, .day], from: date)
                 guard let year = dateParts.year, let month = dateParts.month, let day = dateParts.day else { continue }
-                directories.insert(sessionsRoot.appendingPathComponent(String(format: "%04d/%02d/%02d", year, month, day)).path)
+                folders.insert(sessionsRoot.appendingPathComponent(String(format: "%04d/%02d/%02d", year, month, day)).path)
             }
         }
         var found: [Candidate] = []
-        for directory in directories {
-            guard let contents = try? fm.contentsOfDirectory(at: URL(fileURLWithPath: directory),
-                includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
+        for directory in folders {
+            let contents = directories.contents(of: URL(fileURLWithPath: directory))
             for url in contents where url.lastPathComponent.hasPrefix("rollout-") && url.pathExtension == "jsonl" {
                 guard let metadata = SessionFileMetadata(url), metadata.isRegularFile,
                       now.timeIntervalSince(metadata.modified) >= -60,
@@ -367,7 +367,7 @@ final class CodexSessionObserver {
                 }
             }
             let timer = DispatchSource.makeTimerSource(queue: self.queue)
-            timer.schedule(deadline: .now(), repeating: self.interval)
+            timer.schedule(deadline: .now(), repeating: self.interval, leeway: .milliseconds(100))
             timer.setEventHandler { [weak self] in
                 guard let self, self.isCurrent(currentGeneration) else { return }
                 let desktop = self.desktopScanner.poll()

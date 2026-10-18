@@ -48,6 +48,7 @@ struct PiSessionScanner {
     let includeContent: Bool
     var silenceInterval: TimeInterval = 3 * 60
     private var files: [String: FileState] = [:]
+    private var directories = SessionDirectoryCache()
 
     private let maximumDirectories = 512
     private let maximumCandidates = 16
@@ -99,17 +100,11 @@ struct PiSessionScanner {
         return observations
     }
 
-    private func candidates(now: Date) -> [Candidate] {
-        let fm = FileManager.default
-        guard SessionFileMetadata(sessionsRoot)?.isDirectory == true,
-              let directories = try? fm.contentsOfDirectory(at: sessionsRoot,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]) else { return [] }
+    private mutating func candidates(now: Date) -> [Candidate] {
+        let folders = directories.contents(of: sessionsRoot)
         var found: [Candidate] = []
-        for directory in directories.prefix(maximumDirectories) where directory.lastPathComponent.hasPrefix("--") {
-            guard SessionFileMetadata(directory)?.isDirectory == true,
-                  let contents = try? fm.contentsOfDirectory(at: directory,
-                    includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
+        for directory in folders.prefix(maximumDirectories) where directory.lastPathComponent.hasPrefix("--") {
+            let contents = directories.contents(of: directory)
             for url in contents where url.pathExtension == "jsonl" {
                 guard let metadata = SessionFileMetadata(url), metadata.isRegularFile,
                       metadata.owner == getuid(), metadata.size >= 2,
@@ -331,7 +326,7 @@ final class PiSessionObserver {
         queue.async { [weak self] in
             guard let self, self.isCurrent(current), self.timer == nil else { return }
             let timer = DispatchSource.makeTimerSource(queue: self.queue)
-            timer.schedule(deadline: .now(), repeating: self.interval)
+            timer.schedule(deadline: .now(), repeating: self.interval, leeway: .milliseconds(100))
             timer.setEventHandler { [weak self] in
                 guard let self, self.isCurrent(current) else { return }
                 let suppressed = self.currentHookSessionIDs()
