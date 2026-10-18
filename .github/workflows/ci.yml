@@ -1,7 +1,7 @@
 name: macOS
 on:
   push:
-    branches: [main]
+    branches: [main, codex/remote-ssh-beta]
   pull_request:
   workflow_dispatch:
 permissions:

@@ -7,6 +7,7 @@ import SINotchCore
 @MainActor
 final class PresentationPolicy {
     static let registeredDefaults: [String: Any] = [
+        "showOnlyWithSessions": false,
         "hideWhenIdle": false,
         "hideInFullScreen": true,
         "suppressWhenTargetAppFrontmost": true,
@@ -47,6 +48,7 @@ final class PresentationPolicy {
 
     var options: IslandPresentationOptions {
         var value = IslandPresentationOptions()
+        value.showOnlyWithSessions = defaults.bool(forKey: "showOnlyWithSessions")
         value.hideWhenIdle = defaults.bool(forKey: "hideWhenIdle")
         value.hideInFullScreen = defaults.bool(forKey: "hideInFullScreen")
         value.suppressWhenTargetAppFrontmost = defaults.bool(forKey: "suppressWhenTargetAppFrontmost")

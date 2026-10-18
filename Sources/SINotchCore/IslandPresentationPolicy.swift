@@ -7,6 +7,7 @@ public enum IslandExpansionOrigin: Equatable, Sendable {
 }
 
 public struct IslandPresentationOptions: Equatable, Sendable {
+    public var showOnlyWithSessions = false
     public var hideWhenIdle = false
     public var hideInFullScreen = true
     public var suppressWhenTargetAppFrontmost = true
@@ -19,6 +20,7 @@ public struct IslandPresentationOptions: Equatable, Sendable {
 
 /// AppKit supplies these facts; the policy itself performs no OS queries.
 public struct IslandPresentationState: Equatable, Sendable {
+    public var hasSessions: Bool
     public var hasWorkingSessions: Bool
     public var hasPendingRequest: Bool
     public var pointerInside: Bool
@@ -27,10 +29,11 @@ public struct IslandPresentationState: Equatable, Sendable {
     public var isSettingsVisible: Bool
     public var isNativeFullScreen: Bool
 
-    public init(hasWorkingSessions: Bool = false, hasPendingRequest: Bool = false,
+    public init(hasSessions: Bool = false, hasWorkingSessions: Bool = false, hasPendingRequest: Bool = false,
                 pointerInside: Bool = false, isExpanded: Bool = false,
                 keepOpen: Bool = false, isSettingsVisible: Bool = false,
                 isNativeFullScreen: Bool = false) {
+        self.hasSessions = hasSessions
         self.hasWorkingSessions = hasWorkingSessions
         self.hasPendingRequest = hasPendingRequest
         self.pointerInside = pointerInside
@@ -42,7 +45,7 @@ public struct IslandPresentationState: Equatable, Sendable {
 }
 
 public enum IslandHiddenReason: Equatable, Sendable {
-    case settings, fullScreen, idle
+    case settings, fullScreen, noSessions, idle
 }
 
 public struct IslandPresentationDecision: Equatable, Sendable {
@@ -95,6 +98,8 @@ public struct IslandPresentationPolicy: Sendable {
         let deadline = options.hideWhenIdle ? lastActivity + Self.idleDelay : nil
         let reason: IslandHiddenReason?
         if options.hideInFullScreen && state.isNativeFullScreen && !state.isSettingsVisible { reason = .fullScreen }
+        else if options.showOnlyWithSessions && !state.hasSessions && !state.hasPendingRequest &&
+                    !state.isSettingsVisible && !(state.isExpanded && expansionOrigin == .manual) { reason = .noSessions }
         else if let deadline, now.isFinite, now >= deadline { reason = .idle }
         else { reason = nil }
         return IslandPresentationDecision(hiddenReason: reason, idleDeadline: deadline)

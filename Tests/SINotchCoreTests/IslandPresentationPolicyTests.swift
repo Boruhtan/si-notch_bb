@@ -11,12 +11,53 @@ final class IslandPresentationPolicyTests: XCTestCase {
 
     func testReferenceDefaultsKeepIdleAndOutsideClickHidingOff() {
         let defaults = IslandPresentationOptions()
+        XCTAssertFalse(defaults.showOnlyWithSessions)
         XCTAssertFalse(defaults.hideWhenIdle)
         XCTAssertFalse(defaults.dismissAutoRevealOnOutsideClick)
         XCTAssertTrue(defaults.hideInFullScreen)
         XCTAssertTrue(defaults.suppressWhenTargetAppFrontmost)
         XCTAssertTrue(defaults.collapseOnMouseLeave)
         XCTAssertFalse(defaults.disableClickJump)
+    }
+
+    func testSessionOnlyVisibilityFollowsTheTaskListImmediately() {
+        var policy = IslandPresentationPolicy(now: 0)
+        var options = IslandPresentationOptions()
+        options.showOnlyWithSessions = true
+        XCTAssertEqual(policy.decision(options: options, state: .init(), at: 0).hiddenReason, .noSessions)
+        policy.noteActivity(at: 1)
+        XCTAssertEqual(policy.decision(options: options, state: .init(pointerInside: true), at: 1).hiddenReason, .noSessions)
+        XCTAssertTrue(policy.decision(options: options, state: .init(hasSessions: true), at: 2).isVisible)
+        XCTAssertTrue(policy.decision(options: options, state: .init(hasSessions: true, hasWorkingSessions: true), at: 3).isVisible)
+        XCTAssertEqual(policy.decision(options: options, state: .init(keepOpen: true), at: 4).hiddenReason, .noSessions)
+        options.showOnlyWithSessions = false
+        XCTAssertTrue(policy.decision(options: options, state: .init(), at: 4).isVisible)
+    }
+
+    func testSessionOnlyModePreservesSettingsRequestsAndExplicitManualOpening() {
+        var policy = IslandPresentationPolicy(now: 0)
+        var options = IslandPresentationOptions()
+        options.showOnlyWithSessions = true
+        XCTAssertTrue(policy.decision(options: options, state: .init(isSettingsVisible: true), at: 0).isVisible)
+        XCTAssertTrue(policy.decision(options: options, state: .init(hasPendingRequest: true), at: 0).isVisible)
+        policy.expansionChanged(true, origin: .hover, at: 1)
+        XCTAssertEqual(policy.decision(options: options, state: .init(isExpanded: true), at: 1).hiddenReason, .noSessions)
+        policy.expansionChanged(true, origin: .manual, at: 2)
+        XCTAssertTrue(policy.decision(options: options, state: .init(isExpanded: true), at: 2).isVisible)
+        XCTAssertEqual(policy.decision(options: options, state: .init(isExpanded: true, isNativeFullScreen: true), at: 2).hiddenReason, .fullScreen)
+        policy.expansionChanged(false, origin: .manual, at: 3)
+        XCTAssertEqual(policy.decision(options: options, state: .init(), at: 3).hiddenReason, .noSessions)
+        policy.expansionChanged(true, origin: .automatic, at: 4)
+        XCTAssertEqual(policy.decision(options: options, state: .init(isExpanded: true), at: 4).hiddenReason, .noSessions)
+    }
+
+    func testSessionOnlyModeStillRespectsIdleAndFullScreenPreferences() {
+        var policy = IslandPresentationPolicy(now: 0)
+        var options = self.options
+        options.showOnlyWithSessions = true
+        XCTAssertEqual(policy.decision(options: options, state: .init(hasSessions: true), at: 30).hiddenReason, .idle)
+        XCTAssertTrue(policy.decision(options: options, state: .init(hasSessions: true, hasWorkingSessions: true), at: 31).isVisible)
+        XCTAssertEqual(policy.decision(options: options, state: .init(hasSessions: true, isNativeFullScreen: true), at: 32).hiddenReason, .fullScreen)
     }
 
     func testIdleHidesAtThirtySecondsAndAcceptedActivityWakes() {

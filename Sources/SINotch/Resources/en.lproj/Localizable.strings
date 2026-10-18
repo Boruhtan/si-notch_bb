@@ -73,7 +73,6 @@
 "Локальный канал работает" = "Local channel is working";
 "На связи" = "Online";
 "Нажмите, чтобы поздороваться" = "Click to say hello";
-"Название задачи в свёрнутом острове" = "Task title in collapsed island";
 "Настройки" = "Settings";
 "Настройки…" = "Settings…";
 "Не найден исполняемый si-notchctl по указанному пути." = "No executable si-notchctl found at the specified path.";
@@ -562,3 +561,9 @@
 "remote.setup.changedSincePreview" = "Settings changed since preview. Check profiles again.";
 "remote.checkConnection" = "Check connection";
 "remote.sshChecked" = "SSH login verified. Socket forwarding starts with Connect.";
+
+"settings.visibility" = "Visibility";
+"settings.showOnlyWithSessions" = "Show only when there are sessions";
+"settings.showOnlyWithSessionsHelp" = "Hide the island when the session list is empty. Completed tasks also count. You can still open the island from the menu bar or keyboard shortcut.";
+"settings.resetDisplay" = "Restore Defaults";
+"settings.resetDisplayHelp" = "Restore the default position, size, visibility and card details.";

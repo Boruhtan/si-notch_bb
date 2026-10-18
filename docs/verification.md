@@ -26,6 +26,8 @@ ditto -x -k build/si-notch.zip "$si_notch_check_dir"
 
 The exporter checks window geometry, layout, session states, transparency and IPC. It saves a report, screenshots and audio samples in the output directory. Review the screenshots in all three languages and inspect companion states at both display scales.
 
+Add `--qa-display-only` to check session-only visibility through the native panel and export the Display settings in all three languages, including the full scroll content. This mode does not start agent services.
+
 Static captures do not measure animation smoothness or compositor frame rate. Check hover activation, dismissal, Mission Control, fullscreen apps and display changes manually. Play sound previews through the intended audio output.
 
 ## Update installation

@@ -46,7 +46,7 @@ enum IslandPreviewLayout: String, CaseIterable, Identifiable {
         let defaults = PreviewPreferences()
         model = AppModel(defaults: defaults)
         var preferences: [String: Any] = [:]
-        for key in ["compactDetail", "showCompanion", "showModel", "showReasoning", "showProject", "showTasks", "showSubagents", "showActivity", "fontSize"] {
+        for key in ["showCompanion", "showModel", "showReasoning", "showProject", "showTasks", "showSubagents", "showActivity", "fontSize"] {
             preferences[key] = UserDefaults.standard.object(forKey: key)
         }
         preferences.merge(["sound": false, "quiet": false, "autoExpand": false, "codexAutoDetect": false,

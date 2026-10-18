@@ -17,7 +17,7 @@ struct SettingsView: View {
     @AppStorage("panelHeight") var height = 560.0
     @AppStorage("idleMinutes") var idleMinutes = 120
     @AppStorage("showCompanion") var companion = true
-    @AppStorage("compactDetail") var compactDetail = false
+    @AppStorage("showOnlyWithSessions") var showOnlyWithSessions = false
     @AppStorage("hoverDelay") var hoverDelay = IslandTiming.hoverEnter
     @AppStorage("revealDwell") var revealDwell = 5.0
     @AppStorage("fontSize") var fontSize = 11.0
@@ -281,6 +281,24 @@ struct SettingsView: View {
     }
     var display: some View {
         VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 16) {
+                Text(L10n.tr("settings.resetDisplayHelp"))
+                    .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button { DisplayPreferences.reset(in: model.defaults) } label: {
+                    Label(L10n.tr("settings.resetDisplay"), systemImage: "arrow.counterclockwise")
+                }.controlSize(.small)
+            }
+            GroupBox(L10n.tr("settings.visibility")) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle(L10n.tr("settings.showOnlyWithSessions"), isOn: $showOnlyWithSessions)
+                    Text(L10n.tr("settings.showOnlyWithSessionsHelp"))
+                        .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Toggle(L10n.tr("settings.hideInFullScreen"), isOn: $hideInFullScreen)
+                }.padding(10)
+            }
             IslandPreviewSettingsView()
             GroupBox(L10n.tr("settings.display")) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -290,11 +308,9 @@ struct SettingsView: View {
                         ForEach(NSScreen.screens, id: \.self) { screen in Text(screen.localizedName).tag(String(describing: screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] ?? "main")) }
                     }
                     Toggle(L10n.tr("При открытии выбирать экран под указателем"), isOn: $followFocus)
-                    Toggle(L10n.tr("settings.hideInFullScreen"), isOn: $hideInFullScreen)
                     HStack { Text(L10n.tr("Ширина")); Slider(value: $width, in: 380...720, step: 10); Text("\(Int(width))").monospacedDigit().frame(width: 35) }
                     HStack { Text(L10n.tr("Высота")); Slider(value: $height, in: 360...800, step: 10); Text("\(Int(height))").monospacedDigit().frame(width: 35) }
                     HStack { Text(L10n.tr("settings.fontSize")); Slider(value: $fontSize, in: 10...16, step: 1); Text(L10n.tr("settings.points", Int(fontSize))).monospacedDigit().frame(width: 48) }
-                    Toggle(L10n.tr("Название задачи в свёрнутом острове"), isOn: $compactDetail)
                 }.padding(10)
             }
             GroupBox(L10n.tr("settings.cardDetails")) {

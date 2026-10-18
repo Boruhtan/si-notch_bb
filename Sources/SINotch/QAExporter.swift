@@ -166,7 +166,7 @@ enum QAExporter {
                 previousArguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
                 overrides = ["hoverExpand": false, "autoExpand": false, "keepOpen": true,
                              "quiet": true, "sound": false, "followFocus": false,
-                             "screenID": "auto", "displayMode": "notch", "compactDetail": false,
+                             "screenID": "auto", "displayMode": "notch", "showOnlyWithSessions": false,
                              "panelWidth": 460.0, "panelHeight": 560.0,
                              "showCompanion": true, "companionStyle": "robot", "appLanguage": "en"]
                 applyOverrides()
@@ -176,7 +176,9 @@ enum QAExporter {
                     report.screenFrame = Frame(screen.frame)
                     report.screenMaximumFramesPerSecond = screen.maximumFramesPerSecond
                 }
-                if CommandLine.arguments.contains("--qa-remote-only") {
+                if CommandLine.arguments.contains("--qa-display-only") {
+                    try await exportDisplayViews()
+                } else if CommandLine.arguments.contains("--qa-remote-only") {
                     try await exportRemoteViews()
                 } else {
                 try exportSounds()
@@ -543,6 +545,63 @@ enum QAExporter {
             try await captureHosted(IslandView(model: model), name: "agents-remote-group", language: "en", size: NSSize(width: 680, height: 280))
             check("remote-fixtures-disconnected", model.remoteConnections.state(id) == .disconnected && model.store.sessions.isEmpty,
                 "Rendering saved profiles must not open SSH or create tasks.")
+        }
+
+        func exportDisplayViews() async throws {
+            let model = delegate.model
+            overrides["showOnlyWithSessions"] = true
+            applyOverrides()
+            let presentation = PresentationPolicy(defaults: defaults,
+                state: { [unowned self] in
+                    var state = model.presentationState
+                    state.isSettingsVisible = delegate.settingsPresented
+                    return state
+                }, panel: { [unowned self] in delegate.panel },
+                onVisibilityChange: { [unowned self] in delegate.applyIslandVisibility($0) },
+                onAutoDismiss: { model.setExpanded(false, origin: .automatic) })
+            model.presentationPolicy = presentation
+            presentation.start()
+            defer { presentation.stop(); model.presentationPolicy = nil }
+            check("display-empty-hidden", !delegate.panel.isVisible, "An empty island is ordered out immediately.")
+            model.inject(["event": "agent.presence", "session_id": "qa-presence", "provider": "qa-fixture"])
+            model.inject(["event": "session.start", "session_id": "qa-idle", "provider": "qa-fixture"])
+            check("display-presence-hidden", !delegate.panel.isVisible, "Connections without tasks do not show the island.")
+            model.inject(["event": "agent.working", "session_id": "qa-task", "provider": "qa-fixture", "title": "Display check"])
+            check("display-task-visible", delegate.panel.isVisible, "A first task shows the native panel without polling.")
+            model.inject(["event": "agent.waiting", "session_id": "qa-task", "provider": "qa-fixture"])
+            check("display-waiting-visible", delegate.panel.isVisible, "A question keeps the panel available.")
+            model.inject(["event": "agent.completed", "session_id": "qa-task", "provider": "qa-fixture"])
+            check("display-result-visible", delegate.panel.isVisible, "The result stays visible until dismissed.")
+            model.setExpanded(true, origin: .hover)
+            model.clearFinished()
+            check("display-last-dismissal-hidden", !delegate.panel.isVisible && !model.expanded,
+                  "Removing the last task hides and collapses a hover-opened panel without polling.")
+            model.setExpanded(true)
+            check("display-manual-open", delegate.panel.isVisible, "Explicit menu or shortcut expansion remains available.")
+            model.setExpanded(false)
+            check("display-manual-close", !delegate.panel.isVisible, "Closing an empty manually opened panel hides it again.")
+            delegate.settingsPresented = true
+            presentation.refresh()
+            check("display-settings-visible", delegate.panel.isVisible, "Settings preserve the island preview on screen.")
+            delegate.settingsPresented = false
+            presentation.refresh()
+            check("display-settings-close-hidden", !delegate.panel.isVisible, "Closing Settings restores session-only visibility.")
+            overrides["showOnlyWithSessions"] = false
+            applyOverrides()
+            presentation.refresh()
+            check("display-toggle-off-visible", delegate.panel.isVisible, "Disabling session-only display restores the empty island.")
+            for language in ["en", "ru", "zh-Hans"] {
+                overrides["appLanguage"] = language
+                applyOverrides()
+                let settings = SettingsView(model: model, tab: 5)
+                try await captureHosted(settings, name: "settings-display-\(language)", language: language,
+                                        size: NSSize(width: 820, height: 660))
+                try await captureHosted(settings.display.frame(maxHeight: .infinity, alignment: .top)
+                    .padding(20).background(SettingsPalette.background)
+                    .preferredColorScheme(.dark).toggleStyle(SettingsSwitchStyle())
+                    .groupBoxStyle(SettingsCardGroupBoxStyle()).tint(NotchDesign.accent),
+                    name: "settings-display-full-\(language)", language: language, size: NSSize(width: 600, height: 1450))
+            }
         }
 
         func exportStaticViews() async throws {

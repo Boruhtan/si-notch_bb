@@ -73,7 +73,6 @@
 "Локальный канал работает" = "本地通道正常";
 "На связи" = "在线";
 "Нажмите, чтобы поздороваться" = "点击打个招呼";
-"Название задачи в свёрнутом острове" = "收起时显示任务标题";
 "Настройки" = "设置";
 "Настройки…" = "设置…";
 "Не найден исполняемый si-notchctl по указанному пути." = "指定路径下未找到可执行的 si-notchctl。";
@@ -562,3 +561,9 @@
 "remote.setup.changedSincePreview" = "设置在预览后发生更改，请重新检查配置。";
 "remote.checkConnection" = "检查连接";
 "remote.sshChecked" = "SSH 登录已验证。点击连接后启动套接字转发。";
+
+"settings.visibility" = "显示时机";
+"settings.showOnlyWithSessions" = "仅在有会话时显示";
+"settings.showOnlyWithSessionsHelp" = "会话列表为空时隐藏灵动岛。已完成的任务也计入其中。仍可通过菜单栏或键盘快捷键手动打开灵动岛。";
+"settings.resetDisplay" = "恢复默认设置";
+"settings.resetDisplayHelp" = "恢复默认位置、尺寸、显示时机和卡片详情。";

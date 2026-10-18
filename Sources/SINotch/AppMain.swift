@@ -130,7 +130,7 @@ final class AppModel: ObservableObject {
         }
         return .idle
     }
-    var compactWingWidth: CGFloat { defaults.bool(forKey: "compactDetail") ? 132 : 26 }
+    let compactWingWidth: CGFloat = 26
     let compactStatusWidth: CGFloat = 18
     let compactShoulderWidth: CGFloat = 3
     var desiredPanelHeight: CGFloat {
@@ -185,6 +185,11 @@ final class AppModel: ObservableObject {
     }
     var attentionCount: Int { sessions.filter { [.approval, .waiting, .failed].contains($0.status) }.count }
     var workingCount: Int { sessions.filter { $0.status == .working }.count }
+    var presentationState: IslandPresentationState {
+        IslandPresentationState(hasSessions: !sessions.isEmpty, hasWorkingSessions: workingCount > 0,
+            hasPendingRequest: !pending.isEmpty, pointerInside: pointerInside,
+            isExpanded: expanded, keepOpen: defaults.bool(forKey: "keepOpen"))
+    }
     var showHover: Bool { defaults.object(forKey: "hoverExpand") as? Bool ?? true }
     var quiet: Bool { defaults.bool(forKey: "quiet") }
     var socketPath: String { ProcessInfo.processInfo.environment["SI_NOTCH_SOCKET"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".si-notch/run/events.sock").path }
@@ -198,7 +203,8 @@ final class AppModel: ObservableObject {
         }
         defaults.register(defaults: ["codexAutoDetect": true, "updateBackgroundChecks": true])
         defaults.register(defaults: PresentationPolicy.registeredDefaults)
-        defaults.register(defaults: ["hoverExpand": true, "autoExpand": true, "sound": false, "soundVolume": 0.3, "soundWorking": false, "displayMode": "notch", "idleMinutes": 120, "panelWidth": 680.0, "panelHeight": 560.0, "showModel": true, "followFocus": false, "showCompanion": true, "hoverDelay": IslandTiming.hoverEnter, "revealDwell": 5.0, "fontSize": 11.0, "showProject": true, "showTasks": true, "showSubagents": true, "showActivity": true, "showReasoning": true, "completionReveal": false, "attentionReveal": true, "shortcutEnabled": true, "shortcutModifier": "ctrlAlt"])
+        defaults.register(defaults: DisplayPreferences.defaults)
+        defaults.register(defaults: ["hoverExpand": true, "autoExpand": true, "sound": false, "soundVolume": 0.3, "soundWorking": false, "idleMinutes": 120, "showCompanion": true, "hoverDelay": IslandTiming.hoverEnter, "revealDwell": 5.0, "completionReveal": false, "attentionReveal": true, "shortcutEnabled": true, "shortcutModifier": "ctrlAlt"])
     }
 
     func start() {
@@ -671,7 +677,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         host.sizingOptions = []
         host.onHover = { [weak model] inside in model?.hover(inside) }
         panel.contentView = host
-        model.onLayout = { [weak self] in self?.layout() }
+        model.onLayout = { [weak self] in
+            self?.model.presentationPolicy?.refresh()
+            self?.layout()
+        }
         model.openSettings = { [weak self] in self?.showSettings() }
         model.openIntegrations = { [weak self] in
             guard let self else { return }
@@ -692,24 +701,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         rebuildMenu()
         layout()
-        panel.orderFrontRegardless()
         if let i = CommandLine.arguments.firstIndex(of: "--qa-export"), CommandLine.arguments.indices.contains(i + 1) {
+            panel.orderFrontRegardless()
             QAExporter.run(delegate: self, directory: URL(fileURLWithPath: CommandLine.arguments[i + 1], isDirectory: true))
             return
         }
         model.presentationPolicy = PresentationPolicy(defaults: model.defaults,
             state: { [weak self] in
                 guard let self else { return IslandPresentationState() }
-                return IslandPresentationState(hasWorkingSessions: self.model.workingCount > 0,
-                    hasPendingRequest: !self.model.pending.isEmpty, pointerInside: self.model.pointerInside,
-                    isExpanded: self.model.expanded, keepOpen: self.model.defaults.bool(forKey: "keepOpen"),
-                    isSettingsVisible: self.settingsPresented)
+                var state = self.model.presentationState
+                state.isSettingsVisible = self.settingsPresented
+                return state
             }, panel: { [weak self] in self?.panel },
-            onVisibilityChange: { [weak self] visible in
-                guard let self else { return }
-                if visible { self.layout(allowAnimation: false); self.panel.orderFrontRegardless() }
-                else { self.panel.orderOut(nil); self.model.hover(false); self.layout(allowAnimation: false) }
-            }, onAutoDismiss: { [weak model] in model?.setExpanded(false, origin: .automatic) })
+            onVisibilityChange: { [weak self] in self?.applyIslandVisibility($0) },
+            onAutoDismiss: { [weak model] in model?.setExpanded(false, origin: .automatic) })
         model.presentationPolicy?.start()
         model.start()
         UpdateBackgroundChecker.shared.start()
@@ -813,6 +818,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             framesPerSecond: screen.maximumFramesPerSecond)
         frameAnimation = animation
         animation.start()
+    }
+    func applyIslandVisibility(_ visible: Bool) {
+        if visible {
+            layout(allowAnimation: false)
+            panel.orderFrontRegardless()
+        } else {
+            panel.orderOut(nil)
+            model.hover(false)
+            if model.presentationPolicy?.currentDecision?.hiddenReason == .noSessions {
+                model.setExpanded(false, origin: .automatic)
+            }
+            layout(allowAnimation: false)
+        }
     }
     func screenID(_ s: NSScreen) -> String { String(describing: s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] ?? "main") }
     func windowDidMove(_ notification: Notification) {

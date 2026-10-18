@@ -27,7 +27,6 @@ struct IslandView: View {
     @AppStorage("appLanguage") var appLanguage = "auto"
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @AppStorage("showCompanion") var showCompanion = true
-    @AppStorage("compactDetail") var compactDetail = false
     @AppStorage("shortcutModifier") var shortcutModifier = "ctrlAlt"
     @AppStorage("shortcutEnabled") var shortcutEnabled = true
     @State private var renderedExpanded = false
@@ -98,10 +97,7 @@ struct IslandView: View {
                 } else {
                     Image(systemName: model.dominantStatus.symbol).foregroundStyle(model.dominantStatus.tint)
                 }
-                if compactDetail, let first = model.sessions.first {
-                    Text(model.displayTitle(first)).font(.system(size: 10, weight: .medium)).lineLimit(1)
-                }
-            }.padding(.horizontal, compactDetail ? 8 : 3).frame(width: model.compactWingWidth)
+            }.padding(.horizontal, 3).frame(width: model.compactWingWidth)
             Color.clear.frame(width: model.cameraWidth)
             Group {
                 if model.sessions.isEmpty { Circle().fill(model.dominantStatus.tint).frame(width: 5, height: 5) }
