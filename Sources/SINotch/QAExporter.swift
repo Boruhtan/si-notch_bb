@@ -176,12 +176,16 @@ enum QAExporter {
                     report.screenFrame = Frame(screen.frame)
                     report.screenMaximumFramesPerSecond = screen.maximumFramesPerSecond
                 }
+                if CommandLine.arguments.contains("--qa-remote-only") {
+                    try await exportRemoteViews()
+                } else {
                 try exportSounds()
                 try await verifySoundDelivery()
                 if !CommandLine.arguments.contains("--qa-sounds-only") {
                     try await exportMotion()
                     try await verifyWindowAnchorRecovery()
                     if !geometryOnly { try await exportStaticViews() }
+                }
                 }
                 report.outcome = report.checks.contains { $0.outcome == "failed" } ? "failed" :
                     report.checks.contains { $0.outcome == "inconclusive" } ? "inconclusive" : "passed"
@@ -509,6 +513,36 @@ enum QAExporter {
             }
             check("repeated-layout-does-not-restart", repeatTime <= baseTime + 0.12,
                   "Baseline first stable endpoint=\(baseTime)s; repeated-layout endpoint=\(repeatTime)s; allowed sampling difference=0.12s.")
+        }
+
+        func exportRemoteViews() async throws {
+            let suite = "si-notch.qa.remote." + UUID().uuidString
+            let preferences = UserDefaults(suiteName: suite)!
+            defer { preferences.removePersistentDomain(forName: suite) }
+            let model = AppModel(defaults: preferences)
+            guard let id = model.remoteConnections.add() else { throw ExportError.invalidBootState }
+            var connection = model.remoteConnections.connections[0]
+            connection.name = "lain"; connection.host = "user@trusted-host"
+            connection.remoteSocketPath = "/home/user/.si-notch/run/events.sock"
+            connection.profiles = ["lain", "Editor", "Researcher"].enumerated().map { index, name in
+                RemoteHermesProfile(id: index == 0 ? "default" : name.lowercased(), home: "/home/user/.hermes",
+                    displayName: name, enabled: true, showSessionText: index == 0, pluginInstalled: true, connectionId: "profile-\(index)")
+            }
+            model.remoteConnections.update(connection)
+            for language in ["en", "ru", "zh-Hans"] {
+                overrides["appLanguage"] = language; applyOverrides()
+                try await captureHosted(SettingsView(model: model, tab: 10), name: "settings-remote-\(language)",
+                    language: language, size: NSSize(width: 820, height: 660))
+            }
+            _ = model.remoteConnections.add()
+            overrides["appLanguage"] = "en"; applyOverrides()
+            try await captureHosted(SettingsView(model: model, tab: 10), name: "settings-remote-multiple",
+                language: "en", size: NSSize(width: 820, height: 660))
+            model.remoteConnections.remove(model.remoteConnections.connections[1].id)
+            model.showAgents = true; model.expanded = true
+            try await captureHosted(IslandView(model: model), name: "agents-remote-group", language: "en", size: NSSize(width: 680, height: 280))
+            check("remote-fixtures-disconnected", model.remoteConnections.state(id) == .disconnected && model.store.sessions.isEmpty,
+                "Rendering saved profiles must not open SSH or create tasks.")
         }
 
         func exportStaticViews() async throws {

@@ -1,0 +1,3 @@
+- Manage multiple named SSH connections with independent connection controls and an SSH connection check.
+- Choose remote profiles and keep them organized in collapsible groups in Agents.
+- Follow remote tasks, assistant messages and tool activity with configurable text sharing.

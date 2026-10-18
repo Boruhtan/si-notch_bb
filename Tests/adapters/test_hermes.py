@@ -28,13 +28,34 @@ class HermesPluginTests(unittest.TestCase):
     def setUp(self):
         plugin._STARTED.clear()
         plugin._SEQUENCES.clear()
+        plugin._TASK_TITLES.clear()
         plugin._DISABLED_UNTIL = 0
+
+    def test_custom_tools_remain_visible_without_their_arguments_and_custom_socket_is_child_only(self):
+        output = []
+        with mock.patch.object(plugin, "_send", side_effect=lambda value: output.append(value) or True):
+            plugin.pre_tool_call(session_id="s", tool_name="mcp_custom_search", args={"secret": "PRIVATE"})
+            plugin.post_tool_call(session_id="s", tool_name="mcp_custom_search", result="PRIVATE")
+        self.assertEqual(output[-1]["tool_name"], "mcp_custom_search")
+        self.assertNotIn("PRIVATE", json.dumps(output))
+        with tempfile.TemporaryDirectory() as directory:
+            helper = Path(directory) / "helper"
+            helper.write_text("fixture")
+            helper.chmod(0o700)
+            with mock.patch.object(plugin, "_helper_path", return_value=helper), \
+                 mock.patch.object(plugin, "_settings", return_value={"socketPath": "/remote/private/events.sock"}), \
+                 mock.patch.object(plugin.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                plugin._send({"event": "agent.working"})
+                self.assertEqual(run.call_args.kwargs["env"]["SI_NOTCH_SOCKET"], "/remote/private/events.sock")
+                self.assertNotEqual(os.environ.get("SI_NOTCH_SOCKET"), "/remote/private/events.sock")
 
     def test_official_observer_contract_and_lifecycle(self):
         ctx = Context()
         plugin.register(ctx)
         self.assertEqual(set(ctx.hooks), {
-            "on_session_start", "pre_api_request", "post_tool_call",
+            "on_session_start", "pre_llm_call", "pre_api_request", "pre_tool_call", "post_tool_call",
+            "on_interim_message", "post_llm_call",
             "on_human_input_request", "on_human_input_resolved",
             "on_session_end", "on_session_finalize",
         })
@@ -82,7 +103,8 @@ class HermesPluginTests(unittest.TestCase):
             helper.write_text("#!/bin/sh\nprintf '%s\\n' \"$2\" >> \"$SI_NOTCH_TEST_OUTPUT\"\n")
             helper.chmod(0o700)
             with mock.patch.dict(os.environ, {"SI_NOTCH_CLI": str(helper),
-                                               "SI_NOTCH_TEST_OUTPUT": str(output)}):
+                                               "SI_NOTCH_TEST_OUTPUT": str(output)}), \
+                 mock.patch.object(plugin, "_TIMEOUT_SECONDS", 5):
                 plugin.on_session_start(session_id="original-id", secret="never sent")
             event = json.loads(output.read_text().strip())
             self.assertEqual(event["event"], "session.start")
@@ -129,6 +151,106 @@ class HermesPluginTests(unittest.TestCase):
                 with mock.patch.object(plugin.subprocess, "run") as run:
                     self.assertFalse(plugin._send({"event": "agent.completed"}))
                     run.assert_not_called()
+
+    def test_configured_name_is_sent_without_session_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "si-notch.json").write_text(json.dumps({"displayName": "Lane"}))
+            output = []
+            with mock.patch.object(plugin, "__file__", str(folder / "__init__.py")), \
+                 mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+                plugin.pre_api_request(session_id="private-session", user_message="PRIVATE PROMPT")
+                plugin.on_session_end(session_id="private-session", completed=True, output="PRIVATE RESULT")
+            self.assertEqual([event["title"] for event in output], ["Lane"] * 3)
+            self.assertNotIn("PRIVATE", json.dumps(output))
+
+    def test_invalid_names_and_symlinked_settings_keep_default(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            config = folder / "si-notch.json"
+            with mock.patch.object(plugin, "__file__", str(folder / "__init__.py")):
+                for name in (None, False, [], "", " " * 5, "x" * 129, "Lane\nremote", "Lane\x7f"):
+                    with self.subTest(name=name):
+                        config.write_text(json.dumps({"displayName": name}))
+                        self.assertEqual(plugin._display_name(), "Hermes Agent")
+                config.write_text("{invalid")
+                self.assertEqual(plugin._display_name(), "Hermes Agent")
+                config.rename(folder / "other.json")
+                config.symlink_to(folder / "other.json")
+                (folder / "other.json").write_text(json.dumps({"displayName": "Untrusted"}))
+                self.assertEqual(plugin._display_name(), "Hermes Agent")
+
+    def test_session_text_is_opt_in_and_tool_observer_never_returns_a_directive(self):
+        output = []
+        with mock.patch.object(plugin, "_settings", return_value={}), \
+             mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.pre_llm_call(session_id="s", user_message="PRIVATE PROMPT")
+            result = plugin.pre_tool_call(session_id="s", tool_name="terminal", args={"token": "PRIVATE TOKEN"})
+            plugin.on_interim_message(session_id="s", text="PRIVATE UPDATE")
+            plugin.post_llm_call(session_id="s", assistant_response="PRIVATE ANSWER")
+        self.assertIsNone(result)
+        self.assertNotIn("PRIVATE", json.dumps(output))
+        self.assertEqual(output[-1]["event"], "tool.start")
+
+    def test_opted_in_task_progress_and_answer_exclude_other_hook_content(self):
+        output = []
+        with mock.patch.object(plugin, "_settings", return_value={"showSessionText": True}), \
+             mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.pre_llm_call(session_id="s", turn_id="t", user_message="message:\nCheck SSH\n\nPRIVATE INSTRUCTIONS",
+                                conversation_history=["PRIVATE HISTORY"])
+            plugin.pre_tool_call(session_id="s", turn_id="t", tool_name="terminal", args={"token": "PRIVATE TOKEN"})
+            plugin.post_tool_call(session_id="s", turn_id="t", tool_name="terminal", status="ok", result="PRIVATE RESULT")
+            plugin.on_interim_message(session_id="s", turn_id="t", text="Checking connection", reasoning="PRIVATE REASONING")
+            plugin.post_llm_call(session_id="s", turn_id="t", assistant_response="Connection verified",
+                                 conversation_history=["PRIVATE HISTORY"])
+            plugin.on_session_end(session_id="s", turn_id="t", completed=True)
+        self.assertEqual(output[1]["first_prompt"], "Check SSH")
+        self.assertTrue(all(event["title"] == "Hermes Agent · Check SSH" for event in output))
+        self.assertEqual(output[-3]["message"], "Checking connection")
+        self.assertEqual(output[-2]["message"], "Connection verified")
+        self.assertEqual(output[-1]["event"], "agent.completed")
+        self.assertNotIn("PRIVATE", json.dumps(output))
+        self.assertEqual(len({event["turn_id"] for event in output[1:]}), 1)
+
+    def test_visible_text_is_bounded_and_requires_a_boolean_opt_in(self):
+        with mock.patch.object(plugin, "_settings", return_value={"showSessionText": "true"}):
+            self.assertIsNone(plugin._session_text("private"))
+        with mock.patch.object(plugin, "_settings", return_value={"showSessionText": True}):
+            self.assertEqual(plugin._session_text("\x00ready\x7f"), "ready")
+            self.assertEqual(len(plugin._session_text("x" * 5000)), 4000)
+            self.assertEqual(len(plugin._session_text("x" * 2000, prompt=True)), 1600)
+
+    def test_task_title_follows_new_turn_and_is_removed_when_text_is_disabled(self):
+        output = []
+        settings = {"showSessionText": True, "displayName": "Lane"}
+        with mock.patch.object(plugin, "_settings", return_value=settings), \
+             mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.pre_llm_call(session_id="s", user_message="Check SSH")
+            plugin.pre_tool_call(session_id="s", tool_name="terminal")
+            self.assertEqual(output[-1]["title"], "Lane · Check SSH")
+            plugin.pre_llm_call(session_id="s", user_message="Check delivery")
+            self.assertEqual(output[-1]["title"], "Lane · Check delivery")
+            settings["showSessionText"] = False
+            plugin.pre_api_request(session_id="s")
+            self.assertEqual(output[-1]["title"], "Lane")
+            plugin.on_session_finalize(session_id="s")
+            self.assertEqual(plugin._TASK_TITLES, {})
+
+    def test_profile_identity_scopes_sessions_and_announces_presence(self):
+        output = []
+        with mock.patch.object(plugin, "_settings", return_value={"instanceId": "host:architect", "displayName": "Architect"}), \
+             mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.register(Context())
+            plugin.pre_api_request(session_id="shared-native-id")
+            first = output[-1]
+        with mock.patch.object(plugin, "_settings", return_value={"instanceId": "host:researcher", "displayName": "Researcher"}), \
+             mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.pre_api_request(session_id="shared-native-id")
+        self.assertEqual(output[0]["event"], "agent.presence")
+        self.assertEqual(first["connection_name"], "Architect")
+        self.assertNotEqual(first["connection_id"], output[-1]["connection_id"])
+        self.assertNotEqual(first["session_id"], output[-1]["session_id"])
+        self.assertNotIn("shared-native-id", json.dumps(output))
 
 
 if __name__ == "__main__":

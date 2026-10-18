@@ -25,16 +25,20 @@ struct RemoteSSHCommand {
     let localSocketPath: String
 
     init(host: String, remoteSocketPath: String, localSocketPath: String) throws {
-        let parts = host.split(separator: "@", omittingEmptySubsequences: false)
-        guard !host.isEmpty, host.utf8.count <= 255, parts.count <= 2,
-              parts.allSatisfy({ !$0.isEmpty && $0.first != "-" && $0.first != "." &&
-                  $0.utf8.allSatisfy(Self.validHostByte) }) else { throw RemoteConnectionFailure.invalidHost }
+        try Self.validateHost(host)
         guard Self.validSocketPath(remoteSocketPath), Self.validSocketPath(localSocketPath) else {
             throw RemoteConnectionFailure.invalidPath
         }
         self.host = host
         self.remoteSocketPath = remoteSocketPath
         self.localSocketPath = localSocketPath
+    }
+
+    static func validateHost(_ host: String) throws {
+        let parts = host.split(separator: "@", omittingEmptySubsequences: false)
+        guard !host.isEmpty, host.utf8.count <= 255, parts.count <= 2,
+              parts.allSatisfy({ !$0.isEmpty && $0.first != "-" && $0.first != "." &&
+                  $0.utf8.allSatisfy(Self.validHostByte) }) else { throw RemoteConnectionFailure.invalidHost }
     }
 
     var arguments: [String] {
@@ -73,11 +77,11 @@ enum RemoteSSHForwardConfirmation {
 
 @MainActor
 final class RemoteConnectionController: ObservableObject {
-    @Published var host: String { didSet { defaults.set(host, forKey: "remoteSSHHost") } }
-    @Published var remoteSocketPath: String { didSet { defaults.set(remoteSocketPath, forKey: "remoteSSHSocketPath") } }
+    @Published var host: String { didSet { defaults?.set(host, forKey: "remoteSSHHost") } }
+    @Published var remoteSocketPath: String { didSet { defaults?.set(remoteSocketPath, forKey: "remoteSSHSocketPath") } }
     @Published private(set) var state: RemoteConnectionState = .disconnected
 
-    private let defaults: UserDefaults
+    private let defaults: UserDefaults?
     private let sshExecutable: URL
     private let socketAvailable: (String) -> Bool
     private let retryDelays: [TimeInterval]
@@ -92,14 +96,14 @@ final class RemoteConnectionController: ObservableObject {
     private var diagnosticLine = Data()
     private var discardingLongLine = false
 
-    init(defaults: UserDefaults = .standard, sshExecutable: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
+    init(defaults: UserDefaults? = .standard, sshExecutable: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
          retryDelays: [TimeInterval] = [1, 2, 4], socketAvailable: @escaping (String) -> Bool = RemoteConnectionController.isSocketAvailable) {
         self.defaults = defaults
         self.sshExecutable = sshExecutable
         self.retryDelays = retryDelays
         self.socketAvailable = socketAvailable
-        host = defaults.string(forKey: "remoteSSHHost") ?? ""
-        remoteSocketPath = defaults.string(forKey: "remoteSSHSocketPath") ?? ""
+        host = defaults?.string(forKey: "remoteSSHHost") ?? ""
+        remoteSocketPath = defaults?.string(forKey: "remoteSSHSocketPath") ?? ""
     }
 
     func connect(localSocketPath: String) {

@@ -23,6 +23,7 @@ extension AgentStatus {
 
 struct IslandView: View {
     @ObservedObject var model: AppModel
+    @State private var expandedConnectors: Set<UUID> = []
     @AppStorage("appLanguage") var appLanguage = "auto"
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @AppStorage("showCompanion") var showCompanion = true
@@ -219,15 +220,29 @@ struct IslandView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(model.agents) { agent in
-                        HStack(spacing: 8) {
-                            Image(systemName: ProviderStyle(provider: agent.id).symbol)
-                                .foregroundStyle(ProviderStyle(provider: agent.id).color).frame(width: 16)
-                            Text(agent.name).fontWeight(.medium).lineLimit(1)
-                            Spacer()
-                            Circle().fill(agent.state == .online ? Color.green : Color.gray.opacity(0.5)).frame(width: 5, height: 5)
-                            Text(agent.state.label).foregroundStyle(NotchDesign.secondary)
-                        }.font(.system(size: 11)).padding(.horizontal, 24).frame(height: 32)
+                    ForEach(model.agents.filter { $0.connectorID == nil }) { agent in agentRow(agent) }
+                    ForEach(model.remoteConnections.connections.filter(\.showInAgents)) { connection in
+                        let profiles = model.agents.filter { $0.connectorID == connection.id }
+                        DisclosureGroup(isExpanded: Binding(get: { expandedConnectors.contains(connection.id) }, set: {
+                            if $0 { expandedConnectors.insert(connection.id) } else { expandedConnectors.remove(connection.id) }
+                        })) {
+                            ForEach(profiles) { agent in agentRow(agent).padding(.leading, 12) }
+                            if profiles.isEmpty {
+                                Text(L10n.tr("remote.noProfiles")).font(.system(size: 11))
+                                    .foregroundStyle(NotchDesign.secondary).padding(.vertical, 8)
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "network").frame(width: 16)
+                                Text(connection.displayName).fontWeight(.medium).lineLimit(1)
+                                Spacer()
+                                Text("\(profiles.count)").foregroundStyle(NotchDesign.secondary)
+                                Button { model.openRemoteConnections?() } label: { Image(systemName: "gearshape") }
+                                    .buttonStyle(.plain).help(L10n.tr("remote.settingsTab"))
+                                Circle().fill(model.remoteConnections.state(connection.id) == .connected ? Color.green : Color.gray.opacity(0.5))
+                                    .frame(width: 5, height: 5)
+                            }.font(.system(size: 11)).frame(height: 32)
+                        }.padding(.horizontal, 24).tint(NotchDesign.secondary)
                     }
                     if model.agents.isEmpty {
                         Text(L10n.tr("agents.empty")).font(.system(size: 12)).foregroundStyle(NotchDesign.secondary).padding(20)
@@ -239,6 +254,16 @@ struct IslandView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).frame(height: 36)
             }.buttonStyle(.plain).foregroundStyle(NotchDesign.secondary)
         }.padding(.top, 8).padding(.bottom, 8)
+    }
+    private func agentRow(_ agent: AgentConnection) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: ProviderStyle(provider: agent.provider).symbol)
+                .foregroundStyle(ProviderStyle(provider: agent.provider).color).frame(width: 16)
+            Text(agent.name).fontWeight(.medium).lineLimit(1)
+            Spacer()
+            Circle().fill(agent.state == .online ? Color.green : Color.gray.opacity(0.5)).frame(width: 5, height: 5)
+            Text(agent.state.label).foregroundStyle(NotchDesign.secondary)
+        }.font(.system(size: 11)).padding(.horizontal, 24).frame(height: 32)
     }
     var emptyState: some View {
         VStack(alignment: .leading, spacing: 17) {

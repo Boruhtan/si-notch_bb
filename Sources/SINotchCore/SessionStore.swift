@@ -34,10 +34,14 @@ public struct SessionStore: Sendable {
     public mutating func apply(_ event: AgentEvent, receivedAt: Date = Date()) -> EventDisposition {
         guard (try? event.validate()) != nil, receivedAt.timeIntervalSince1970.isFinite else { return .invalid }
         guard event.kind != .unknown else { return .ignoredUnknown }
+        // Connection announcements have no task lifecycle or history.
+        guard event.kind != .agentPresence else { return .applied }
         let dedupeKey = event.id.map { event.provider + "\0" + event.sessionID + "\0" + $0 }
         if let dedupeKey, rememberedIDs.contains(dedupeKey) { return .duplicate }
         if let existing = sessions[event.sessionID] {
             guard existing.provider == event.provider else { return .invalid }
+            if let connectionID = event.connectionID, let current = existing.connectionID,
+               connectionID != current { return .invalid }
             if let sequence = event.sequence, let previous = existing.lastSequence {
                 guard sequence > previous else { return .outOfOrder }
             } else if event.timestamp < existing.lastEventAt {
@@ -49,6 +53,8 @@ public struct SessionStore: Sendable {
             title: event.title ?? Self.defaultTitle(for: event), projectPath: event.projectPath,
             createdAt: event.timestamp, updatedAt: receivedAt)
         if let title = event.title, !title.isEmpty { session.title = title }
+        if let connectionID = event.connectionID { session.connectionID = connectionID }
+        if let connectionName = event.connectionName { session.connectionName = connectionName }
         if let projectPath = event.projectPath {
             session.projectPath = projectPath
             if event.title == nil, session.title == "Agent session" { session.title = Self.defaultTitle(for: event) }
@@ -102,7 +108,7 @@ public struct SessionStore: Sendable {
                 }
             case .subagentStarted:
                 if session.status == .idle { session.status = .working }
-            case .taskUpdated, .subagentEnded, .usageUpdated, .unknown: break
+            case .taskUpdated, .subagentEnded, .usageUpdated, .agentPresence, .unknown: break
             }
         }
         session.updatedAt = max(session.updatedAt, receivedAt)

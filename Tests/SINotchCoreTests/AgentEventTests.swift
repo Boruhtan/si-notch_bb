@@ -3,6 +3,13 @@ import XCTest
 @testable import SINotchCore
 
 final class AgentEventTests: XCTestCase {
+    func testProfilePresenceRoundTripsAndRequiresAnIdentity() throws {
+        let event = AgentEvent(sessionID: "presence-1", provider: "hermes", kind: .agentPresence, timestamp: Date(timeIntervalSince1970: 1000),
+                               connectionID: "host:architect", connectionName: "Architect")
+        XCTAssertEqual(try AgentEvent.parse(data: JSONEncoder().encode(event)), event)
+        XCTAssertThrowsError(try AgentEvent.parse(data: Data(#"{"event":"agent.presence","session_id":"p","provider":"hermes"}"#.utf8)))
+        XCTAssertThrowsError(try AgentEvent.parse(data: Data(#"{"event":"agent.presence","session_id":"p","provider":"hermes","connection_id":"bad id"}"#.utf8)))
+    }
     func testTurnIdentityAliasesAndRoundTrip() throws {
         for key in ["turn_id", "turn-id", "turnID", "turnId"] {
             let data = try JSONSerialization.data(withJSONObject: ["session_id": "session", "provider": "custom", "event": "agent.working", key: "turn-7"])

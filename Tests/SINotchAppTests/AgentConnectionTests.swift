@@ -4,6 +4,56 @@ import SINotchCore
 @testable import SINotch
 
 final class AgentConnectionTests: XCTestCase {
+    @MainActor func testProfileAnnouncementsStayOutOfTasksAndRemainSeparate() throws {
+        let model = AppModel(defaults: UserDefaults(suiteName: "si-notch.profile-tests." + UUID().uuidString)!)
+        for name in ["architect", "researcher"] {
+            let event = AgentEvent(sessionID: "presence-" + name, provider: "hermes", kind: .agentPresence,
+                id: "event-" + name, connectionID: name, connectionName: name.capitalized)
+            model.receive(try JSONEncoder().encode(event)) { response in
+                XCTAssertEqual((try? JSONSerialization.jsonObject(with: response) as? [String: Any])?["ok"] as? Bool, true)
+            }
+        }
+        XCTAssertTrue(model.store.sessions.isEmpty)
+        XCTAssertTrue(model.activity.isEmpty)
+        XCTAssertEqual(Set(model.agents.map(\.name)), ["Architect", "Researcher"])
+        XCTAssertTrue(model.agents.allSatisfy { $0.provider == "hermes" && $0.state == .online })
+        for id in ["a", "b"] {
+            model.receive(try JSONEncoder().encode(AgentEvent(sessionID: id, provider: "hermes", kind: .working,
+                connectionID: "architect", connectionName: "Architect"))) { _ in }
+        }
+        XCTAssertEqual(model.agents.count, 2)
+        XCTAssertEqual(model.sessions.count, 2)
+        XCTAssertTrue(model.pending.isEmpty)
+    }
+
+    func testSavedProfilesStayVisibleWithoutTasksAndCanBeHiddenOrRenamed() {
+        let now = Date(timeIntervalSince1970: 1000), connector = UUID()
+        let observed = AgentConnection.Observation(provider: "hermes", connectionID: "p", name: "remote supplied name",
+            lastSeen: now, eventAt: now, eventID: "one")
+        let saved = AgentConnection.Configuration(connectionID: "p", name: "lain", connectorID: connector, visible: true)
+        let quiet = AgentConnection.Configuration(connectionID: "quiet", name: "Editor", connectorID: connector, visible: true)
+        let rows = AgentConnection.project(detected: [], sessions: [], receipts: [:], running: [], now: now,
+            connections: [observed.id: observed], configurations: [saved, quiet])
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.first?.name, "lain")
+        XCTAssertEqual(rows.first?.connectorID, connector)
+        XCTAssertEqual(rows.first?.state, .online)
+        XCTAssertEqual(rows.last?.state, .installed)
+        let hidden = AgentConnection.Configuration(connectionID: "p", name: "lain", connectorID: connector, visible: false)
+        XCTAssertTrue(AgentConnection.project(detected: [], sessions: [], receipts: [:], running: [], now: now,
+            connections: [observed.id: observed], configurations: [hidden]).isEmpty)
+    }
+
+    func testAnotherProfilesActivityDoesNotRefreshAQuietProfile() {
+        let now = Date()
+        let old = now.addingTimeInterval(-121)
+        let connections = [
+            "hermes/a": AgentConnection.Observation(provider: "hermes", connectionID: "a", name: "A", lastSeen: now, eventAt: now, eventID: "a"),
+            "hermes/b": AgentConnection.Observation(provider: "hermes", connectionID: "b", name: "B", lastSeen: old, eventAt: old, eventID: "b")]
+        let agents = AgentConnection.project(detected: [], sessions: [], receipts: ["hermes": now], running: [], now: now, connections: connections)
+        XCTAssertEqual(agents.first { $0.name == "A" }?.state, .online)
+        XCTAssertEqual(agents.first { $0.name == "B" }?.state, .lastSeen)
+    }
     func testCodexIdentitySurvivesRenamedBundleWithoutMatchingOrdinaryChatGPT() {
         XCTAssertEqual(AgentConnection.runningProviders(detected: [],
             applicationPaths: ["/Applications/ChatGPT.app"], bundleIdentifiers: ["com.openai.codex"]), ["codex"])

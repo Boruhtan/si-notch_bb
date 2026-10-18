@@ -12,6 +12,7 @@ public enum AgentStatus: String, Codable, CaseIterable, Sendable {
 }
 
 public enum AgentEventKind: String, Codable, CaseIterable, Sendable {
+    case agentPresence = "agent.presence"
     case sessionStarted = "session.start"
     case working = "agent.working"
     case toolStarted = "tool.start"
@@ -124,6 +125,8 @@ public struct AgentSession: Identifiable, Codable, Equatable, Sendable {
     public var id: String
     public var sessionID: String { id }
     public var provider: String
+    public var connectionID: String?
+    public var connectionName: String?
     public var title: String
     public var projectPath: String?
     public var status: AgentStatus

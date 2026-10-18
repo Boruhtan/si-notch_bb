@@ -2,7 +2,7 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.6 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.9-beta.1 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
 
 | Feature | Availability and verification |
 | --- | --- |
@@ -12,10 +12,10 @@ Available features and verification scope for 0.4.6 on Apple Silicon. Automated 
 | Codex CLI | Local session detection and hooks. Live lifecycle events and hook setup are tested. |
 | Pi | Extension integration tested with Pi 1.2.0, a local mock model and a real shell tool. |
 | OpenCode | Plugin loading and session start/end tested with 2.0.32. Helper discovery has automated coverage; model tool and permission events remain unverified. |
-| Hermes | Plugin discovery, configuration and event mapping are tested. A complete model session remains unverified. |
+| Hermes | Remote API model turns, parallel sessions, task/final text and terminal events verified on one macOS host. Plugin setup and profile isolation have automated coverage. Other agent versions and entry points remain unverified. |
 | Claude Code, Gemini CLI, Copilot CLI, Cursor | Configuration merging, backups and hook events have automated coverage. Complete model sessions remain unverified. |
 | Custom API | Event delivery, duplicates, timeouts and request/reply are tested. |
-| SSH | Socket forwarding and relay acknowledgements tested with an isolated local SSH server. External hosts remain unverified. |
+| SSH | External-host forwarding and relay delivery verified on one macOS host. Multiple independent tunnel controllers, SSH checks, saved profiles and migration have automated coverage. Manual beta UI validation remains pending. |
 | Interface | Layout, session states, transparency, companions and three languages have automated coverage. |
 | Sounds | Levels, fades, mute controls, duplicate suppression and parallel sessions are tested. |
 | Codex account limits | Read-only CLI requests and manual refresh are tested. |

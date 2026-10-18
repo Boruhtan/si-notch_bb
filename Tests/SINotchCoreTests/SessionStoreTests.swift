@@ -3,6 +3,18 @@ import XCTest
 @testable import SINotchCore
 
 final class SessionStoreTests: XCTestCase {
+    func testPresenceCannotCreateATaskAndProfileIdentityCannotChange() {
+        var store = SessionStore()
+        XCTAssertEqual(store.apply(AgentEvent(sessionID: "p", provider: "hermes", kind: .agentPresence,
+            connectionID: "architect", connectionName: "Architect")), .applied)
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertEqual(store.apply(AgentEvent(sessionID: "s", provider: "hermes", kind: .working,
+            connectionID: "architect", connectionName: "Architect")), .applied)
+        XCTAssertEqual(store.sessions["s"]?.connectionName, "Architect")
+        XCTAssertEqual(store.apply(AgentEvent(sessionID: "s", provider: "hermes", kind: .completed,
+            connectionID: "researcher", connectionName: "Researcher")), .invalid)
+        XCTAssertEqual(store.sessions["s"]?.status, .working)
+    }
     private func event(_ kind: AgentEventKind, session: String = "s", at time: TimeInterval = 100,
                        id: String? = nil, sequence: Int? = nil, tool: String? = nil) -> AgentEvent {
         AgentEvent(sessionID: session, provider: "claude", kind: kind, timestamp: Date(timeIntervalSince1970: time),

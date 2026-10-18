@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import Carbon
 import ServiceManagement
@@ -27,6 +28,7 @@ final class AppModel: ObservableObject {
     @Published var serverError: AppDisplayError?
     @Published var receivedCount = 0
     @Published var providerReceipts: [String: Date] = [:]
+    @Published var connectionReceipts: [String: AgentConnection.Observation] = [:]
     @Published var activity: [String: [SessionActivity]] = [:]
     @Published var selectedID: String?
     @Published var pending: [String: PendingRequest] = [:]
@@ -55,10 +57,12 @@ final class AppModel: ObservableObject {
     var server: IPCServer?
     var codexObserver: CodexSessionObserver?
     var piObserver: PiSessionObserver?
-    let remoteConnections = RemoteConnectionController()
+    let remoteConnections: RemoteConnectionManager
+    private var remoteSubscription: AnyCancellable?
     var onLayout: (() -> Void)?
     var openSettings: (() -> Void)?
     var openIntegrations: (() -> Void)?
+    var openRemoteConnections: (() -> Void)?
     var closeSettings: (() -> Void)?
     var focusPanel: (() -> Void)?
     var timer: Timer?
@@ -101,7 +105,7 @@ final class AppModel: ObservableObject {
     var sessions: [AgentSession] { store.orderedSessions.filter { AgentConnection.isTask($0) && !sessionFilter.hides(path: $0.projectPath, firstPrompt: $0.firstPrompt) } }
     var agents: [AgentConnection] {
         AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
-            receipts: providerReceipts, running: runningAgentProviders, now: presenceNow)
+            receipts: providerReceipts, running: runningAgentProviders, now: presenceNow, connections: connectionReceipts, configurations: remoteConnections.agentConfigurations)
     }
     var agentsSectionHeight: CGFloat { 40 }
     func displayTitle(_ session: AgentSession) -> String {
@@ -130,7 +134,10 @@ final class AppModel: ObservableObject {
     let compactStatusWidth: CGFloat = 18
     let compactShoulderWidth: CGFloat = 3
     var desiredPanelHeight: CGFloat {
-        if showAgents { return headerHeight + 92 + (agents.isEmpty ? 56 : CGFloat(min(5, agents.count)) * 32) }
+        if showAgents {
+            let groups = remoteConnections.connections.filter(\.showInAgents).count
+            return headerHeight + 92 + CGFloat(min(5, max(2, agents.count + groups))) * 32
+        }
         if sessions.isEmpty { return headerHeight + (quiet ? 166 : 142) + agentsSectionHeight }
         let filters: CGFloat = 38
         let searchHeight: CGFloat = sessions.count > 3 || !search.isEmpty ? 44 : 0
@@ -184,7 +191,11 @@ final class AppModel: ObservableObject {
 
     init(defaults: UserDefaults = .standard, soundPlayer: EventSoundPlayer? = nil) {
         self.defaults = defaults
+        self.remoteConnections = RemoteConnectionManager(defaults: defaults)
         self.soundPlayer = soundPlayer ?? EventSoundPlayer(defaults: defaults)
+        remoteSubscription = remoteConnections.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.revision += 1; self?.onLayout?() }
+        }
         defaults.register(defaults: ["codexAutoDetect": true, "updateBackgroundChecks": true])
         defaults.register(defaults: PresentationPolicy.registeredDefaults)
         defaults.register(defaults: ["hoverExpand": true, "autoExpand": true, "sound": false, "soundVolume": 0.3, "soundWorking": false, "displayMode": "notch", "idleMinutes": 120, "panelWidth": 680.0, "panelHeight": 560.0, "showModel": true, "followFocus": false, "showCompanion": true, "hoverDelay": IslandTiming.hoverEnter, "revealDwell": 5.0, "fontSize": 11.0, "showProject": true, "showTasks": true, "showSubagents": true, "showActivity": true, "showReasoning": true, "completionReveal": false, "attentionReveal": true, "shortcutEnabled": true, "shortcutModifier": "ctrlAlt"])
@@ -247,7 +258,7 @@ final class AppModel: ObservableObject {
             reply(json(["ok": true, "protocol_version": 1, "received_count": receivedCount,
                         "paused": paused, "session_count": sessions.count,
                         "visible_session_count": showAgents ? 0 : filtered.count, "active_filter": activeFilter, "tab": showAgents ? "agents" : "sessions",
-                        "agents": agents.map { ["provider": $0.id, "state": $0.state.rawValue] },
+                        "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue] },
                         "expanded": expanded, "expansion_history": expansionHistory,
                         "providers": providerReceipts.mapValues { $0.timeIntervalSince1970 },
                         "sessions": sessions.map { ["id": $0.id, "provider": $0.provider, "status": $0.status.rawValue] }]))
@@ -261,6 +272,19 @@ final class AppModel: ObservableObject {
             }
             let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             let waitingForReply = raw["await_response"] as? Bool == true
+            if event.kind == .agentPresence {
+                guard !waitingForReply else { reply(json(["ok": false, "error": "invalid_presence"])); return }
+                presenceNow = Date()
+                let applied = noteConnection(event, at: presenceNow)
+                receivedCount += 1
+                if applied {
+                    providerReceipts[event.provider.lowercased()] = presenceNow
+                    revision += 1
+                    onLayout?()
+                }
+                reply(json(["ok": true, "disposition": applied ? "applied" : "duplicate"]))
+                return
+            }
             let previous = store.sessions[event.sessionID]
             if waitingForReply {
                 let rid = raw["request_id"] as? String ?? ""
@@ -307,6 +331,7 @@ final class AppModel: ObservableObject {
                 if !suppressPresentation {
                     presenceNow = Date()
                     providerReceipts[event.provider.lowercased()] = presenceNow
+                    _ = noteConnection(event, at: presenceNow)
                 }
                 if let item = SessionActivity(event) {
                     var history = activity[event.sessionID] ?? []
@@ -362,12 +387,31 @@ final class AppModel: ObservableObject {
         } catch { reply(json(["ok": false, "error": "invalid_event", "message": L10n.eventError(error)])) }
     }
 
+    private func noteConnection(_ event: AgentEvent, at receivedAt: Date) -> Bool {
+        guard let connectionID = event.connectionID else { return false }
+        let provider = event.provider.lowercased()
+        let key = provider + "/" + connectionID
+        if let previous = connectionReceipts[key] {
+            guard event.timestamp >= previous.eventAt,
+                  event.id == nil || event.id != previous.eventID else { return false }
+        }
+        if connectionReceipts[key] == nil, connectionReceipts.count >= 256,
+           let oldest = connectionReceipts.min(by: { $0.value.lastSeen < $1.value.lastSeen })?.key {
+            connectionReceipts.removeValue(forKey: oldest)
+        }
+        let name = event.connectionName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        connectionReceipts[key] = AgentConnection.Observation(provider: provider, connectionID: connectionID,
+            name: name.flatMap { $0.isEmpty ? nil : $0 } ?? provider, lastSeen: receivedAt,
+            eventAt: event.timestamp, eventID: event.id)
+        return true
+    }
+
     func tick(at monotonicNow: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         var changed = false
         let visibleBefore = sessions.map { $0.id }
         let now = Date()
         let currentAgents = AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
-            receipts: providerReceipts, running: runningAgentProviders, now: now)
+            receipts: providerReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts, configurations: remoteConnections.agentConfigurations)
         if currentAgents != agents { presenceNow = now }
         let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let foreground = Set(sessions.filter { $0.terminalBundleID != nil && $0.terminalBundleID == frontBundle }.map(\.id))
@@ -585,7 +629,7 @@ final class AppModel: ObservableObject {
         selectSession(items[min(items.count - 1, max(0, index + delta))].id)
     }
     func shutdown() {
-        remoteConnections.disconnect(); codexObserver?.stop(); piObserver?.stop(); timer?.invalidate()
+        remoteConnections.disconnectAll(); codexObserver?.stop(); piObserver?.stop(); timer?.invalidate()
         for observer in presenceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         presenceObservers.removeAll()
         cancelExpansionTimer(); cancelRevealTimer()
@@ -633,6 +677,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self else { return }
             self.showSettings()
             self.setSettingsContent(tab: 1, provider: "codex")
+        }
+        model.openRemoteConnections = { [weak self] in
+            self?.showSettings()
+            self?.setSettingsContent(tab: 10, provider: "hermes")
         }
         model.closeSettings = { [weak self] in self?.settingsWindow?.close() }
         model.focusPanel = { [weak self] in self?.panel.makeKey() }

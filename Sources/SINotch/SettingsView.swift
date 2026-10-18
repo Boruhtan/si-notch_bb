@@ -132,7 +132,7 @@ struct SettingsView: View {
                         else if tab == 1 { integrations }
                         else if tab == 3 { SoundSettingsView() }
                         else if tab == 4 { companionSettings }
-                        else if tab == 10 { RemoteSettingsView(controller: model.remoteConnections, localSocketPath: model.socketPath) }
+                        else if tab == 10 { RemoteSettingsView(manager: model.remoteConnections, localSocketPath: model.socketPath) }
                         else if tab == 9 { SettingsAboutView(model: model) }
                         else { diagnostics }
                     }

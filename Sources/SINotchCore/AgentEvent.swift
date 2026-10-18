@@ -30,6 +30,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
 
     public var sessionID: String
     public var provider: String
+    public var connectionID: String?
+    public var connectionName: String?
     public var kind: AgentEventKind
     public var timestamp: Date
     public var id: String?
@@ -60,9 +62,12 @@ public struct AgentEvent: Codable, Equatable, Sendable {
                 usage: AgentUsage? = nil, terminalBundleID: String? = nil,
                 targetURL: String? = nil, approvalID: String? = nil,
                 modelName: String? = nil, reasoningEffort: String? = nil, firstPrompt: String? = nil,
-                turnID: String? = nil, isInternalSession: Bool? = nil, attentionRequestID: String? = nil) {
+                turnID: String? = nil, isInternalSession: Bool? = nil, attentionRequestID: String? = nil,
+                connectionID: String? = nil, connectionName: String? = nil) {
         self.sessionID = sessionID
         self.provider = provider
+        self.connectionID = connectionID
+        self.connectionName = connectionName
         self.kind = kind
         self.timestamp = timestamp
         self.id = id
@@ -96,6 +101,9 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         try Self.validateID(sessionID, field: "session_id")
         if let id { try Self.validateID(id, field: "id", maximum: 512) }
         guard Self.isIdentifier(provider, maximum: 64) else { throw AgentEventError.invalidProvider }
+        if let connectionID { try Self.validateID(connectionID, field: "connection_id") }
+        if connectionName != nil && connectionID == nil { throw AgentEventError.invalidField("connection_id") }
+        if kind == .agentPresence && connectionID == nil { throw AgentEventError.invalidField("connection_id") }
         guard timestamp.timeIntervalSince1970.isFinite else { throw AgentEventError.invalidTimestamp }
         if let sequence, sequence < 0 { throw AgentEventError.invalidSequence }
         if let task {
@@ -109,7 +117,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         if let approvalID { try Self.validateID(approvalID, field: "approval_id") }
         if let turnID { try Self.validateID(turnID, field: "turn_id") }
         if let attentionRequestID { try Self.validateID(attentionRequestID, field: "attention_request_id", maximum: 512) }
-        for (value, name, maximum) in [(title, "title", 512), (projectPath, "cwd", 4096),
+        for (value, name, maximum) in [(connectionName, "connection_name", 512), (title, "title", 512), (projectPath, "cwd", 4096),
                                        (message, "message", 16384), (toolName, "tool_name", 512),
                                        (terminalBundleID, "terminal_bundle_id", 256), (targetURL, "target_url", 4096),
                                        (modelName, "model", 256), (reasoningEffort, "reasoning_effort", 128), (firstPrompt, "first_prompt", 16384)] {
@@ -135,6 +143,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         }
         self.sessionID = sessionID
         provider = try raw.string("provider", "agent") ?? (hook != nil ? "claude" : isCodex ? "codex" : "custom")
+        connectionID = try raw.string("connection_id")
+        connectionName = try raw.string("connection_name")
         kind = Self.normalize(hook ?? eventName)
         if hook == "Notification" {
             let type = try raw.string("notification_type")
@@ -180,7 +190,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         try validate()
         var raw: [String: JSONValue] = ["session_id": .string(sessionID), "provider": .string(provider),
                                       "event": .string(kind.rawValue), "timestamp": .number(timestamp.timeIntervalSince1970)]
-        let strings = [("id", id), ("title", title), ("cwd", projectPath), ("message", message),
+        let strings = [("connection_id", connectionID), ("connection_name", connectionName),
+                       ("id", id), ("title", title), ("cwd", projectPath), ("message", message),
                        ("tool_name", toolName), ("terminal_bundle_id", terminalBundleID),
                        ("target_url", targetURL), ("approval_id", approvalID),
                        ("model", modelName), ("reasoning_effort", reasoningEffort), ("first_prompt", firstPrompt), ("turn_id", turnID)]
@@ -197,6 +208,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
 
     private static func normalize(_ name: String) -> AgentEventKind {
         switch name.lowercased().filter({ $0.isLetter || $0.isNumber }) {
+        case "agentpresence": return .agentPresence
         case "sessionstart", "sessionstarted", "start": return .sessionStarted
         case "agentworking", "working", "userpromptsubmit", "agentturnstart", "precompact", "postcompact": return .working
         case "toolstart", "toolstarted", "pretooluse": return .toolStarted
