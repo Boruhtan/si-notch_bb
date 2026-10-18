@@ -1,0 +1,12 @@
+*.app/
+.build/
+.swiftpm/
+build/
+.DS_Store
+research-private/
+*.log
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example

@@ -1,0 +1,75 @@
+{
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "exec": "/ABS/PATH/si-notchctl",
+        "args": [
+          "harness-hook",
+          "--agent",
+          "copilot",
+          "--event",
+          "sessionStart"
+        ],
+        "timeoutSec": 1.5
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "exec": "/ABS/PATH/si-notchctl",
+        "args": [
+          "harness-hook",
+          "--agent",
+          "copilot",
+          "--event",
+          "userPromptSubmitted"
+        ],
+        "timeoutSec": 1.5
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "exec": "/ABS/PATH/si-notchctl",
+        "args": [
+          "harness-hook",
+          "--agent",
+          "copilot",
+          "--event",
+          "agentStop"
+        ],
+        "timeoutSec": 1.5
+      }
+    ],
+    "notification": [
+      {
+        "type": "command",
+        "exec": "/ABS/PATH/si-notchctl",
+        "args": [
+          "harness-hook",
+          "--agent",
+          "copilot",
+          "--event",
+          "notification"
+        ],
+        "timeoutSec": 1.5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "exec": "/ABS/PATH/si-notchctl",
+        "args": [
+          "harness-hook",
+          "--agent",
+          "copilot",
+          "--event",
+          "sessionEnd"
+        ],
+        "timeoutSec": 1.5
+      }
+    ]
+  },
+  "version": 1
+}

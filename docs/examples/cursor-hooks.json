@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "'/ABS/PATH/si-notchctl' harness-hook --agent cursor --event sessionStart",
+        "timeout": 1.5
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "'/ABS/PATH/si-notchctl' harness-hook --agent cursor --event beforeSubmitPrompt",
+        "timeout": 1.5
+      }
+    ],
+    "stop": [
+      {
+        "command": "'/ABS/PATH/si-notchctl' harness-hook --agent cursor --event stop",
+        "timeout": 1.5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "'/ABS/PATH/si-notchctl' harness-hook --agent cursor --event sessionEnd",
+        "timeout": 1.5
+      }
+    ]
+  },
+  "version": 1
+}

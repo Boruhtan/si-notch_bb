@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "Bash|Read|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3",
+            "args": [
+              "/absolute/path/to/si-notch/scripts/claude-permission.py",
+              "--cli",
+              "/absolute/path/to/si-notch.app/Contents/Helpers/si-notchctl"
+            ],
+            "timeout": 85
+          }
+        ]
+      }
+    ]
+  }
+}

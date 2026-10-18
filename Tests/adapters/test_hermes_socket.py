@@ -1,0 +1,85 @@
+"""Hermes plugin -> built si-notchctl -> private Unix socket ACK, without a model."""
+
+import importlib.util
+import json
+import os
+from pathlib import Path
+import socket
+import tempfile
+import threading
+import unittest
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[2]
+PLUGIN = ROOT / "scripts/adapters/hermes-si-notch/__init__.py"
+spec = importlib.util.spec_from_file_location("si_notch_hermes_socket_test", PLUGIN)
+plugin = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(plugin)
+
+
+class HermesSocketTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get("SI_NOTCH_HELPER"), "set SI_NOTCH_HELPER to test the built helper")
+    def test_plugin_to_real_helper_to_acknowledging_socket(self):
+        helper = Path(os.environ["SI_NOTCH_HELPER"]).resolve()
+        self.assertTrue(helper.is_file() and os.access(helper, os.X_OK))
+        seen = []
+        errors = []
+        with tempfile.TemporaryDirectory(prefix="si-notch-hermes-", dir="/private/tmp") as directory:
+            os.chmod(directory, 0o700)
+            endpoint = str(Path(directory) / "events.sock")
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(endpoint)
+            os.chmod(endpoint, 0o600)
+            listener.listen(5)
+            listener.settimeout(3)
+
+            def serve():
+                try:
+                    for _ in range(5):
+                        connection, _ = listener.accept()
+                        with connection:
+                            connection.settimeout(2)
+                            frame = bytearray()
+                            while b"\n" not in frame:
+                                chunk = connection.recv(8192)
+                                if not chunk:
+                                    raise AssertionError("helper closed without a complete frame")
+                                frame.extend(chunk)
+                            seen.append(json.loads(bytes(frame).split(b"\n", 1)[0]))
+                            connection.sendall(b'{"ok":true,"disposition":"applied"}\n')
+                except Exception as error:
+                    errors.append(error)
+
+            thread = threading.Thread(target=serve, daemon=True)
+            thread.start()
+            try:
+                with mock.patch.dict(os.environ, {"SI_NOTCH_CLI": str(helper), "SI_NOTCH_SOCKET": endpoint}):
+                    plugin.on_session_start(session_id="secret-id", prompt="PRIVATE PROMPT")
+                    plugin.pre_api_request(session_id="secret-id", user_message="PRIVATE PROMPT")
+                    plugin.post_tool_call(session_id="secret-id", tool_name="terminal", status="success",
+                                          args={"token": "PRIVATE TOKEN"}, result="PRIVATE RESULT")
+                    plugin.on_session_end(session_id="secret-id", completed=True, output="PRIVATE RESULT")
+                    plugin.on_session_finalize(session_id="secret-id")
+                thread.join(timeout=3)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual([event["event"] for event in seen], [
+                    "session.start", "agent.working", "tool.finish", "agent.completed", "session.end",
+                ])
+                self.assertEqual([event["sequence"] for event in seen], list(range(1, 6)))
+                for event in seen:
+                    self.assertEqual(event["provider"], "hermes")
+                    self.assertEqual(event["session_id"], seen[0]["session_id"])
+                    self.assertEqual(set(event) - {"tool_name"}, {
+                        "event", "session_id", "provider", "id", "sequence", "timestamp", "title",
+                    })
+                combined = json.dumps(seen)
+                for secret in ("secret-id", "PRIVATE PROMPT", "PRIVATE TOKEN", "PRIVATE RESULT"):
+                    self.assertNotIn(secret, combined)
+            finally:
+                listener.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

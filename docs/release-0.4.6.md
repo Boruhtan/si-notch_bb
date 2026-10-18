@@ -1,0 +1,3 @@
+- Fixed unintended panel reopening after dismissal.
+- Fixed inconsistent hover activation and dismissal timing.
+- Fixed automatic expansion when no user response is required.

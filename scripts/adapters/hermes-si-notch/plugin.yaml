@@ -1,0 +1,11 @@
+name: si-notch
+version: "1.0"
+description: Observe Hermes Agent lifecycle and show metadata-only status in si-notch
+provides_hooks:
+  - on_session_start
+  - pre_api_request
+  - post_tool_call
+  - on_human_input_request
+  - on_human_input_resolved
+  - on_session_end
+  - on_session_finalize

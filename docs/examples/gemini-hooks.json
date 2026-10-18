@@ -1,0 +1,64 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "si-notch",
+            "command": "'/ABS/PATH/si-notchctl' harness-hook --agent gemini --event SessionStart",
+            "timeout": 1500
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "si-notch",
+            "command": "'/ABS/PATH/si-notchctl' harness-hook --agent gemini --event BeforeAgent",
+            "timeout": 1500
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "si-notch",
+            "command": "'/ABS/PATH/si-notchctl' harness-hook --agent gemini --event AfterAgent",
+            "timeout": 1500
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "si-notch",
+            "command": "'/ABS/PATH/si-notchctl' harness-hook --agent gemini --event Notification",
+            "timeout": 1500
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "si-notch",
+            "command": "'/ABS/PATH/si-notchctl' harness-hook --agent gemini --event SessionEnd",
+            "timeout": 1500
+          }
+        ]
+      }
+    ]
+  }
+}

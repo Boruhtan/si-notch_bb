@@ -1,0 +1,32 @@
+[English](parity.md) · [Русский](ru/parity.md) · [简体中文](zh-CN/parity.md)
+
+# Feature status
+
+Available features and verification scope for 0.4.6 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+
+| Feature | Availability and verification |
+| --- | --- |
+| Panel interaction | Hover activation, delayed dismissal and automatic expansion for active input requests. Geometry, timers, cancellation and request handling have automated coverage; hover feel requires manual checking. |
+| Session navigation | Opens Codex task links or the originating app. Routing and failure handling are tested; selecting a specific terminal tab is not supported. |
+| Codex Desktop | Session details over local IPC. Live event delivery and session recovery after restart are tested. |
+| Codex CLI | Local session detection and hooks. Live lifecycle events and hook setup are tested. |
+| Pi | Extension integration tested with Pi 1.2.0, a local mock model and a real shell tool. |
+| OpenCode | Plugin loading and session start/end tested with 2.0.32. Helper discovery has automated coverage; model tool and permission events remain unverified. |
+| Hermes | Plugin discovery, configuration and event mapping are tested. A complete model session remains unverified. |
+| Claude Code, Gemini CLI, Copilot CLI, Cursor | Configuration merging, backups and hook events have automated coverage. Complete model sessions remain unverified. |
+| Custom API | Event delivery, duplicates, timeouts and request/reply are tested. |
+| SSH | Socket forwarding and relay acknowledgements tested with an isolated local SSH server. External hosts remain unverified. |
+| Interface | Layout, session states, transparency, companions and three languages have automated coverage. |
+| Sounds | Levels, fades, mute controls, duplicate suppression and parallel sessions are tested. |
+| Codex account limits | Read-only CLI requests and manual refresh are tested. |
+| Updates | Stable/beta selection, Ed25519 verification, replacement, launch and rollback are tested. Builds are ad hoc signed and not notarized. |
+
+## Manual validation
+
+Physical audio output, hover feel, Mission Control, all multi-monitor/no-notch/fullscreen combinations and macOS 14–15 rendering require manual validation. Static screenshots do not measure compositor frame rate.
+
+## Not supported
+
+Exact terminal-tab navigation, automatic quiet mode for Focus/lock/screen sharing, Bark, Docker relay, Claude Desktop/Cowork and other providers' account limits.
+
+[Testing instructions](verification.md).

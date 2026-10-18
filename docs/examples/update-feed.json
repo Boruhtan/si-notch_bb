@@ -1,0 +1,15 @@
+{
+  "feedVersion": 1,
+  "releases": [
+    {
+      "version": "1.0.0-beta.1",
+      "bundleVersion": "1.0.0",
+      "bundleBuild": "11",
+      "channel": "beta",
+      "notes": "Release notes.",
+      "url": "https://updates.example.org/si-notch-1.0.0-beta.1.zip",
+      "sha256": "<64 lowercase hexadecimal characters>",
+      "size": 12345678
+    }
+  ]
+}
