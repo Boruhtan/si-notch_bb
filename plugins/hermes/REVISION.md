@@ -2,13 +2,13 @@
 
 Plugin version: **1.5**.
 
-Immutable runtime source: [`fb8396cb8a846d1f2c3b57228a5582a0450a9289`](https://github.com/eugeneb1ack/si-notch/tree/fb8396cb8a846d1f2c3b57228a5582a0450a9289/plugins/hermes).
+Immutable installation source: [`1bddbd627250a37dcba89faa442769896357d505`](https://github.com/eugeneb1ack/si-notch/tree/1bddbd627250a37dcba89faa442769896357d505/plugins/hermes).
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref fb8396cb8a846d1f2c3b57228a5582a0450a9289 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 1bddbd627250a37dcba89faa442769896357d505 --no-enable
 ```
 
-The native Hermes installer downloaded this exact subdirectory revision in an isolated `HERMES_HOME` on macOS. It found the plugin under `plugins/si-notch`, left it disabled as requested, and its files matched the source hashes below. `configure.py setup` succeeded with text sharing disabled and a private socket directory. The production Hermes configuration hash stayed unchanged.
+The native Hermes installer downloaded the runtime in an isolated `HERMES_HOME` on macOS, then updated it to this exact subdirectory revision with `--force --no-enable`. The update preserved `si-notch.json` byte for byte and left production configuration unchanged. The four runtime files remained identical to the initially installed revision `fb8396cb8a846d1f2c3b57228a5582a0450a9289`. It found the plugin under `plugins/si-notch`, left it disabled as requested, and its files matched the source hashes below. `configure.py setup` succeeded with text sharing disabled and a private socket directory. The production Hermes configuration hash stayed unchanged.
 
 | File | SHA-256 |
 | --- | --- |

@@ -4,11 +4,11 @@
 
 将远程 Hermes 的任务、可见助手消息、工具开始/结束/失败、最终回答与完成状态显示在 Mac 刘海中；Agents 按连接分组显示各配置。
 
-插件 **1.5**。需要 **si-notch 0.4.9-beta.1 或更新版本**、可信 SSH 密钥登录及 Unix 套接字转发、远程 Python 3.10+。仅使用标准库与现有解释器，无需 pip 依赖、模型凭据、TCP 监听器或新服务。
+插件 **1.5**。需要 **si-notch 0.4.9 或更新版本**、可信 SSH 密钥登录及 Unix 套接字转发、远程 Python 3.10+。仅使用标准库与现有解释器，无需 pip 依赖、模型凭据、TCP 监听器或新服务。
 
 ## 推荐：通过 si-notch 设置
 
-1. 在 Mac 安装应用；首个 beta 可通过 **Settings → About → Beta** 更新。
+1. 在 Mac 安装 si-notch 0.4.9 或更新版本，或通过 **Settings → About** 更新。
 2. **Remote SSH → Add connection**：填写连接名称与 SSH 主机/别名。**Check connection** 只验证登录。
 3. **Check profiles**：选择配置、显示名称及是否共享消息文本。
 4. **Preview changes → Apply plugin changes**：安装应用内置插件及中继，保留远程备份。检查实际激活结果；未运行网关的配置会在下次启动时加载。
@@ -22,7 +22,7 @@
 此目录是名为 `si-notch` 的完整插件。内置 `relay.py` 通过 Python 运行，不依赖可执行权限。使用 [REVISION.md](REVISION.md) 中经验证的 40 位提交 SHA：
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref fb8396cb8a846d1f2c3b57228a5582a0450a9289 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 1bddbd627250a37dcba89faa442769896357d505 --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "Remote Hermes" --hide-text
 hermes plugins enable si-notch
 ```
@@ -35,11 +35,13 @@ hermes plugins enable si-notch
 
 ## 验证与隐私
 
-连接后运行：
+原生 Git 安装在连接后运行：
 
 ```sh
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" check
 ```
+
+由应用设置的配置可能没有 `configure.py`，连接后可直接运行新会话测试。本指南的诊断 CLI 属于原生安装包。
 
 `state: delivered` 表示 Mac 确认收到 presence 事件，不会创建任务。随后在新会话运行 [测试提示词](SMOKE_TEST_PROMPT.md)，在 Mac 验证任务、`Working · terminal`、两次工具完成记录、最终回答及 Done。不同配置应保持独立。[安装提示词](INSTALL_PROMPT.md) · [俄语版本](INSTALL_PROMPT.ru.md)。
 

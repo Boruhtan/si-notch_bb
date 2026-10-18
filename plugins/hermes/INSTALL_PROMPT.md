@@ -8,7 +8,7 @@ Profile: <default or an explicitly chosen existing profile>
 Display name: <name to show in si-notch>
 Share task and assistant text: no
 
-Use https://github.com/eugeneb1ack/si-notch/tree/codex/remote-ssh-beta/plugins/hermes as the source. Read its README and REVISION.md and use exactly the tested 40-character commit in REVISION.md. Do not install a mutable branch tip or substitute another repository.
+Use https://github.com/eugeneb1ack/si-notch/tree/main/plugins/hermes as the source. Read its README and REVISION.md and use exactly the tested 40-character commit in REVISION.md. Do not install a mutable branch tip or substitute another repository.
 
 You may inspect Hermes version/help, the selected profile's real home, plugin metadata and the private socket path. Do not read or print .env files, tokens, passwords, SSH keys, histories, memories or unrelated configuration. Preserve existing hooks, notify settings, model/provider settings and approval policy. Do not create credentials or persistent services. If the profile/name/text choice is missing, ask one short question; do not silently choose or enable all profiles.
 

@@ -4,11 +4,11 @@
 
 Show remote Hermes sessions in your Mac's notch: tasks, visible assistant messages, tool names and start/finish/failure events, completion, and separate profiles in Agents.
 
-Plugin **1.5**. Use **si-notch 0.4.9-beta.1 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
+Plugin **1.5**. Use **si-notch 0.4.9 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
 
 ## Recommended: configure from si-notch
 
-1. Install si-notch on the Mac. For the first beta, select **Settings → About → Beta** and update.
+1. Install si-notch 0.4.9 or newer on the Mac, or update through **Settings → About**.
 2. Open **Settings → Remote SSH → Add connection**. Enter a name and SSH host/alias. **Check connection** verifies login only.
 3. Click **Check profiles**. Choose the profiles, edit their display names, and choose whether to share task/assistant text.
 4. **Preview changes → Apply plugin changes** installs the bundled observer and relay with remote backups. Check the result; a profile without a running gateway loads the plugin on its next start.
@@ -24,7 +24,7 @@ This directory is a complete Hermes plugin, named `si-notch`. Its own `relay.py`
 Use the tested immutable revision in [REVISION.md](REVISION.md):
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref fb8396cb8a846d1f2c3b57228a5582a0450a9289 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 1bddbd627250a37dcba89faa442769896357d505 --no-enable
 ```
 
 For a named profile, put `-p PROFILE` before `plugins` in each Hermes command. The command pins the full tested revision. The source is this repository, not an entry in the Hermes plugin catalog. Review it before enabling; retain the normal installer checks and consent prompts.
@@ -46,11 +46,13 @@ On the Mac, add the SSH host and the **absolute socket path printed by setup**, 
 
 ## Check delivery and run a real task
 
-With the Mac connected:
+For a native installation, with the Mac connected:
 
 ```sh
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" check
 ```
+
+App-managed profiles may not contain `configure.py`; after Connect, use the new-session smoke test directly. The diagnostic CLI commands in this guide belong to the native package.
 
 `state: delivered` means the Mac acknowledged a presence event. It creates no task and proves no model/tool lifecycle. Run the [smoke-test prompt](SMOKE_TEST_PROMPT.md) in a **new session** of the enabled profile. Verify the task description, `Working · terminal`, two completed tool calls in Activity, final text, and Done. Repeat in another profile; the cards and Agents rows should remain separate.
 
