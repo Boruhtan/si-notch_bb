@@ -1,0 +1,2 @@
+- Reduced CPU usage while idle.
+- Improved companion animation efficiency.

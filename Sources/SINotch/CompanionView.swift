@@ -40,7 +40,8 @@ struct CompanionView: View {
     var body: some View {
         let _ = appLanguage
         let selectedStyle = style ?? CompanionStyle(rawValue: storedStyle) ?? .robot
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || previewTime != nil)) { timeline in
+        TimelineView(CompanionTimelineSchedule(status: status, motion: motion,
+            greetingStartedAt: greetingStartedAt, paused: reduceMotion || previewTime != nil)) { timeline in
             let time = previewTime ?? timeline.date.timeIntervalSinceReferenceDate
             let pose = previewTime == nil ? motion.value(at: time, reduceMotion: reduceMotion) : CompanionPose.target(status)
             let age = previewTime ?? max(0, time - motion.startedAt)

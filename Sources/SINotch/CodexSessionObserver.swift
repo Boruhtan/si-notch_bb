@@ -99,19 +99,13 @@ struct CodexRolloutScanner {
         var found: [Candidate] = []
         for directory in directories {
             guard let contents = try? fm.contentsOfDirectory(at: URL(fileURLWithPath: directory),
-                includingPropertiesForKeys: [.isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { continue }
+                includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
             for url in contents where url.lastPathComponent.hasPrefix("rollout-") && url.pathExtension == "jsonl" {
-                guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]),
-                      values.isSymbolicLink != true,
-                      let attributes = try? fm.attributesOfItem(atPath: url.path),
-                      attributes[.type] as? FileAttributeType == .typeRegular,
-                      let size = attributes[.size] as? NSNumber,
-                      let inode = attributes[.systemFileNumber] as? NSNumber,
-                      let modified = attributes[.modificationDate] as? Date,
-                      now.timeIntervalSince(modified) >= -60,
-                      now.timeIntervalSince(modified) <= 30 * 60 else { continue }
-                found.append(Candidate(url: url, inode: inode.uint64Value,
-                                       size: size.uint64Value, modified: modified))
+                guard let metadata = SessionFileMetadata(url), metadata.isRegularFile,
+                      now.timeIntervalSince(metadata.modified) >= -60,
+                      now.timeIntervalSince(metadata.modified) <= 30 * 60 else { continue }
+                found.append(Candidate(url: url, inode: metadata.inode,
+                                       size: metadata.size, modified: metadata.modified))
             }
         }
         return Array(found.sorted { $0.modified > $1.modified }.prefix(maximumFiles))

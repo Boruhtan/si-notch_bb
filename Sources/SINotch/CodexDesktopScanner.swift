@@ -40,16 +40,17 @@ struct CodexDesktopScanner {
         let paths = Set(selected.map(\.path))
         cursors = cursors.filter { paths.contains($0.key) }
         for url in selected {
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  let inode = (attrs[.systemFileNumber] as? NSNumber)?.uint64Value,
-                  let size = (attrs[.size] as? NSNumber)?.uint64Value,
-                  let handle = try? FileHandle(forReadingFrom: url) else { continue }
-            defer { try? handle.close() }
+            guard let metadata = SessionFileMetadata(url), metadata.isRegularFile,
+                  metadata.owner == getuid() else { continue }
+            let inode = metadata.inode, size = metadata.size
             let previous = cursors[url.path]
             let bootstrap = previous == nil || previous?.inode != inode || size < (previous?.offset ?? 0)
             var cursor = bootstrap ? Cursor(inode: inode, offset: size > limit ? size - UInt64(limit) : 0) : previous!
             let skipPartialLine = bootstrap && cursor.offset > 0
-            guard size > cursor.offset, (try? handle.seek(toOffset: cursor.offset)) != nil,
+            guard size > cursor.offset else { cursors[url.path] = cursor; continue }
+            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
+            defer { try? handle.close() }
+            guard (try? handle.seek(toOffset: cursor.offset)) != nil,
                   let bytes = try? handle.read(upToCount: min(limit, Int(size - cursor.offset))) else { continue }
             cursor.offset += UInt64(bytes.count)
             var data = cursor.partial + bytes
@@ -139,13 +140,11 @@ struct CodexDesktopScanner {
             let date = calendar.date(byAdding: .day, value: -back, to: now)!
             let parts = calendar.dateComponents([.year, .month, .day], from: date)
             let folder = logsRoot.appendingPathComponent(String(format: "%04d/%02d/%02d", parts.year!, parts.month!, parts.day!))
-            guard let urls = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isSymbolicLinkKey]) else { continue }
+            guard let urls = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { continue }
             for url in urls where url.lastPathComponent.hasPrefix("codex-desktop-") && url.pathExtension == "log" && url.lastPathComponent.contains("-t0-") {
-                guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]), values.isSymbolicLink != true,
-                      let a = try? fm.attributesOfItem(atPath: url.path), a[.type] as? FileAttributeType == .typeRegular,
-                      (a[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
-                      let modified = a[.modificationDate] as? Date, now.timeIntervalSince(modified) < 3600 else { continue }
-                found.append((url, modified))
+                guard let metadata = SessionFileMetadata(url), metadata.isRegularFile,
+                      metadata.owner == getuid(), now.timeIntervalSince(metadata.modified) < 3600 else { continue }
+                found.append((url, metadata.modified))
             }
         }
         return found.sorted { $0.1 < $1.1 }.suffix(4).map(\.0)

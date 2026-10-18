@@ -83,6 +83,7 @@ final class AppModel: ObservableObject {
     let defaults: UserDefaults
     let soundPlayer: EventSoundPlayer
     private var sessionSounds = SessionSoundPolicy()
+    private var presenceObservers: [NSObjectProtocol] = []
 
     struct PendingRequest {
         let token = UUID().uuidString
@@ -192,6 +193,11 @@ final class AppModel: ObservableObject {
     func start() {
         detectedHarnesses = HarnessDiscoveryService().scan().detected
         refreshAgentPresence()
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            presenceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.refreshAgentPresence() }
+            })
+        }
         do {
             let ipc = IPCServer(socketPath: socketPath, onMessage: { [weak self] data, reply in
                 DispatchQueue.main.async { self?.receive(data, reply: { reply($0) }) }
@@ -203,6 +209,7 @@ final class AppModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        timer?.tolerance = 0.2
         refreshCodexObserver()
         piObserver = PiSessionObserver { [weak self] event, bootstrap in
             Task { @MainActor in
@@ -297,7 +304,10 @@ final class AppModel: ObservableObject {
             }
             store = nextStore
             if disposition == .applied {
-                if !suppressPresentation { providerReceipts[event.provider.lowercased()] = Date() }
+                if !suppressPresentation {
+                    presenceNow = Date()
+                    providerReceipts[event.provider.lowercased()] = presenceNow
+                }
                 if let item = SessionActivity(event) {
                     var history = activity[event.sessionID] ?? []
                     if history.last?.kind != item.kind || history.last?.tool != item.tool || history.last?.message != item.message {
@@ -353,10 +363,12 @@ final class AppModel: ObservableObject {
     }
 
     func tick(at monotonicNow: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        refreshAgentPresence()
         var changed = false
         let visibleBefore = sessions.map { $0.id }
         let now = Date()
+        let currentAgents = AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
+            receipts: providerReceipts, running: runningAgentProviders, now: now)
+        if currentAgents != agents { presenceNow = now }
         let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let foreground = Set(sessions.filter { $0.terminalBundleID != nil && $0.terminalBundleID == frontBundle }.map(\.id))
         let due = reminders.due(now: monotonicNow, states: Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.status) }), foregroundIDs: defaults.bool(forKey: "suppressWhenTargetAppFrontmost") ? foreground : [])
@@ -380,14 +392,20 @@ final class AppModel: ObservableObject {
         observedAttention = observedAttention.filter { store.sessions[$0.key] != nil }
         if changed { resumeAutoDismiss() }
         let timeout = defaults.integer(forKey: "idleMinutes")
-        if timeout > 0 { for id in store.expireStaleSessions(now: now, timeout: Double(timeout) * 60) { cancelRequest(id) } }
-        store.pruneSessions(now: now, retention: 24 * 60 * 60)
+        // A mutating call on @Published sends objectWillChange even if the
+        // reducer leaves every session untouched. Publish actual changes only.
+        var nextStore = store
+        let expired = timeout > 0 ? nextStore.expireStaleSessions(now: now, timeout: Double(timeout) * 60) : []
+        let pruned = nextStore.pruneSessions(now: now, retention: 24 * 60 * 60)
+        if !expired.isEmpty || !pruned.isEmpty {
+            store = nextStore
+            for id in expired { cancelRequest(id) }
+        }
         if let selectedID, !sessions.contains(where: { $0.id == selectedID }) { self.selectedID = nil; changed = true }
         if changed || visibleBefore != sessions.map({ $0.id }) { revision += 1; onLayout?() }
     }
 
     private func refreshAgentPresence() {
-        presenceNow = Date()
         let applications = NSWorkspace.shared.runningApplications
         let running = AgentConnection.runningProviders(detected: detectedHarnesses,
             applicationPaths: Set(applications.compactMap { $0.bundleURL?.resolvingSymlinksInPath().path }),
@@ -566,7 +584,14 @@ final class AppModel: ObservableObject {
         let index = selectedID.flatMap { id in items.firstIndex { $0.id == id } } ?? (delta > 0 ? -1 : items.count)
         selectSession(items[min(items.count - 1, max(0, index + delta))].id)
     }
-    func shutdown() { remoteConnections.disconnect(); codexObserver?.stop(); piObserver?.stop(); timer?.invalidate(); cancelExpansionTimer(); cancelRevealTimer(); for id in Array(pending.keys) { cancelRequest(id) }; server?.stop() }
+    func shutdown() {
+        remoteConnections.disconnect(); codexObserver?.stop(); piObserver?.stop(); timer?.invalidate()
+        for observer in presenceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        presenceObservers.removeAll()
+        cancelExpansionTimer(); cancelRevealTimer()
+        for id in Array(pending.keys) { cancelRequest(id) }
+        server?.stop()
+    }
 }
 
 @MainActor

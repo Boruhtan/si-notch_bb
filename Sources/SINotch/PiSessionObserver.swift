@@ -101,31 +101,22 @@ struct PiSessionScanner {
 
     private func candidates(now: Date) -> [Candidate] {
         let fm = FileManager.default
-        guard let rootValues = try? sessionsRoot.resourceValues(forKeys: [.isSymbolicLinkKey]),
-              rootValues.isSymbolicLink != true,
+        guard SessionFileMetadata(sessionsRoot)?.isDirectory == true,
               let directories = try? fm.contentsOfDirectory(at: sessionsRoot,
-                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]) else { return [] }
         var found: [Candidate] = []
         for directory in directories.prefix(maximumDirectories) where directory.lastPathComponent.hasPrefix("--") {
-            guard let values = try? directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-                  values.isDirectory == true, values.isSymbolicLink != true,
+            guard SessionFileMetadata(directory)?.isDirectory == true,
                   let contents = try? fm.contentsOfDirectory(at: directory,
-                    includingPropertiesForKeys: [.isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { continue }
+                    includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
             for url in contents where url.pathExtension == "jsonl" {
-                guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]),
-                      values.isSymbolicLink != true,
-                      let attributes = try? fm.attributesOfItem(atPath: url.path),
-                      attributes[.type] as? FileAttributeType == .typeRegular,
-                      (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
-                      let size = attributes[.size] as? NSNumber,
-                      let inode = attributes[.systemFileNumber] as? NSNumber,
-                      let modified = attributes[.modificationDate] as? Date,
-                      size.uint64Value >= 2,
-                      now.timeIntervalSince(modified) >= -60,
-                      now.timeIntervalSince(modified) <= recentFileAge else { continue }
-                found.append(Candidate(url: url, inode: inode.uint64Value,
-                                       size: size.uint64Value, modified: modified))
+                guard let metadata = SessionFileMetadata(url), metadata.isRegularFile,
+                      metadata.owner == getuid(), metadata.size >= 2,
+                      now.timeIntervalSince(metadata.modified) >= -60,
+                      now.timeIntervalSince(metadata.modified) <= recentFileAge else { continue }
+                found.append(Candidate(url: url, inode: metadata.inode,
+                                       size: metadata.size, modified: metadata.modified))
             }
         }
         return Array(found.sorted { $0.modified > $1.modified }.prefix(maximumCandidates))

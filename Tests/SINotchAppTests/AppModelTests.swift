@@ -1,7 +1,19 @@
+import Combine
 import XCTest
 @testable import SINotch
 
 final class AppModelTests: XCTestCase {
+    @MainActor
+    func testUnchangedMaintenanceTickDoesNotInvalidateTheInterface() {
+        let model = makeModel()
+        var changes = 0
+        let subscription = model.objectWillChange.sink { changes += 1 }
+        model.tick()
+        model.tick()
+        XCTAssertEqual(changes, 0)
+        withExtendedLifetime(subscription) {}
+    }
+
     @MainActor
     private func makeModel() -> AppModel {
         let suite = "si-notch.tests." + UUID().uuidString
