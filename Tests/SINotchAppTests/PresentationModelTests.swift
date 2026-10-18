@@ -94,11 +94,16 @@ final class PresentationModelTests: XCTestCase {
         let opened = expectation(description: "hover opens promptly")
         model.onLayout = { if model.expanded { opened.fulfill() } }
         model.hover(true)
-        await fulfillment(of: [opened], timeout: 0.3)
+        XCTAssertEqual(try XCTUnwrap(model.expansionTimer).timeInterval, HoverIntent.sampleInterval)
+        await fulfillment(of: [opened], timeout: 2)
         let closed = expectation(description: "pointer leave closes promptly")
         model.onLayout = { if !model.expanded { closed.fulfill() } }
+        let leavingAt = Date()
         model.hover(false)
-        await fulfillment(of: [closed], timeout: 0.35)
+        // Verify the requested delay separately from CI's run-loop scheduling.
+        XCTAssertEqual(try XCTUnwrap(model.expansionTimer).fireDate.timeIntervalSince(leavingAt),
+                       IslandTiming.hoverExit, accuracy: 0.05)
+        await fulfillment(of: [closed], timeout: 2)
         XCTAssertFalse(model.expanded)
     }
 

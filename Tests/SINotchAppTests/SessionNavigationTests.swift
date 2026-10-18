@@ -79,8 +79,13 @@ final class SessionNavigationTests: XCTestCase {
         navigator.completions[0](true)
         try await Task.sleep(for: .milliseconds(200))
         XCTAssertTrue(model.expanded, "Opening another app must not collapse the hovered island")
+        let closed = expectation(description: "Pointer exit collapses the island")
+        model.onLayout = { if !model.expanded { closed.fulfill() } }
+        let leavingAt = Date()
         model.hover(false)
-        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(try XCTUnwrap(model.expansionTimer).fireDate.timeIntervalSince(leavingAt),
+                       IslandTiming.hoverExit, accuracy: 0.05)
+        await fulfillment(of: [closed], timeout: 2)
         XCTAssertFalse(model.expanded, "Pointer exit should still collapse the island")
     }
 
