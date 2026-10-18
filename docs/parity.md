@@ -2,7 +2,7 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.10 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.11 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
 
 | Feature | Availability and verification |
 | --- | --- |
@@ -12,13 +12,13 @@ Available features and verification scope for 0.4.10 on Apple Silicon. Automated
 | Codex CLI | Local session detection and hooks. Live lifecycle events and hook setup are tested. |
 | Pi | Extension integration tested with Pi 1.2.0, a local mock model and a real shell tool. |
 | OpenCode | Plugin loading and session start/end tested with 2.0.32. Helper discovery has automated coverage; model tool and permission events remain unverified. |
-| Hermes | Remote API model turns, parallel sessions, task/final text and terminal events verified on one macOS host. Plugin setup and profile isolation have automated coverage. Other agent versions and entry points remain unverified. |
+| Hermes | Remote API model turns, parallel sessions, task/final text and terminal events verified on one macOS host. Plugin setup and profile isolation have automated coverage. Live parent/child model and reasoning, todo progress and child completion were checked. Background children retain their own lifecycle after a parent turn; retention and expiry have regression coverage. Other agent versions and entry points remain unverified. |
 | Claude Code, Gemini CLI, Copilot CLI, Cursor | Configuration merging, backups and hook events have automated coverage. Complete model sessions remain unverified. |
 | Custom API | Event delivery, duplicates, timeouts and request/reply are tested. |
 | SSH | External-host forwarding and relay delivery verified on one macOS host. Multiple independent tunnel controllers, SSH checks, saved profiles and migration have automated coverage. Three live beta profile cards, tool activity and completion were checked in the actual UI. |
 | Interface | Layout, session states, transparency, companions and three languages have automated coverage. |
 | Display preferences | Session-only visibility, manual opening, completed-task retention, scoped default reset and fixed compact width have automated coverage. Native panel visibility and settings bitmap exports are checked with local fixtures; physical display and fullscreen combinations still require manual validation. |
-| Session metadata | Model and reasoning are visible on unexpanded cards. All six detail switches have bitmap checks. Hermes plugin 1.6 uses native request metadata, session cwd, todo-list results and subagent hooks; Pi and OpenCode supply available model metadata. Supplied metadata and missing fields remain distinct. |
+| Session metadata | Model and reasoning are visible on unexpanded cards. All six detail switches have bitmap checks. Hermes plugin 1.7 uses native request metadata, session cwd, todo-list results and subagent hooks; Pi and OpenCode supply available model metadata. Supplied metadata and missing fields remain distinct. |
 | Sounds | Levels, fades, mute controls, duplicate suppression and parallel sessions are tested. |
 | Codex account limits | Read-only CLI requests and manual refresh are tested. |
 | Updates | Stable/beta selection, Ed25519 verification, replacement, launch and rollback are tested. Builds are ad hoc signed and not notarized. |

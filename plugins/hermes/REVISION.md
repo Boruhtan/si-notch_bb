@@ -1,24 +1,28 @@
 # Tested revision
 
-Plugin version: **1.6**. App release: **0.4.10**.
+Plugin version: **1.7**. App release: **0.4.11**.
 
-Immutable runtime source: [`05ab16ff4306e3a466502372aa0d8d95b89b0810`](https://github.com/eugeneb1ack/si-notch/tree/05ab16ff4306e3a466502372aa0d8d95b89b0810/plugins/hermes).
+Immutable runtime source: [`abb6ae74296be712cdba2d25ec7d623137746e5c`](https://github.com/eugeneb1ack/si-notch/tree/abb6ae74296be712cdba2d25ec7d623137746e5c/plugins/hermes).
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 05ab16ff4306e3a466502372aa0d8d95b89b0810 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref abb6ae74296be712cdba2d25ec7d623137746e5c --no-enable
 ```
 
-The application bundles these exact runtime files. Native PluginManager and TodoStore on the remote macOS Hermes host produced model, reasoning, session cwd, task, subagent and activity events through an isolated SSH-forwarded Unix socket. The test used synthetic lifecycle inputs and no model call. Eight existing enabled profiles loaded plugin 1.6 through the app setup protocol with no configuration actions and with native reload confirmation.
+The application bundles these exact runtime files. On the tested remote macOS host, the previous 1.2-second plugin process deadline failed five of seven presence delivery probes with the running gateway's PATH. Plugin 1.7 runs the app-managed Python relay with Hermes' current interpreter and allows 2.5 seconds for startup and bounded delivery. The same seven probes all succeeded in 0.82–1.02 seconds after the fix. Disconnection still fails open with a five-second retry backoff.
 
-The native Hermes installation handler installed this immutable source into an empty temporary profile and updated it again with the standard installer checks enabled. All four runtime hashes matched, plugin settings survived replacement, and the eight production configuration files remained byte-identical. The full CLI bootstrap in a fresh data root timed out while preparing its Python environment; the handler check used the existing Hermes interpreter.
+The app setup protocol updated only the observer source and manifest in eight already-enabled profiles. The remote receipt verified that unrelated configuration remained unchanged. Some reload acknowledgements exceeded the native timeout; a subsequent read of the running gateway's `plugins.list` confirmed version 1.7, 13 hooks and no load error in every selected profile. Profile discovery and identity handling also have regression cases for a single default profile and three profiles with arbitrary names.
 
 | File | SHA-256 |
 | --- | --- |
-| `__init__.py` | `4e431583bc6499bbc04eb3fe34f02e0f9a5cd98236acc31bfc4fcd2c414c2c91` |
-| `plugin.yaml` | `8f41d8e7b2d192be59ed3d27d6ab19bd7036d68530e80dd914124699e16a6b82` |
+| `__init__.py` | `3986d2bfce069e041cbae033639799c1cb57478e53b6ae338dba8424fe097cd6` |
+| `plugin.yaml` | `04600584c52f108d5958b008ae7866ccbd407fa37f873b7de1ba463a5f16527e` |
 | `relay.py` | `96939a4aca0e194207fdbd9fc6a24e99c9a0222fbd1a223a5cfc71958da5e3f2` |
 | `configure.py` | `eed5b0c81a73a8aefa33c2e7fb226539b6d98ac0ffeeb9db971e6bc273ce06f8` |
 
-All six Display detail switches were checked on native card bitmap exports, with local reducer, helper/socket and adapter regression coverage. Request bodies, reasoning text, child goals/summaries and unrelated tool content are excluded. Task titles follow the profile text-sharing preference.
+Real API sessions on Hermes 0.22.2 were checked in the installed application: the parent displayed `gpt-6.1-sol` and `medium`, two task titles and progress, its actual session project and tool history. Its native child displayed `gpt-6-luna` and `medium`; the persisted terminal result had exit code 0 and the requested marker, and the child returned 323. A live run exposed premature child termination when the parent finished a turn; reducer regression coverage now preserves background activity until the child's own completion, with explicit session termination, stale expiry and retention checks.
 
-A successful installation or synthetic event does not establish every real model turn. Other Hermes versions and platforms may omit metadata; actual values are shown only when the runtime supplies them.
+All six Display detail switches have native bitmap checks, alongside reducer, helper/socket and adapter regression coverage. Request bodies, reasoning text, child goals/summaries and unrelated tool content are excluded. Task titles follow the profile text-sharing preference.
+
+The native Hermes installer handler was previously verified with the same package layout in an empty temporary profile, including update-in-place and settings preservation. The full CLI bootstrap in a fresh data root timed out while preparing its Python environment; that limitation is not an installation success claim.
+
+Other Hermes versions, platforms and entry points require their own live verification. Actual metadata is shown only when supplied by the runtime.

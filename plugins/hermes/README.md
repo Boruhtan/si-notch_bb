@@ -4,13 +4,13 @@
 
 Show remote Hermes sessions in your Mac's notch: tasks, visible assistant messages, tool names and start/finish/failure events, completion, and separate profiles in Agents.
 
-Plugin **1.6**. Use **si-notch 0.4.10 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
+Plugin **1.7**. Use **si-notch 0.4.11 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
 
 Model and reasoning are taken from the current native API request. The session project comes from Hermes’ session-cwd API. Structured todo_list results and subagent lifecycle hooks supply tasks and child status. Task titles follow the existing text-sharing choice; raw requests, reasoning text and other tool content are excluded. Each field is controlled independently in Display → Session details. Older Hermes versions may omit fields.
 
 ## Recommended: configure from si-notch
 
-1. Install si-notch 0.4.10 or newer on the Mac, or update through **Settings → About**.
+1. Install si-notch 0.4.11 or newer on the Mac, or update through **Settings → About**.
 2. Open **Settings → Remote SSH → Add connection**. Enter a name and SSH host/alias. **Check connection** verifies login only.
 3. Click **Check profiles**. Choose the profiles, edit their display names, and choose whether to share task/assistant text.
 4. **Preview changes → Apply plugin changes** installs the bundled observer and relay with remote backups. Check the result; a profile without a running gateway loads the plugin on its next start.
@@ -28,7 +28,7 @@ This directory is a complete Hermes plugin, named `si-notch`. Its own `relay.py`
 Use the tested immutable revision in [REVISION.md](REVISION.md):
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 05ab16ff4306e3a466502372aa0d8d95b89b0810 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref abb6ae74296be712cdba2d25ec7d623137746e5c --no-enable
 ```
 
 For a named profile, put `-p PROFILE` before `plugins` in each Hermes command. The command pins the full tested revision. The source is this repository, not an entry in the Hermes plugin catalog. Review it before enabling; retain the normal installer checks and consent prompts.
