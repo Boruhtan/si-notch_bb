@@ -1,6 +1,6 @@
 # Tested revision
 
-Plugin version: **1.6**. App release: **0.4.10-beta.1**.
+Plugin version: **1.6**. App release: **0.4.10**.
 
 Immutable runtime source: [`15df9693d98c9cc47c55d3fc1a5e843e908392d1`](https://github.com/eugeneb1ack/si-notch/tree/15df9693d98c9cc47c55d3fc1a5e843e908392d1/plugins/hermes).
 
@@ -8,7 +8,9 @@ Immutable runtime source: [`15df9693d98c9cc47c55d3fc1a5e843e908392d1`](https://g
 hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 15df9693d98c9cc47c55d3fc1a5e843e908392d1 --no-enable
 ```
 
-The beta application bundles these exact runtime files. Native PluginManager and TodoStore on the remote macOS Hermes host produced model, reasoning, session cwd, task, subagent and activity events through an isolated SSH-forwarded Unix socket. The test used synthetic lifecycle inputs and no model call. Eight existing enabled profiles loaded plugin 1.6 through the app setup protocol with no configuration actions and with native reload confirmation.
+The application bundles these exact runtime files. Native PluginManager and TodoStore on the remote macOS Hermes host produced model, reasoning, session cwd, task, subagent and activity events through an isolated SSH-forwarded Unix socket. The test used synthetic lifecycle inputs and no model call. Eight existing enabled profiles loaded plugin 1.6 through the app setup protocol with no configuration actions and with native reload confirmation.
+
+The native Hermes installation handler installed this immutable source into an empty temporary profile and updated it again with the standard installer checks enabled. All four runtime hashes matched, plugin settings survived replacement, and the eight production configuration files remained byte-identical. The full CLI bootstrap in a fresh data root timed out while preparing its Python environment; the handler check used the existing Hermes interpreter.
 
 | File | SHA-256 |
 | --- | --- |

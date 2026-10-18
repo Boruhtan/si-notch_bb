@@ -1,0 +1,6 @@
+- Added an option to hide the island when no sessions are present and a Display settings reset button.
+- Removed the compact task title option that widened the island.
+- Made model and reasoning details visible without expanding a session card.
+- Fixed missing reasoning mode details in active sessions.
+- Fixed project visibility and added task counts to session cards.
+- Improved model, reasoning, project, task and subagent details for connected sessions.

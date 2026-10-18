@@ -2,13 +2,13 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.10-beta.1 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.10 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
 
 | Feature | Availability and verification |
 | --- | --- |
 | Panel interaction | Hover activation, delayed dismissal and automatic expansion for active input requests. Geometry, timers, cancellation and request handling have automated coverage; hover feel requires manual checking. |
 | Session navigation | Opens Codex task links or the originating app. Routing and failure handling are tested; selecting a specific terminal tab is not supported. |
-| Codex Desktop | Session details over local IPC. Live event delivery and session recovery after restart are tested. |
+| Codex Desktop | Session details over local IPC. Live event delivery and session recovery after restart are tested. Current-turn reasoning metadata and null legacy fields have regression coverage; the actual active session was checked. |
 | Codex CLI | Local session detection and hooks. Live lifecycle events and hook setup are tested. |
 | Pi | Extension integration tested with Pi 1.2.0, a local mock model and a real shell tool. |
 | OpenCode | Plugin loading and session start/end tested with 2.0.32. Helper discovery has automated coverage; model tool and permission events remain unverified. |

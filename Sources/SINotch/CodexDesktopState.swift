@@ -50,6 +50,13 @@ struct CodexDesktopState {
         let prompt = items.first { $0["type"] as? String == "userMessage" }
         let tool = active ? items.reversed().first { Self.toolName($0) != nil && $0["status"] as? String == "inProgress" } : nil
         let params = turn["params"] as? [String: Any] ?? [:]
+        let settings = (params["collaborationMode"] as? [String: Any])?["settings"] as? [String: Any] ?? [:]
+        // Desktop may leave the legacy fields null and resolve metadata in the
+        // current turn's collaboration mode instead.
+        let model = [root["latestModel"], params["model"], settings["model"]]
+            .compactMap { SessionSnippet.text($0, limit: 256) }.first
+        let effort = [root["latestReasoningEffort"], turn["requestedReasoningEffort"], params["effort"], settings["reasoning_effort"]]
+            .compactMap { SessionSnippet.text($0, limit: 128) }.first
         let attention = Self.attentionRequest(in: root, turn: turn)
         let usage = root["latestTokenUsageInfo"] as? [String: Any] ?? [:]
         let total = usage["total"] as? [String: Any] ?? [:]
@@ -60,8 +67,7 @@ struct CodexDesktopState {
             toolName: tool.flatMap(Self.toolName),
             usage: AgentUsage(inputTokens: total["inputTokens"] as? Int, outputTokens: total["outputTokens"] as? Int,
                               contextTokens: last["totalTokens"] as? Int, contextWindow: usage["modelContextWindow"] as? Int),
-            targetURL: "codex://threads/\(sessionID)", modelName: SessionSnippet.text(root["latestModel"] ?? params["model"], limit: 256),
-            reasoningEffort: SessionSnippet.text(root["latestReasoningEffort"] ?? params["effort"], limit: 128),
+            targetURL: "codex://threads/\(sessionID)", modelName: model, reasoningEffort: effort ?? "",
             firstPrompt: SessionSnippet.message(prompt?["content"]),
             turnID: (turn["turnId"] as? String ?? turn["id"] as? String).flatMap { UUID(uuidString: $0)?.uuidString.lowercased() },
             isInternalSession: CodexServiceSessionFilter.nativeClassification(source: root["source"], threadSource: root["threadSource"]),
@@ -136,7 +142,7 @@ struct CodexDesktopState {
     }
     private static let fields: Set<String> = ["id", "title", "cwd", "latestModel", "latestReasoningEffort", "source", "threadSource",
         "threadRuntimeStatus", "activeFlags", "type", "turnHistory", "kind", "history", "entitiesByKey", "turns",
-        "turnId", "turnStartedAtMs", "status", "params", "model", "effort", "items", "phase", "text", "content", "input", "questions",
+        "turnId", "turnStartedAtMs", "status", "params", "model", "effort", "requestedReasoningEffort", "collaborationMode", "settings", "reasoning_effort", "items", "phase", "text", "content", "input", "questions",
         "tool", "requests", "method", "completed", "threadId", "latestTokenUsageInfo", "total", "last", "inputTokens", "outputTokens", "totalTokens", "modelContextWindow"]
 
     private static func project(_ value: Any, depth: Int = 0) -> Any {

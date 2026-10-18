@@ -147,6 +147,53 @@ path.write_text(json.dumps(config))
         with mock.patch.object(plugin, "_settings", return_value={"instanceId": instance}):
             self.assertEqual(plugin._connection_id(), current["profiles"][0]["connection_id"])
 
+    def test_single_default_profile_install_and_repeat(self):
+        (self.profile / "config.yaml").unlink()
+        self.profile.rmdir()
+        self.request["profiles"] = [{"id": "default", "display_name": "Personal assistant", "enabled": True, "show_session_text": False}]
+        snapshot, _ = setup.inspect(self.home, self.relay, self.socket)
+        self.assertEqual([p["id"] for p in snapshot["profiles"]], ["default"])
+        self.request["snapshot"] = snapshot["snapshot"]
+        self.preview()
+        with mock.patch.object(setup.Path, "home", return_value=self.root):
+            receipt = setup.apply(self.request, self.home, self.cli, self.relay, self.socket)
+        self.assertEqual([p["id"] for p in receipt["profiles"]], ["default"])
+        self.assertTrue(receipt["profiles"][0]["loaded"])
+        current, _ = setup.inspect(self.home, self.relay, self.socket)
+        self.request["snapshot"] = current["snapshot"]
+        repeated = self.preview()
+        self.assertEqual(repeated["file_count"], 0)
+        self.assertEqual(repeated["config_count"], 0)
+        self.assertEqual(setup.scrub(json.loads(self.config.read_text())), setup.scrub(self.original))
+
+    def test_arbitrary_profile_names_and_selective_installation(self):
+        self.profile.rename(self.profile.with_name("lab_17"))
+        extra = self.home / "profiles/qa-204"
+        extra.mkdir()
+        (extra / "config.yaml").write_text(json.dumps({"hooks": {"notify": ["preserve"]}, "model": "other"}))
+        snapshot, _ = setup.inspect(self.home, self.relay, self.socket)
+        self.assertEqual({p["id"] for p in snapshot["profiles"]}, {"default", "lab_17", "qa-204"})
+        identities = {p["id"]: p["connection_id"] for p in snapshot["profiles"]}
+        self.assertEqual(len(set(identities.values())), 3)
+        self.request["snapshot"] = snapshot["snapshot"]
+        self.request["profiles"] = [{"id": p["id"], "display_name": "Assistant " + p["id"],
+                                      "enabled": p["id"] != "default", "show_session_text": p["id"] == "qa-204"}
+                                     for p in snapshot["profiles"]]
+        self.preview()
+        with mock.patch.object(setup.Path, "home", return_value=self.root):
+            receipt = setup.apply(self.request, self.home, self.cli, self.relay, self.socket)
+        self.assertEqual({p["id"] for p in receipt["profiles"]}, {"lab_17", "qa-204"})
+        self.assertEqual(json.loads(self.config.read_text()), self.original)
+        self.assertFalse((self.home / "plugins/si-notch").exists())
+        for name in ("lab_17", "qa-204"):
+            plugin = self.home / "profiles" / name / "plugins/si-notch"
+            self.assertEqual((plugin / "__init__.py").read_bytes(), (ROOT / "plugins/hermes/__init__.py").read_bytes())
+            settings = json.loads((plugin / "si-notch.json").read_text())
+            self.assertEqual(settings["showSessionText"], name == "qa-204")
+        current, _ = setup.inspect(self.home, self.relay, self.socket)
+        self.assertEqual({p["id"]: p["connection_id"] for p in current["profiles"]}, identities)
+        self.assertEqual(json.loads((extra / "config.yaml").read_text())["hooks"], {"notify": ["preserve"]})
+
 
 if __name__ == '__main__':
     unittest.main()

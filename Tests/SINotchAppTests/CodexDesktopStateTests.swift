@@ -63,6 +63,53 @@ final class CodexDesktopStateTests: XCTestCase {
         XCTAssertNil(state.event(sessionID: id)?.attentionRequestID)
     }
 
+    func testCurrentTurnReasoningWithNullLegacyMetadata() throws {
+        var state = CodexDesktopState()
+        let settings: [String: Any] = ["model": "current-model", "reasoning_effort": "xhigh",
+                                       "developer_instructions": "PRIVATE INSTRUCTIONS"]
+        let turn: [String: Any] = ["turnStartedAtMs": 1000, "status": "inProgress",
+            "requestedReasoningEffort": "high", "params": ["model": NSNull(), "effort": NSNull(),
+                "collaborationMode": ["settings": settings]],
+            "items": [["type": "reasoning", "text": "PRIVATE REASONING"]]]
+        XCTAssertTrue(state.apply(["type": "snapshot", "revision": 1, "conversationState": [
+            "id": id, "latestModel": NSNull(), "latestReasoningEffort": NSNull(),
+            "turnHistory": ["history": ["entitiesByKey": [key: turn]]]]]))
+        let base: [Any] = ["turnHistory", "history", "entitiesByKey", key]
+        XCTAssertEqual(state.event(sessionID: id)?.modelName, "current-model")
+        XCTAssertEqual(state.event(sessionID: id)?.reasoningEffort, "high")
+        XCTAssertTrue(state.apply(["type": "patches", "baseRevision": 1, "revision": 2,
+            "patches": [["op": "remove", "path": base + ["requestedReasoningEffort"]]]]))
+        XCTAssertEqual(state.event(sessionID: id)?.reasoningEffort, "xhigh")
+        XCTAssertTrue(state.apply(["type": "patches", "baseRevision": 2, "revision": 3,
+            "patches": [["op": "replace", "path": base + ["params", "collaborationMode", "settings", "reasoning_effort"], "value": "low"]]]))
+        XCTAssertEqual(state.event(sessionID: id)?.reasoningEffort, "low")
+        XCTAssertFalse(String(decoding: try JSONSerialization.data(withJSONObject: state.root), as: UTF8.self).contains("PRIVATE"))
+        var store = SessionStore()
+        store.apply(try XCTUnwrap(state.event(sessionID: id)))
+        XCTAssertEqual(store.sessions[id]?.reasoningEffort, "low")
+    }
+
+    func testReasoningUsesLatestTurnAndKeepsLegacyCompatibility() {
+        var state = CodexDesktopState()
+        var root: [String: Any] = ["id": id, "turns": [
+            ["turnStartedAtMs": 1.0, "requestedReasoningEffort": "high"],
+            ["turnStartedAtMs": 2.0, "params": ["model": "new-model", "effort": "medium"]]
+        ]]
+        XCTAssertTrue(state.apply(["type": "snapshot", "revision": 1, "conversationState": root]))
+        XCTAssertEqual(state.event(sessionID: id)?.reasoningEffort, "medium")
+        root["latestReasoningEffort"] = "xhigh"
+        XCTAssertTrue(state.apply(["type": "snapshot", "revision": 2, "conversationState": root]))
+        XCTAssertEqual(state.event(sessionID: id)?.reasoningEffort, "xhigh")
+        var store = SessionStore()
+        if let event = state.event(sessionID: id) { store.apply(event) }
+        root["latestReasoningEffort"] = NSNull()
+        root["turns"] = [["turnStartedAtMs": 3.0, "params": ["model": "new-model"]]]
+        XCTAssertTrue(state.apply(["type": "snapshot", "revision": 3, "conversationState": root]))
+        XCTAssertEqual(state.event(sessionID: id)?.reasoningEffort, "")
+        if let event = state.event(sessionID: id) { store.apply(event) }
+        XCTAssertEqual(store.sessions[id]?.reasoningEffort, "")
+    }
+
     func testAsyncQuestionIsClearedByAcceptedLongReplyAndTurnCompletion() throws {
         var state = CodexDesktopState()
         let messageID = "call/ID"

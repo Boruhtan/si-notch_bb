@@ -4,18 +4,20 @@
 
 Show remote Hermes sessions in your Mac's notch: tasks, visible assistant messages, tool names and start/finish/failure events, completion, and separate profiles in Agents.
 
-Plugin **1.6**. Use **si-notch 0.4.10-beta.1 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
+Plugin **1.6**. Use **si-notch 0.4.10 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
 
 Model and reasoning are taken from the current native API request. The session project comes from Hermes’ session-cwd API. Structured todo_list results and subagent lifecycle hooks supply tasks and child status. Task titles follow the existing text-sharing choice; raw requests, reasoning text and other tool content are excluded. Each field is controlled independently in Display → Session details. Older Hermes versions may omit fields.
 
 ## Recommended: configure from si-notch
 
-1. Install si-notch 0.4.10-beta.1 or newer on the Mac, or update through **Settings → About**.
+1. Install si-notch 0.4.10 or newer on the Mac, or update through **Settings → About**.
 2. Open **Settings → Remote SSH → Add connection**. Enter a name and SSH host/alias. **Check connection** verifies login only.
 3. Click **Check profiles**. Choose the profiles, edit their display names, and choose whether to share task/assistant text.
 4. **Preview changes → Apply plugin changes** installs the bundled observer and relay with remote backups. Check the result; a profile without a running gateway loads the plugin on its next start.
 5. Click **Connect**. A successful SSH check alone does not start forwarding. Keep the Mac app and connection running, then start a new Hermes task.
 6. Open **Sessions** for tasks and expand a card for tool history. **Agents → your connection** lists the configured profiles even when no task is running.
+
+Profile discovery reads the default Hermes home and existing named profile directories. No profile names or count are predefined. Choose only the profiles to connect; each keeps its own identity and text-sharing setting.
 
 The app installs the adapter bundled with that app version. For a Git-pinned native installation, use the alternative below and manage its code with Hermes. Reapplying app-managed setup replaces the adapter with the app's bundled version; choose one code-update method per profile.
 
