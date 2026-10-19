@@ -82,7 +82,8 @@ final class RemoteConnectionManager: ObservableObject {
         let configured = connections.flatMap { connection in
             connection.profiles.compactMap { profile in
                 profile.connectionId.map { AgentConnection.Configuration(connectionID: $0, name: profile.displayName,
-                    connectorID: connection.id, visible: connection.showInAgents && profile.enabled) }
+                    connectorID: connection.id, visible: connection.showInAgents && profile.enabled,
+                    transportState: state(connection.id)) }
             }
         }
         let activeIDs = Set(configured.map(\.connectionID))

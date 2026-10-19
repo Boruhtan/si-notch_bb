@@ -117,7 +117,9 @@ final class RemoteConnectionManagerTests: XCTestCase {
 
     @MainActor
     private func waitForConnection(_ manager: RemoteConnectionManager, _ id: UUID) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        // Process launch/pipe callbacks can be delayed in the full app suite.
+        // Keep the confirmation assertion, below the controller's 10 s deadline.
+        let deadline = ProcessInfo.processInfo.systemUptime + 8
         while ProcessInfo.processInfo.systemUptime < deadline, manager.state(id) != .connected {
             try await Task.sleep(for: .milliseconds(10))
         }

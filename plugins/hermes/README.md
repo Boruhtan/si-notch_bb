@@ -66,7 +66,7 @@ The [installation prompt](INSTALL_PROMPT.md) can perform the remote half for you
 
 Text sharing defaults to off. Enabled text includes a task excerpt (up to 1,600 characters), visible assistant updates and final answers (up to 4,000 each). Updates appear when Hermes emits their hooks; the plugin does not stream every token. Arguments, tool results, history, hidden reasoning and credentials are excluded. Tool outcome flags are inspected locally to classify failures; their content is never forwarded. Activity retains the app's most recent 12 entries.
 
-Profile and session IDs are hashed. `instanceId` is the stable local profile identity; preserve it across upgrades and use a different one when cloning a profile to another machine. Display names are labels in si-notch. Input/approval events are notifications; decisions stay in Hermes. Delivery is bounded and fails open when the Mac is disconnected; events are not queued or replayed.
+Profile and session IDs are hashed. `instanceId` is the stable local profile identity; preserve it across upgrades and use a different one when cloning a profile to another machine. Display names are labels in si-notch. Input/approval events are notifications; decisions stay in Hermes. Delivery is bounded and fails open when the Mac is disconnected; events are not queued or replayed. Plugin 1.8 announces profile presence every 30 seconds while loaded, using the same transport. The heartbeat creates no task, does not refresh task progress, and stops on plugin unload or reload. It restores presence after the Mac reconnects or restarts; presence expires after 120 seconds without delivery. Heartbeats require Hermes’ native `on_unload` API; older runtimes keep only the startup announcement and lifecycle events.
 
 ## Troubleshooting and recovery
 
@@ -81,7 +81,7 @@ Profile and session IDs are hashed. `instanceId` is the stable local profile ide
   The first command previews. The second requires connection refusal, private ownership/permissions, no holder in `lsof`, and an unchanged inode. It renames the stale socket to a backup, preserving it. It refuses a live or held socket. If `lsof` is unavailable, it makes no change. Reconnect on the Mac and run `check` again. Never delete an occupied socket or enable `StreamLocalBindUnlink` globally.
 - **`relay_failed`:** inspect the bounded error, confirm the configured helper/socket, and check that si-notch is running and unpaused. Do not weaken SSH host-key checks or socket permissions.
 - **Tools appear but messages do not:** enable text for this profile and start a new turn. A silent model or a runtime that emits no interim-message hook will provide task/final text without interim updates.
-- **Configured profile is Installed/Last seen:** it is listed but has no fresh event. A connected tunnel does not prove a profile is active.
+- **Configured profile is Installed/Last seen:** it is listed but has no fresh event. A connected tunnel does not prove a profile is active. With plugin 1.8 loaded, allow one heartbeat interval after reconnecting. The Agents group reports SSH state separately; profile rows distinguish presence from active work.
 - **Update or disable:** select a new full revision explicitly using the native installer; back up `si-notch.json` first and preserve its identity. `hermes plugins disable si-notch` stops new reporting after reload; it does not stop the Mac tunnel. Disconnect separately. Avoid forcing replacement from an unrelated source.
 
 ## Verification scope

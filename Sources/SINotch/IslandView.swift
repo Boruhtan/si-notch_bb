@@ -203,8 +203,9 @@ struct IslandView: View {
                 Image(systemName: symbol)
                 Text(title)
                 if agents {
-                    Text("\(model.agents.filter { $0.state == .online }.count)")
+                    Text(L10n.tr("agents.onlineCount", model.agents.filter { $0.state == .online }.count))
                         .font(.system(size: 10, design: .monospaced)).foregroundStyle(NotchDesign.muted)
+                        .help(L10n.tr("agents.presenceHelp"))
                 }
             }.font(.system(size: 11, weight: .medium)).frame(maxWidth: .infinity).frame(height: 27)
                 .foregroundStyle(model.showAgents == agents ? .white : NotchDesign.secondary)
@@ -232,6 +233,8 @@ struct IslandView: View {
                                 Image(systemName: "network").frame(width: 16)
                                 Text(connection.displayName).fontWeight(.medium).lineLimit(1)
                                 Spacer()
+                                Text(L10n.tr("remote.sshState", model.remoteConnections.state(connection.id).label))
+                                    .foregroundStyle(NotchDesign.secondary)
                                 Text("\(profiles.count)").foregroundStyle(NotchDesign.secondary)
                                 Button { model.openRemoteConnections?() } label: { Image(systemName: "gearshape") }
                                     .buttonStyle(.plain).help(L10n.tr("remote.settingsTab"))
@@ -259,6 +262,13 @@ struct IslandView: View {
             Spacer()
             Circle().fill(agent.state == .online ? Color.green : Color.gray.opacity(0.5)).frame(width: 5, height: 5)
             Text(agent.state.label).foregroundStyle(NotchDesign.secondary)
+                .help(L10n.tr("agents.presenceHelp"))
+            Text("·").foregroundStyle(NotchDesign.muted)
+            Text(agent.activity.label)
+                .foregroundStyle(agent.activity == .attention ? .orange : agent.activity == .working ? .green : NotchDesign.secondary)
+            if agent.activeTaskCount > 1 {
+                Text("\(agent.activeTaskCount)").foregroundStyle(NotchDesign.secondary)
+            }
         }.font(.system(size: 11)).padding(.horizontal, 24).frame(height: 32)
     }
     var emptyState: some View {

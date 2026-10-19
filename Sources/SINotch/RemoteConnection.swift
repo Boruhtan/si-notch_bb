@@ -16,6 +16,25 @@ enum RemoteConnectionState: Equatable {
     case connected
     case retrying
     case failed(RemoteConnectionFailure)
+
+    var statusName: String {
+        switch self {
+        case .disconnected: "disconnected"
+        case .connecting: "connecting"
+        case .connected: "connected"
+        case .retrying: "retrying"
+        case .failed: "failed"
+        }
+    }
+    var label: String {
+        switch self {
+        case .disconnected: L10n.tr("remote.disconnected")
+        case .connecting: L10n.tr("remote.connecting")
+        case .connected: L10n.tr("remote.connected")
+        case .retrying: L10n.tr("remote.retrying")
+        case .failed: L10n.tr("remote.failed")
+        }
+    }
 }
 
 /// A user-started reverse Unix-socket forward. SSH owns authentication and host keys.

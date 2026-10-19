@@ -30,7 +30,7 @@ struct SettingsAboutView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(spacing: 10) {
-                BrandMark(size: 78)
+                CompanionView(status: .idle, size: 78, style: .cat)
                     .frame(width: 86, height: 86)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)

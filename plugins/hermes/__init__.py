@@ -29,6 +29,8 @@ _EFFORTS = frozenset({"none", "off", "minimal", "low", "medium", "high", "xhigh"
 _DISABLED_UNTIL = 0.0
 _TIMEOUT_SECONDS = 2.5
 _RETRY_SECONDS = 5.0
+_HEARTBEAT_SECONDS = 30.0
+_HEARTBEAT: tuple[threading.Event, threading.Thread] | None = None
 
 
 def _opaque_id(value: object, prefix: str) -> str | None:
@@ -393,9 +395,46 @@ def on_session_finalize(session_id=None, **kwargs) -> None:
             _TODO_IDS.pop(session, None)
 
 
+def _stop_heartbeat() -> None:
+    global _HEARTBEAT
+    heartbeat, _HEARTBEAT = _HEARTBEAT, None
+    if heartbeat is not None:
+        stop, worker = heartbeat
+        stop.set()
+        if worker is not threading.current_thread():
+            worker.join(timeout=_TIMEOUT_SECONDS + 0.5)
+
+
+def _start_heartbeat(ctx, connection: str) -> None:
+    global _HEARTBEAT
+    _stop_heartbeat()
+    # Older runtimes retain the startup announcement, but must not acquire a
+    # worker they cannot dispose when the plugin is disabled or reloaded.
+    on_unload = getattr(ctx, "on_unload", None)
+    if not callable(on_unload):
+        return
+    stop = threading.Event()
+
+    def heartbeat() -> None:
+        while not stop.wait(_HEARTBEAT_SECONDS):
+            if _connection_id() != connection:
+                return
+            _emit("agent.presence", "presence-" + connection)
+
+    worker = threading.Thread(target=heartbeat, name="si-notch-presence", daemon=True)
+    def dispose() -> None:
+        stop.set()
+        if worker is not threading.current_thread():
+            worker.join(timeout=_TIMEOUT_SECONDS + 0.5)
+    on_unload(dispose)
+    _HEARTBEAT = stop, worker
+    worker.start()
+
+
 def register(ctx) -> None:
     """Register only observer hooks; Hermes' authorization path is untouched."""
     global _CONTEXT
+    _stop_heartbeat()
     _CONTEXT = ctx
     for name, callback in (
         ("on_session_start", on_session_start),
@@ -416,3 +455,4 @@ def register(ctx) -> None:
     if connection := _connection_id():
         # A loaded profile announces availability without creating a task.
         _emit("agent.presence", "presence-" + connection)
+        _start_heartbeat(ctx, connection)

@@ -290,7 +290,11 @@ final class AppModel: ObservableObject {
             reply(json(["ok": true, "protocol_version": 1, "received_count": receivedCount,
                         "paused": paused, "session_count": sessions.count,
                         "visible_session_count": showAgents ? 0 : filtered.count, "active_filter": activeFilter, "tab": showAgents ? "agents" : "sessions",
-                        "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue] },
+                        "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue,
+                            "activity": $0.activity.rawValue, "active_task_count": $0.activeTaskCount,
+                            "last_seen": $0.lastSeen.map { $0.timeIntervalSince1970 as Any } ?? NSNull()] as [String: Any] },
+                        "remote_connections": remoteConnections.connections.map { ["id": $0.id.uuidString, "name": $0.displayName,
+                            "status": remoteConnections.state($0.id).statusName] },
                         "expanded": expanded, "expansion_history": expansionHistory,
                         "providers": providerReceipts.mapValues { $0.timeIntervalSince1970 },
                         "sessions": sessions.map { ["id": $0.id, "provider": $0.provider, "status": $0.status.rawValue] }]))

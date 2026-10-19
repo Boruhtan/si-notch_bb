@@ -17,6 +17,7 @@ struct AgentConnection: Identifiable, Equatable {
         let name: String
         let connectorID: UUID
         let visible: Bool
+        var transportState: RemoteConnectionState? = nil
     }
     enum State: String {
         case online, lastSeen, installed, offline
@@ -29,12 +30,25 @@ struct AgentConnection: Identifiable, Equatable {
             }
         }
     }
+    enum Activity: String {
+        case unknown, idle, working, attention
+        var label: String {
+            switch self {
+            case .unknown: L10n.tr("agents.activity.unknown")
+            case .idle: L10n.tr("agents.activity.idle")
+            case .working: L10n.tr("agents.activity.working")
+            case .attention: L10n.tr("agents.activity.attention")
+            }
+        }
+    }
     let id: String
     let provider: String
     let displayName: String?
     let state: State
     let lastSeen: Date?
     var connectorID: UUID? = nil
+    var activity: Activity = .unknown
+    var activeTaskCount = 0
     var name: String { displayName ?? HarnessKind(rawValue: provider)?.displayName ?? provider }
 
     static func runningProviders(detected: [HarnessDetection], applicationPaths: Set<String>,
@@ -87,15 +101,28 @@ struct AgentConnection: Identifiable, Equatable {
             let config = configured[observation.connectionID]
             if config?.visible == false { return nil }
             let age = now.timeIntervalSince(observation.lastSeen)
+            let connected = config?.transportState.map { $0 == .connected } ?? true
             return Self(id: observation.id, provider: observation.provider, displayName: config?.name ?? observation.name,
-                        state: age >= -5 && age <= 120 ? .online : .lastSeen, lastSeen: observation.lastSeen,
+                        state: connected && age >= -5 && age <= 120 ? .online : .lastSeen, lastSeen: observation.lastSeen,
                         connectorID: config?.connectorID)
         }
         let quiet = configured.values.filter { $0.visible && !observedIDs.contains($0.connectionID) }.map {
             Self(id: "hermes/" + $0.connectionID, provider: "hermes", displayName: $0.name,
                  state: .installed, lastSeen: nil, connectorID: $0.connectorID)
         }
-        return (legacy + named + quiet).sorted {
+        return (legacy + named + quiet).map { agent in
+            var agent = agent
+            guard agent.state == .online else { return agent }
+            let active = sessions.filter { session in
+                let identity = session.connectionID.map { session.provider + "/" + $0 } ?? session.provider
+                return identity == agent.id && Self.isTask(session) &&
+                    [.working, .waiting, .approval, .failed].contains(session.status)
+            }
+            agent.activeTaskCount = active.count
+            agent.activity = active.contains { [.waiting, .approval, .failed].contains($0.status) } ? .attention :
+                active.isEmpty ? .idle : .working
+            return agent
+        }.sorted {
             if ($0.state == .online) != ($1.state == .online) { return $0.state == .online }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }

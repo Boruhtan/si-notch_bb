@@ -571,3 +571,10 @@
 "settings.cardDetailsHelp" = "这些开关控制代理提供的信息。模型和推理模式直接显示在卡片上；任务、子代理和完整活动显示在卡片详情中。请更新已安装的插件以接收新增元数据。";
 "remote.error.socketRecoveryFailed" = "无法安全恢复远程套接字。请检查远程 Python 路径、套接字权限及现有连接。";
 "remote.reconnectAtLaunch" = "启动时自动连接";
+"agents.onlineCount" = "%d 在线";
+"agents.presenceHelp" = "具有运行中应用或近期事件的配置。SSH 连接与任务活动单独显示。";
+"agents.activity.unknown" = "任务状态未知";
+"agents.activity.idle" = "无活动任务";
+"agents.activity.working" = "运行中";
+"agents.activity.attention" = "需要处理";
+"remote.sshState" = "SSH：%@";

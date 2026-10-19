@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -26,6 +28,7 @@ class Context:
 
 class HermesPluginTests(unittest.TestCase):
     def setUp(self):
+        plugin._stop_heartbeat()
         plugin._STARTED.clear()
         plugin._SEQUENCES.clear()
         plugin._TASK_TITLES.clear()
@@ -33,6 +36,57 @@ class HermesPluginTests(unittest.TestCase):
         plugin._TODO_IDS.clear()
         plugin._CONTEXT = None
         plugin._DISABLED_UNTIL = 0
+
+    def tearDown(self):
+        plugin._stop_heartbeat()
+
+    def test_heartbeat_retries_while_idle_and_unload_stops_the_worker(self):
+        class LifecycleContext(Context):
+            def __init__(self):
+                super().__init__()
+                self.cleanup = []
+
+            def on_unload(self, callback):
+                self.cleanup.append(callback)
+
+        ctx = LifecycleContext()
+        output, ready = [], threading.Event()
+        def send(event):
+            output.append(event)
+            if len(output) >= 3: ready.set()
+            return len(output) > 1
+        with mock.patch.object(plugin, "_settings", return_value={"instanceId": "host:lane", "displayName": "Lane"}), \
+             mock.patch.object(plugin, "_HEARTBEAT_SECONDS", .02), \
+             mock.patch.object(plugin, "_send", side_effect=send):
+            plugin.register(ctx)
+            self.assertTrue(ready.wait(1), "idle presence must recover after a failed send")
+            worker = plugin._HEARTBEAT[1]
+            for cleanup in ctx.cleanup: cleanup()
+            count = len(output)
+            time.sleep(.06)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(len(output), count)
+        self.assertTrue(all(event["event"] == "agent.presence" for event in output))
+        self.assertEqual(len({event["id"] for event in output}), len(output))
+        self.assertEqual(len({event["connection_id"] for event in output}), 1)
+        self.assertTrue(all("message" not in event and "first_prompt" not in event for event in output))
+        self.assertEqual(plugin._STARTED, set())
+
+    def test_reregister_replaces_worker_and_old_cleanup_cannot_stop_new_worker(self):
+        class LifecycleContext(Context):
+            def on_unload(self, callback): self.cleanup = callback
+        with mock.patch.object(plugin, "_settings", return_value={"instanceId": "lane"}), \
+             mock.patch.object(plugin, "_send", return_value=True):
+            first, second = LifecycleContext(), LifecycleContext()
+            plugin.register(first)
+            old = plugin._HEARTBEAT[1]
+            plugin.register(second)
+            new = plugin._HEARTBEAT[1]
+            self.assertFalse(old.is_alive())
+            first.cleanup()
+            self.assertTrue(new.is_alive())
+            second.cleanup()
+            self.assertFalse(new.is_alive())
 
     def test_native_task_id_alias_and_failure_flags_never_forward_result_content(self):
         output=[]

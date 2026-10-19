@@ -4,6 +4,75 @@ import SINotchCore
 @testable import SINotch
 
 final class AgentConnectionTests: XCTestCase {
+    func testSSHConnectionDoesNotInventProfilePresenceOrTaskActivity() {
+        let now = Date(), connector = UUID()
+        let config = AgentConnection.Configuration(connectionID: "p", name: "Lane", connectorID: connector,
+            visible: true, transportState: .connected)
+        let quiet = AgentConnection.project(detected: [], sessions: [], receipts: [:], running: [], now: now,
+            configurations: [config])
+        XCTAssertEqual(quiet.first?.state, .installed)
+        XCTAssertEqual(quiet.first?.activity, .unknown)
+        let presence = AgentConnection.Observation(provider: "hermes", connectionID: "p", name: "Lane",
+            lastSeen: now, eventAt: now, eventID: "heartbeat")
+        let online = AgentConnection.project(detected: [], sessions: [], receipts: [:], running: [], now: now,
+            connections: [presence.id: presence], configurations: [config])
+        XCTAssertEqual(online.first?.state, .online)
+        XCTAssertEqual(online.first?.activity, .idle)
+        XCTAssertEqual(online.first?.activeTaskCount, 0)
+    }
+
+    func testProfilePresenceTaskCompletionAndTransportLossAreIndependent() {
+        let now = Date(), connector = UUID()
+        var config = AgentConnection.Configuration(connectionID: "p", name: "Lane", connectorID: connector,
+            visible: true, transportState: .connected)
+        let presence = AgentConnection.Observation(provider: "hermes", connectionID: "p", name: "Lane",
+            lastSeen: now, eventAt: now, eventID: "heartbeat")
+        var task = AgentSession(id: "task", provider: "hermes", status: .working)
+        task.connectionID = "p"
+        var unrelated = AgentSession(id: "other", provider: "hermes", status: .waiting)
+        unrelated.connectionID = "other-profile"
+        func project(at time: Date = now) -> AgentConnection? {
+            AgentConnection.project(detected: [], sessions: [task, unrelated], receipts: [:], running: [], now: time,
+                connections: [presence.id: presence], configurations: [config]).first { $0.name == "Lane" }
+        }
+        XCTAssertEqual(project()?.activity, .working)
+        XCTAssertEqual(project()?.activeTaskCount, 1)
+        task.status = .waiting
+        XCTAssertEqual(project()?.activity, .attention)
+        task.status = .completed
+        XCTAssertEqual(project()?.state, .online)
+        XCTAssertEqual(project()?.activity, .idle)
+        XCTAssertEqual(project()?.activeTaskCount, 0)
+        config.transportState = .disconnected
+        XCTAssertEqual(project()?.state, .lastSeen)
+        XCTAssertEqual(project()?.activity, .unknown)
+        config.transportState = .connected
+        XCTAssertEqual(project(at: now.addingTimeInterval(121))?.state, .lastSeen)
+        XCTAssertEqual(project(at: now.addingTimeInterval(121))?.activity, .unknown)
+    }
+
+    @MainActor func testRepeatedHeartbeatRefreshesPresenceWithoutCreatingOrChangingTask() throws {
+        let model = AppModel(defaults: UserDefaults(suiteName: "si-notch.heartbeat-tests." + UUID().uuidString)!)
+        defer { model.shutdown() }
+        func receive(_ kind: AgentEventKind, id: String) throws {
+            model.receive(try JSONEncoder().encode(AgentEvent(sessionID: id, provider: "hermes", kind: kind,
+                id: UUID().uuidString, connectionID: "p", connectionName: "Lane"))) { _ in }
+        }
+        try receive(.agentPresence, id: "presence-p")
+        XCTAssertTrue(model.store.sessions.isEmpty)
+        XCTAssertEqual(model.agents.first?.activity, .idle)
+        try receive(.working, id: "task")
+        try receive(.agentPresence, id: "presence-p")
+        XCTAssertEqual(model.store.sessions.count, 1)
+        XCTAssertEqual(model.agents.first?.activity, .working)
+        try receive(.completed, id: "task")
+        try receive(.agentPresence, id: "presence-p")
+        XCTAssertEqual(model.store.sessions["task"]?.status, .completed)
+        XCTAssertEqual(model.agents.first?.state, .online)
+        XCTAssertEqual(model.agents.first?.activity, .idle)
+        XCTAssertTrue(model.pending.isEmpty)
+    }
+
     @MainActor func testProfileAnnouncementsStayOutOfTasksAndRemainSeparate() throws {
         let model = AppModel(defaults: UserDefaults(suiteName: "si-notch.profile-tests." + UUID().uuidString)!)
         for name in ["architect", "researcher"] {

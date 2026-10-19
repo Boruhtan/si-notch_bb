@@ -186,13 +186,7 @@ private struct RemoteConnectionCard: View {
         })
     }
     private var statusText: String {
-        switch manager.state(id) {
-        case .disconnected: L10n.tr("remote.disconnected")
-        case .connecting: L10n.tr("remote.connecting")
-        case .connected: L10n.tr("remote.connected")
-        case .retrying: L10n.tr("remote.retrying")
-        case .failed: L10n.tr("remote.failed")
-        }
+        manager.state(id).label
     }
     private func errorText(_ failure: RemoteConnectionFailure) -> String {
         switch failure {

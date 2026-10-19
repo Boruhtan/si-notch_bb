@@ -571,3 +571,10 @@
 "settings.cardDetailsHelp" = "These switches control information supplied by the agent. Model and reasoning appear on the card; tasks, subagents and full activity are available in its details. Update an existing plugin to receive new metadata.";
 "remote.error.socketRecoveryFailed" = "The remote socket could not be recovered safely. Check the remote Python path, socket permissions, and any existing connection.";
 "remote.reconnectAtLaunch" = "Connect automatically at launch";
+"agents.onlineCount" = "%d online";
+"agents.presenceHelp" = "Profiles with a running app or a recent event. SSH connection and task activity are shown separately.";
+"agents.activity.unknown" = "Task status unknown";
+"agents.activity.idle" = "No active tasks";
+"agents.activity.working" = "Working";
+"agents.activity.attention" = "Needs attention";
+"remote.sshState" = "SSH: %@";
