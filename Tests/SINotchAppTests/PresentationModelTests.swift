@@ -19,31 +19,21 @@ final class PresentationModelTests: XCTestCase {
         let collapsed = model.desiredPanelHeight
         model.setConnectorExpanded(id, true)
         XCTAssertGreaterThan(model.desiredPanelHeight, collapsed + 200)
-        model.measureAgentsList(620)
-        XCTAssertEqual(model.panelHeight(limitedTo: 560), 560)
+        XCTAssertEqual(model.panelHeight(limitedTo: 300), 300)
         model.setConnectorExpanded(id, false)
         XCTAssertEqual(model.desiredPanelHeight, collapsed)
-        XCTAssertNil(model.measuredAgentsHeight)
         XCTAssertTrue(model.expanded)
     }
 
     @MainActor
-    func testMeasuredAgentContentShrinksAndDoesNotResizeSessionsTab() {
+    func testRemoteGroupStateDoesNotResizeSessionsTab() {
         let model = makeModel()
         defer { model.shutdown() }
-        model.selectAgents(true)
-        model.measureAgentsList(400)
-        let large = model.desiredPanelHeight
-        model.measureAgentsList(80)
-        XCTAssertLessThan(model.desiredPanelHeight, large)
-        let previous = model.measuredAgentsHeight
-        for invalid: CGFloat in [0, -.infinity, .nan, 10001] { model.measureAgentsList(invalid) }
-        XCTAssertEqual(model.measuredAgentsHeight, previous)
         model.selectAgents(false)
         let sessions = model.desiredPanelHeight
         var layouts = 0
         model.onLayout = { layouts += 1 }
-        model.measureAgentsList(600)
+        model.setConnectorExpanded(UUID(), true)
         XCTAssertEqual(model.desiredPanelHeight, sessions)
         XCTAssertEqual(layouts, 0)
     }

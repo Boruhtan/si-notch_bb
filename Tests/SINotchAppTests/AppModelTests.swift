@@ -132,6 +132,25 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(replies.count, 1, "A stale button must not answer after completion")
     }
     @MainActor
+    func testLivePermissionRemainsVisibleAcrossFiltersAndManualOpening() {
+        let model = makeModel()
+        model.showAgents = true
+        model.activeFilter = "Готово"
+        model.search = "unrelated search"
+        model.receive(payload("permission", request: "real-request")) { _ in }
+        XCTAssertEqual(model.filtered.map(\.id), ["permission"])
+        model.setExpanded(false)
+        model.setExpanded(true, origin: .hover)
+        XCTAssertFalse(model.showAgents)
+        let token = model.pending["permission"]!.token
+        model.respond("permission", expectedToken: token, decision: "deny")
+        XCTAssertTrue(model.filtered.isEmpty)
+        XCTAssertEqual(model.activeFilter, "Готово")
+        XCTAssertEqual(model.search, "unrelated search")
+        model.shutdown()
+    }
+
+    @MainActor
     func testDeadlineUsesClientTimeoutAndReleasesCallback() async {
         let model = makeModel()
         var replies: [Data] = []

@@ -9,11 +9,6 @@ private struct SessionHeightPreferenceKey: PreferenceKey {
     }
 }
 
-private struct AgentsHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
 extension AgentStatus {
     var label: String {
         switch self { case .idle: return L10n.tr("На связи"); case .working: return L10n.tr("В работе"); case .waiting: return L10n.tr("Ждёт ответа"); case .approval: return L10n.tr("Нужно разрешение"); case .completed: return L10n.tr("Готово"); case .failed: return L10n.tr("Ошибка"); case .ended: return L10n.tr("Завершена") }
@@ -228,7 +223,7 @@ struct IslandView: View {
                                 ForEach(profiles) { agent in agentRow(agent).padding(.leading, 12) }
                                 if profiles.isEmpty {
                                     Text(L10n.tr("remote.noProfiles")).font(.system(size: 11))
-                                        .foregroundStyle(NotchDesign.secondary).padding(.vertical, 8)
+                                        .foregroundStyle(NotchDesign.secondary).frame(height: 32)
                                 }
                             }
                         } label: {
@@ -248,13 +243,10 @@ struct IslandView: View {
                             .transaction { $0.animation = nil; $0.disablesAnimations = true }
                             .accessibilityIdentifier("agent-connection-" + connection.id.uuidString)
                     }
-                    if model.agents.isEmpty {
-                        Text(L10n.tr("agents.empty")).font(.system(size: 12)).foregroundStyle(NotchDesign.secondary).padding(20)
+                    if model.agents.isEmpty && !model.remoteConnections.connections.contains(where: \.showInAgents) {
+                        Text(L10n.tr("agents.empty")).font(.system(size: 12)).foregroundStyle(NotchDesign.secondary).frame(height: 56)
                     }
-                }.background(GeometryReader { geometry in
-                    Color.clear.preference(key: AgentsHeightPreferenceKey.self, value: geometry.size.height)
-                })
-                    .onPreferenceChange(AgentsHeightPreferenceKey.self) { model.measureAgentsList($0) }
+                }
             }.scrollIndicators(.hidden)
             Button { model.openIntegrations?() } label: {
                 Text(L10n.tr("agents.manage")).font(.system(size: 11))

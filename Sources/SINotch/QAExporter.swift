@@ -698,11 +698,10 @@ enum QAExporter {
                     let collapsed = delegate.panel.frame
                     delegate.model.setConnectorExpanded(connection.id, true)
                     try await settle(expanded: true)
-                    let measured = delegate.model.measuredAgentsHeight ?? 0
-                    check("agent-group-expand-\(connection.id)-\(language)", measured > 0 &&
+                    check("agent-group-expand-\(connection.id)-\(language)",
                           abs(delegate.panel.frame.height - delegate.model.panelHeight(limitedTo: 560) - 1) <= 1 &&
                           delegate.panel.frame.maxY == collapsed.maxY,
-                          "Opening a remote group follows its measured content height within the display limit.")
+                          "Opening a remote group follows its visible 32 pt rows within the display limit; height=\(delegate.panel.frame.height), expected=\(delegate.model.panelHeight(limitedTo: 560) + 1).")
                     try capturePanel(name: "island-agent-group-\(connection.id)-\(language)", language: language)
                     delegate.model.setConnectorExpanded(connection.id, false)
                     try await settle(expanded: true)

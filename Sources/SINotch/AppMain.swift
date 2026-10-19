@@ -44,7 +44,6 @@ final class AppModel: ObservableObject {
     }
     @Published var showAgents = false
     @Published var expandedConnectors: Set<UUID> = []
-    private(set) var measuredAgentsHeight: CGFloat?
     @Published var detectedHarnesses: [HarnessDetection] = []
     @Published var runningAgentProviders: Set<String> = []
     @Published var presenceNow = Date()
@@ -119,6 +118,7 @@ final class AppModel: ObservableObject {
     }
     var filtered: [AgentSession] {
         sessions.filter { s in
+            if pending[s.id] != nil { return true }
             let matchesFilter = activeFilter == "Все" || (activeFilter == "В работе" && s.status == .working) || (activeFilter == "Внимание" && [.approval, .waiting, .failed].contains(s.status)) || (activeFilter == "Готово" && s.status == .completed)
             let matchesSearch = search.isEmpty || "\(s.title) \(s.provider) \(s.projectPath ?? "")".localizedCaseInsensitiveContains(search)
             return matchesFilter && matchesSearch
@@ -141,7 +141,7 @@ final class AppModel: ObservableObject {
                 connections.filter { expandedConnectors.contains($0.id) }.reduce(0) { count, connection in
                     count + max(1, agents.filter { $0.connectorID == connection.id }.count)
                 }
-            return headerHeight + agentsSectionHeight + 52 + (measuredAgentsHeight ?? CGFloat(max(1, rows)) * 32)
+            return headerHeight + agentsSectionHeight + 52 + (rows == 0 ? 56 : CGFloat(rows) * 32)
         }
         if sessions.isEmpty { return headerHeight + (quiet ? 166 : 142) + agentsSectionHeight }
         let filters: CGFloat = 38
@@ -172,14 +172,6 @@ final class AppModel: ObservableObject {
 
     func setConnectorExpanded(_ id: UUID, _ value: Bool) {
         if value { expandedConnectors.insert(id) } else { expandedConnectors.remove(id) }
-        measuredAgentsHeight = nil
-        onLayout?()
-    }
-
-    func measureAgentsList(_ height: CGFloat) {
-        guard height.isFinite, (1...10000).contains(height),
-              abs((measuredAgentsHeight ?? 0) - height) > 0.5 else { return }
-        measuredAgentsHeight = height
         if showAgents { onLayout?() }
     }
 
@@ -432,7 +424,10 @@ final class AppModel: ObservableObject {
                     let needsAnswer = newAttention != nil && newAttention != oldAttention && !repeatedObservation && defaults.bool(forKey: "attentionReveal")
                     let completed = status == .completed && oldStatus != status && defaults.bool(forKey: "completionReveal")
                     if (needsAnswer || completed), !quiet, defaults.bool(forKey: "autoExpand"),
-                       presentationPolicy?.canAutomaticallyReveal(for: store.sessions[event.sessionID]) ?? true { reveal(reason: needsAnswer ? "response-needed" : "completed") }
+                       presentationPolicy?.canAutomaticallyReveal(for: store.sessions[event.sessionID]) ?? true {
+                        if pending[event.sessionID] != nil { showAgents = false }
+                        reveal(reason: needsAnswer ? "response-needed" : "completed")
+                    }
                 }
                 if oldAttention != nil, newAttention == nil { resumeAutoDismiss() }
             }
@@ -564,6 +559,7 @@ final class AppModel: ObservableObject {
         cancelExpansionTimer()
         cancelRevealTimer()
         if value { expansionOrigin = origin }
+        if value && !expanded && !pending.isEmpty { showAgents = false }
         guard expanded != value else { presentationPolicy?.expansionChanged(value, origin: origin); return }
         if !value {
             let overPill = compactHoverRegion?.contains(hoverLocation()) ?? pointerInside
