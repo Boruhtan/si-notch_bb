@@ -2,7 +2,7 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.16-beta.1 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.16 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
 
 | Feature | Availability and verification |
 | --- | --- |
