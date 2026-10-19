@@ -2,7 +2,7 @@
 
 # Sounds
 
-Seven short pulse/triangle cues cover opening, closing, session start, working, completion, attention and failure. Soft attacks, pitch glides and fades avoid sharp clicks.
+Seven short 8-bit recordings by Juhani Junkala (SubspaceAudio), released under CC0, cover opening, closing, session start, working, completion, attention and failure. Panel cues are brief clicks; session events use distinct tones. Levels and edge fades are prepared in the bundled WAV files.
 
 **Settings → Sound** controls the master switch, volume, per-event switches and preview.
 

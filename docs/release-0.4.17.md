@@ -1,0 +1,1 @@
+- Updated built-in event sounds with short 8-bit cues.

@@ -214,10 +214,13 @@ enum QAExporter {
             let folder = directory.appendingPathComponent("audio", isDirectory: true)
             try files.createDirectory(at: folder, withIntermediateDirectories: false)
             for cue in EventSoundPlayer.Cue.allCases {
-                try EventSoundPlayer.wavData(for: cue).write(to: folder.appendingPathComponent("\(cue.rawValue).wav"), options: .withoutOverwriting)
+                guard let wav = EventSoundPlayer.wavData(for: cue), NSSound(data: wav) != nil else {
+                    throw ExportError.fixtureNotApplied("bundled sound: \(cue.rawValue)")
+                }
+                try wav.write(to: folder.appendingPathComponent("\(cue.rawValue).wav"), options: .withoutOverwriting)
             }
             check("seven-audio-cues", try files.contentsOfDirectory(atPath: folder.path).count == 7,
-                  "Synthesized WAV export only; no audio device or user sound settings changed.")
+                  "Bundled WAV export only; no audio device or user sound settings changed.")
         }
 
         func applyOverrides() {

@@ -1,0 +1,22 @@
+The Essential Retro Video Game Sound Effects Collection [512 sounds]
+Author: Juhani Junkala (SubspaceAudio)
+Source: https://opengameart.org/content/512-sound-effects-8-bit-style
+
+License: Creative Commons Zero 1.0 Universal (CC0-1.0)
+https://creativecommons.org/publicdomain/zero/1.0/
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+CC0 applies to these audio files independently of the application's source license.
+The original collection's INFO.txt confirms that the sounds were released under CC0.
+
+Bundled files and their original recordings:
+event-expand.wav       General Sounds/Menu Sounds/sfx_menu_move4.wav
+event-collapse.wav     General Sounds/Simple Bleeps/sfx_sounds_Blip7.wav
+event-sessionStart.wav General Sounds/Coins/sfx_coin_double7.wav
+event-working.wav      General Sounds/Simple Bleeps/sfx_sounds_Blip9.wav
+event-completion.wav   General Sounds/Positive Sounds/sfx_sounds_powerup17.wav
+event-attention.wav    General Sounds/Coins/sfx_coin_double1.wav
+event-failure.wav      General Sounds/Negative Sounds/sfx_sounds_error3.wav
+
+Preparation: per-event gain adjustment, 2 ms fade-in and 5 ms fade-out.
+The original 44.1 kHz, mono, 16-bit PCM format, pitch and duration are preserved.

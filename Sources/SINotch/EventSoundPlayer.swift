@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// Built-in cues are synthesized here; user-selected audio can override each cue.
+/// Bundled event recordings can be overridden by user-selected audio.
 @MainActor
 final class EventSoundPlayer {
     enum Cue: String, CaseIterable, Hashable {
@@ -20,10 +20,11 @@ final class EventSoundPlayer {
     private let output: ((Data, Float) -> Bool)?
     private let library: SoundLibrary
 
-    init(defaults: UserDefaults = .standard, output: ((Data, Float) -> Bool)? = nil) {
+    init(defaults: UserDefaults = .standard, library: SoundLibrary? = nil,
+         output: ((Data, Float) -> Bool)? = nil) {
         self.defaults = defaults
         self.output = output
-        self.library = SoundLibrary(defaults: defaults)
+        self.library = library ?? SoundLibrary(defaults: defaults)
     }
 
     @discardableResult
@@ -62,7 +63,8 @@ final class EventSoundPlayer {
             guard let imported = library.customData(for: cue) else { return .unavailable }
             audio = imported
         } else {
-            audio = Self.wavData(for: cue)
+            guard let bundled = Self.wavData(for: cue) else { return .unavailable }
+            audio = bundled
         }
         let level = Float(min(max(volume, 0), 1))
         if let output { return output(audio, level) ? .played : .unavailable }
@@ -81,113 +83,20 @@ final class EventSoundPlayer {
                 now: ProcessInfo.processInfo.systemUptime, preview: true)
     }
 
-    struct Note {
-        let start: Double
-        let duration: Double
-        let frequency: Double
-        let gain: Double
-        var endFrequency: Double? = nil
-    }
+    /// Load once from the relocated app bundle or the SwiftPM test/build bundle.
+    private static let builtInWAVs: [Cue: Data] = {
+        let resources = Bundle.main.url(forResource: "si-notch_SINotch", withExtension: "bundle")
+            .flatMap(Bundle.init(url:)) ?? Bundle.module
+        return Dictionary(uniqueKeysWithValues: Cue.allCases.compactMap { cue -> (Cue, Data)? in
+            guard let url = resources.url(forResource: "event-\(cue.rawValue)", withExtension: "wav"),
+                  let data = try? Data(contentsOf: url) else { return nil }
+            return (cue, data)
+        })
+    }()
 
-    private static func notes(for cue: Cue) -> [Note] {
-        switch cue {
-        case .expand:
-            return [Note(start: 0, duration: 0.098, frequency: 440.00, gain: 1, endFrequency: 587.33)]
-        case .collapse:
-            return [Note(start: 0, duration: 0.085, frequency: 523.25, gain: 1, endFrequency: 392.00)]
-        case .sessionStart:
-            return [Note(start: 0, duration: 0.075, frequency: 392.00, gain: 0.8),
-                    Note(start: 0.060, duration: 0.075, frequency: 523.25, gain: 0.9),
-                    Note(start: 0.120, duration: 0.100, frequency: 659.25, gain: 1)]
-        case .working:
-            return [Note(start: 0, duration: 0.065, frequency: 392.00, gain: 1)]
-        case .completion:
-            return [Note(start: 0, duration: 0.075, frequency: 523.25, gain: 0.9),
-                    Note(start: 0.060, duration: 0.075, frequency: 659.25, gain: 0.95),
-                    Note(start: 0.120, duration: 0.120, frequency: 880.00, gain: 1)]
-        case .attention:
-            return [Note(start: 0, duration: 0.075, frequency: 523.25, gain: 0.9),
-                    Note(start: 0.115, duration: 0.090, frequency: 659.25, gain: 0.85)]
-        case .failure:
-            return [Note(start: 0, duration: 0.085, frequency: 392.00, gain: 0.9),
-                    Note(start: 0.065, duration: 0.110, frequency: 329.63, gain: 0.85)]
-        }
-    }
-
-    private static func peakLevel(for cue: Cue) -> Double {
-        switch cue {
-        case .expand: return 0.18
-        case .collapse: return 0.15
-        case .working: return 0.11
-        case .sessionStart: return 0.22
-        case .completion: return 0.24
-        case .attention: return 0.22
-        case .failure: return 0.20
-        }
-    }
-
-    /// Four odd harmonics give a pulse/triangle chiptune voice without the
-    /// aliasing and sharp edges of a raw square wave or bit-crushed PCM.
-    private static func chipVoice(phase: Double) -> Double {
-        let fundamental = sin(phase)
-        let third = sin(3 * phase), fifth = sin(5 * phase), seventh = sin(7 * phase)
-        let pulse = fundamental + 0.18 * third + 0.06 * fifth + 0.015 * seventh
-        let triangle = fundamental - third / 9 + fifth / 25 - seventh / 49
-        return 0.28 * pulse + 0.72 * triangle
-    }
-
-    /// 22.05 kHz, mono, signed 16-bit PCM in a standard RIFF/WAVE container.
-    static func wavData(for cue: Cue) -> Data {
-        let rate = 22_050
-        let notes = notes(for: cue)
-        let duration = (notes.map { $0.start + $0.duration }.max() ?? 0) + 0.012
-        let count = Int(ceil(duration * Double(rate)))
-        let dataSize = count * 2
-        var data = Data(capacity: 44 + dataSize)
-        data.append(contentsOf: "RIFF".utf8)
-        data.appendLittleEndian(UInt32(36 + dataSize))
-        data.append(contentsOf: "WAVEfmt ".utf8)
-        data.appendLittleEndian(UInt32(16))
-        data.appendLittleEndian(UInt16(1))
-        data.appendLittleEndian(UInt16(1))
-        data.appendLittleEndian(UInt32(rate))
-        data.appendLittleEndian(UInt32(rate * 2))
-        data.appendLittleEndian(UInt16(2))
-        data.appendLittleEndian(UInt16(16))
-        data.append(contentsOf: "data".utf8)
-        data.appendLittleEndian(UInt32(dataSize))
-
-        var samples = [Double](repeating: 0, count: count)
-        for index in 0..<count {
-            let time = Double(index) / Double(rate)
-            for note in notes {
-                let local = time - note.start
-                guard local >= 0, local < note.duration else { continue }
-                // Soft plucks and a small pitch glide keep interface cues unobtrusive.
-                let attack = sin(min(1, local / 0.006) * .pi / 2)
-                let releaseTime = min(0.045, note.duration * 0.6)
-                let release = sin(min(1, (note.duration - local) / releaseTime) * .pi / 2)
-                let decay = exp(-1.6 * local / note.duration)
-                let glide = (note.endFrequency ?? note.frequency) - note.frequency
-                let phase = 2 * Double.pi * (note.frequency * local + glide * local * local / (2 * note.duration))
-                samples[index] += note.gain * attack * attack * release * release * decay * chipVoice(phase: phase)
-            }
-        }
-        // A gentle low-pass keeps the upper pulse harmonics from becoming brittle.
-        let alpha = 1 - exp(-2 * Double.pi * 2200 / Double(rate))
-        var filtered = 0.0
-        for index in samples.indices {
-            filtered += alpha * (samples[index] - filtered)
-            samples[index] = filtered
-        }
-        // Calibrate cue levels after note overlaps; quiet ticks stay quieter
-        // than completion and attention, with headroom at maximum app volume.
-        let peak = samples.reduce(0) { max($0, abs($1)) }
-        let gain = peak > 0 ? peakLevel(for: cue) / peak : 0
-        for sample in samples {
-            data.appendLittleEndian(Int16((sample * gain * 32_767).rounded()))
-        }
-        return data
+    /// The exact approved 44.1 kHz mono PCM recordings, including their cue levels.
+    static func wavData(for cue: Cue) -> Data? {
+        builtInWAVs[cue]
     }
 }
 
@@ -216,12 +125,5 @@ struct SoundBurstLimiter {
         guard lastByKey[key].map({ now - $0 >= 2 }) ?? true else { return false }
         lastByKey[key] = now
         return true
-    }
-}
-
-private extension Data {
-    mutating func appendLittleEndian<T: FixedWidthInteger>(_ value: T) {
-        var littleEndianValue = value.littleEndian
-        Swift.withUnsafeBytes(of: &littleEndianValue) { append(contentsOf: $0) }
     }
 }

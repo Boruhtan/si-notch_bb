@@ -1,12 +1,14 @@
 import XCTest
+import AppKit
+import CryptoKit
 @testable import SINotch
 
 final class EventSoundTests: XCTestCase {
     @MainActor
-    func testEveryCueIsAValidShortNonclippingWAV() {
+    func testEveryCueIsAValidShortNonclippingWAV() throws {
         var distinct = Set<Data>()
         for cue in EventSoundPlayer.Cue.allCases {
-            let wav = EventSoundPlayer.wavData(for: cue)
+            let wav = try XCTUnwrap(EventSoundPlayer.wavData(for: cue))
             XCTAssertEqual(String(data: wav.prefix(4), encoding: .ascii), "RIFF")
             XCTAssertEqual(String(data: wav[8..<12], encoding: .ascii), "WAVE")
             XCTAssertEqual(String(data: wav[36..<40], encoding: .ascii), "data")
@@ -14,10 +16,11 @@ final class EventSoundTests: XCTestCase {
             XCTAssertEqual(Int(read32(wav, 40)) + 44, wav.count)
             XCTAssertEqual(read16(wav, 20), 1) // PCM
             XCTAssertEqual(read16(wav, 22), 1) // mono
-            XCTAssertEqual(read32(wav, 24), 22_050)
+            XCTAssertEqual(read32(wav, 24), 44_100)
             XCTAssertEqual(read16(wav, 34), 16)
             XCTAssertGreaterThan(wav.count, 44 + 2_000)
-            XCTAssertLessThan(wav.count, 44 + Int(Double(22_050 * 2) * 0.7))
+            XCTAssertLessThan(wav.count, 44 + Int(Double(44_100 * 2) * 0.4))
+            XCTAssertNotNil(NSSound(data: wav), cue.rawValue)
             let samples = stride(from: 44, to: wav.count, by: 2).map {
                 Int16(bitPattern: read16(wav, $0))
             }
@@ -29,23 +32,83 @@ final class EventSoundTests: XCTestCase {
     }
 
     @MainActor
-    func testChipCuesHaveQuietEndpointsHeadroomAndNoDCOffset() {
+    func testBundledCuesHaveQuietEndpointsAndHeadroom() throws {
         for cue in EventSoundPlayer.Cue.allCases {
-            let wav = EventSoundPlayer.wavData(for: cue)
+            let wav = try XCTUnwrap(EventSoundPlayer.wavData(for: cue))
             let samples = stride(from: 44, to: wav.count, by: 2).map { Double(Int16(bitPattern: read16(wav, $0))) / 32767 }
             let peak = samples.map(abs).max() ?? 0
-            let mean = samples.reduce(0, +) / Double(samples.count)
             let rms = sqrt(samples.reduce(0) { $0 + $1 * $1 } / Double(samples.count))
             XCTAssertEqual(samples.first, 0)
-            XCTAssertTrue(samples.suffix(220).allSatisfy { $0 == 0 })
-            XCTAssertLessThan(abs(mean), 0.002, cue.rawValue)
-            XCTAssertLessThanOrEqual(peak, 0.241, cue.rawValue)
+            XCTAssertEqual(samples.last, 0)
+            XCTAssertLessThanOrEqual(peak, 0.252, cue.rawValue)
             XCTAssertGreaterThan(rms, 0.02, cue.rawValue)
             XCTAssertLessThan(rms, 0.15, cue.rawValue)
-            XCTAssertLessThan(Double(samples.count) / 22050, 0.26)
-            let biggestStep = zip(samples, samples.dropFirst()).map { abs($1 - $0) }.max() ?? 0
-            XCTAssertLessThan(biggestStep, 0.12, cue.rawValue)
+            XCTAssertLessThan(Double(samples.count) / Double(read32(wav, 24)), 0.4)
         }
+    }
+
+    @MainActor
+    func testBuiltInCuesMatchApprovedRecordings() throws {
+        let approved: [EventSoundPlayer.Cue: String] = [
+            .expand: "2416a078db26e72d031681cf831abbcb05cc7a9305498583f2c6e9b22c73e7d5",
+            .collapse: "6879fab4d5dc16d9b4ebe5bc49de3fee8dd7ab8f06b6b2784e52584d2c1c2d8c",
+            .sessionStart: "0cb3b2468daac058e0150f8652048fd2d5772ca1b7ffb3a95950d7c1c093a96e",
+            .working: "eadd9832f8749f2fbb64e7ae9cd0147f20866c5149d850617bdc5614bd11c40f",
+            .completion: "fa2d0439d2cc543ed167e0e9f0b79576c1169620ad307d8c2422f7d944cf4452",
+            .attention: "6824ee02f0380f0d814580688a886da9fc17bf84adcbbfde01f3d5b83d0b2842",
+            .failure: "5779dfc00632206939c7c526b44de5bc0667b57181621c22e13e3f1fce0f5928"
+        ]
+        XCTAssertEqual(approved.count, EventSoundPlayer.Cue.allCases.count)
+        for cue in EventSoundPlayer.Cue.allCases {
+            let wav = try XCTUnwrap(EventSoundPlayer.wavData(for: cue))
+            let digest = SHA256.hash(data: wav).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(digest, approved[cue], cue.rawValue)
+        }
+    }
+
+    @MainActor
+    func testBuiltInPlaybackUsesRecordingAndRequestedVolume() throws {
+        let suite = "si-notch.sound-playback.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var delivered: Data?
+        var level: Float?
+        let player = EventSoundPlayer(defaults: defaults, output: { data, volume in
+            delivered = data
+            level = volume
+            return true
+        })
+        XCTAssertTrue(player.play(cue: .sessionStart, sessionID: "fixture", enabled: true,
+                                  quiet: false, volume: 0.35))
+        XCTAssertEqual(delivered, try XCTUnwrap(EventSoundPlayer.wavData(for: .sessionStart)))
+        XCTAssertEqual(level, 0.35)
+    }
+
+    @MainActor
+    func testImportedSoundOverridesBuiltInAndRestoreReturnsToDefault() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "si-notch.sound-override.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let library = SoundLibrary(defaults: defaults, directory: root.appendingPathComponent("stored"))
+        let chosen = try XCTUnwrap(EventSoundPlayer.wavData(for: .completion))
+        let source = root.appendingPathComponent("custom.wav")
+        try chosen.write(to: source)
+        try library.importAudio(from: source, for: .attention)
+        var delivered: [Data] = []
+        let player = EventSoundPlayer(defaults: defaults, library: library, output: { data, _ in
+            delivered.append(data)
+            return true
+        })
+        XCTAssertEqual(player.preview(cue: .attention, enabled: true, quiet: false, volume: 0.3), .played)
+        XCTAssertEqual(delivered, [chosen])
+        library.restoreBuiltIn(for: .attention)
+        XCTAssertTrue(player.play(cue: .attention, sessionID: "fixture", enabled: true,
+                                  quiet: false, volume: 0.3))
+        XCTAssertEqual(delivered.last, try XCTUnwrap(EventSoundPlayer.wavData(for: .attention)))
+        XCTAssertEqual(try Data(contentsOf: source), chosen)
     }
 
     @MainActor
@@ -61,10 +124,10 @@ final class EventSoundTests: XCTestCase {
     }
 
     @MainActor
-    func testRevealCuesAreVeryShortAndSeparateFromAgentBurstLimit() {
+    func testRevealCuesAreVeryShortAndSeparateFromAgentBurstLimit() throws {
         for cue in [EventSoundPlayer.Cue.expand, .collapse] {
-            let wav = EventSoundPlayer.wavData(for: cue)
-            XCTAssertLessThan(Double(read32(wav, 40)) / Double(22_050 * 2), 0.15)
+            let wav = try XCTUnwrap(EventSoundPlayer.wavData(for: cue))
+            XCTAssertLessThan(Double(read32(wav, 40)) / Double(read32(wav, 24) * 2), 0.06)
         }
         var limiter = SoundBurstLimiter()
         XCTAssertTrue(limiter.admit(cue: .sessionStart, sessionID: "a", now: 10))
@@ -108,7 +171,7 @@ final class EventSoundTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let original = root.appendingPathComponent("my-completion.wav")
-        let wav = EventSoundPlayer.wavData(for: .completion)
+        let wav = try XCTUnwrap(EventSoundPlayer.wavData(for: .completion))
         try wav.write(to: original)
         let suite = "si-notch.sound-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -139,7 +202,7 @@ final class EventSoundTests: XCTestCase {
         let library = SoundLibrary(defaults: defaults, directory: root.appendingPathComponent("stored"))
 
         let audio = root.appendingPathComponent("short.wav")
-        try EventSoundPlayer.wavData(for: .attention).write(to: audio)
+        try XCTUnwrap(EventSoundPlayer.wavData(for: .attention)).write(to: audio)
         let link = root.appendingPathComponent("linked.wav")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: audio)
         XCTAssertThrowsError(try library.importAudio(from: link, for: .attention)) {
@@ -170,8 +233,8 @@ final class EventSoundTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let library = SoundLibrary(defaults: defaults, directory: root.appendingPathComponent("stored"))
 
-        let samples = 11 * 22_050
-        var wav = EventSoundPlayer.wavData(for: .working)
+        var wav = try XCTUnwrap(EventSoundPlayer.wavData(for: .working))
+        let samples = 11 * Int(read32(wav, 24))
         wav = Data(wav.prefix(44)) + Data(repeating: 0, count: samples * 2)
         let riffSize = UInt32(wav.count - 8)
         set32(&wav, 4, riffSize)
