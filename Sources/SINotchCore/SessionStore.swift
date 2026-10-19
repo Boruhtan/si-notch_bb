@@ -68,6 +68,7 @@ public struct SessionStore: Sendable {
         }
         if let reasoningEffort = event.reasoningEffort { session.reasoningEffort = reasoningEffort }
         if session.firstPrompt == nil { session.firstPrompt = event.firstPrompt }
+        if let isWorkSession = event.isWorkSession { session.isWorkSession = isWorkSession }
         if let usage = event.usage { session.usage = session.usage?.merging(usage) ?? usage }
         if let task = event.task {
             if task.status == .ended { session.tasks.removeAll { $0.id == task.id } }

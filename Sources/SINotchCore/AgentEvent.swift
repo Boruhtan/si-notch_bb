@@ -52,6 +52,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
     public var turnID: String?
     /// Native Codex source classification; nil means this observer has no metadata.
     public var isInternalSession: Bool?
+    /// Native local Work identity; absent hook metadata preserves the known product.
+    public var isWorkSession: Bool?
     /// Identity of an observed, unresolved human-input request; not a runtime wait flag.
     public var attentionRequestID: String?
 
@@ -63,7 +65,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
                 targetURL: String? = nil, approvalID: String? = nil,
                 modelName: String? = nil, reasoningEffort: String? = nil, firstPrompt: String? = nil,
                 turnID: String? = nil, isInternalSession: Bool? = nil, attentionRequestID: String? = nil,
-                connectionID: String? = nil, connectionName: String? = nil) {
+                connectionID: String? = nil, connectionName: String? = nil, isWorkSession: Bool? = nil) {
         self.sessionID = sessionID
         self.provider = provider
         self.connectionID = connectionID
@@ -87,6 +89,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         self.firstPrompt = firstPrompt
         self.turnID = turnID
         self.isInternalSession = isInternalSession
+        self.isWorkSession = isWorkSession
         self.attentionRequestID = attentionRequestID
     }
 
@@ -165,6 +168,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         firstPrompt = try raw.string("first_prompt")
         turnID = try raw.string("turn_id", "turn-id", "turnID", "turnId")
         isInternalSession = try raw.decode(Bool.self, key: "is_internal_session")
+        isWorkSession = try raw.decode(Bool.self, key: "is_work_session")
         attentionRequestID = try raw.string("attention_request_id")
         task = try raw.decode(AgentTask.self, key: "task")
         subagent = try raw.decode(AgentSubagent.self, key: "subagent")
@@ -198,6 +202,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         for (key, value) in strings { if let value { raw[key] = .string(value) } }
         if let sequence { raw["sequence"] = .number(Double(sequence)) }
         if let isInternalSession { raw["is_internal_session"] = .bool(isInternalSession) }
+        if let isWorkSession { raw["is_work_session"] = .bool(isWorkSession) }
         if let attentionRequestID { raw["attention_request_id"] = .string(attentionRequestID) }
         if let task { raw["task"] = try JSONValue.wrapping(task) }
         if let subagent { raw["subagent"] = try JSONValue.wrapping(subagent) }

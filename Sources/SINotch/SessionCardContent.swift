@@ -17,7 +17,7 @@ struct SessionCardContent: Equatable {
     let reasoningEffort: String?
 
     init(session: AgentSession, displayTitle: String? = nil, displayMessage: String? = nil, statusLabel: String? = nil) {
-        providerName = Self.providerName(session.provider)
+        providerName = session.provider.lowercased() == "codex" && session.isWorkSession == true ? "Work" : Self.providerName(session.provider)
         modelName = Self.singleLine(session.modelName, limit: 256)
         reasoningEffort = Self.singleLine(session.reasoningEffort, limit: 128)
         shortID = String(session.id.suffix(8))

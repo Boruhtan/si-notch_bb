@@ -12,6 +12,7 @@ struct ProviderStyle {
         let style: (String, UInt32, UInt32)
         switch name {
         case "codex": style = ("chevron.left.forwardslash.chevron.right", 0x70D8C2, 0x007961)
+        case "work": style = ("briefcase", 0x70D8C2, 0x007961)
         case "pi": style = ("circle.grid.cross", 0xE8B95B, 0x996700)
         case "claude": style = ("sparkle", 0xF29B78, 0xB95025)
         case "opencode": style = ("terminal", 0x75C7F2, 0x006D98)

@@ -4,6 +4,18 @@ import SINotchCore
 @testable import SINotch
 
 final class CodexDesktopStateTests: XCTestCase {
+    func testWorkIdentityUsesNativeServiceAndSurvivesProjection() throws {
+        var state = CodexDesktopState()
+        XCTAssertTrue(state.apply(["type": "snapshot", "revision": 1, "conversationState": [
+            "id": id, "serviceName": "codex_work_desktop", "originator": "codex_work_desktop",
+            "title": "Check a task", "threadRuntimeStatus": ["type": "active"]]]))
+        let event = try XCTUnwrap(state.event(sessionID: id))
+        XCTAssertEqual(event.isWorkSession, true)
+        XCTAssertEqual(try AgentEvent.parse(data: JSONEncoder().encode(event)).isWorkSession, true)
+        XCTAssertTrue(state.apply(["type": "snapshot", "revision": 2, "conversationState": [
+            "id": id, "originator": "Codex Desktop", "title": "Discuss ChatGPT Work"]]))
+        XCTAssertEqual(state.event(sessionID: id)?.isWorkSession, false)
+    }
     private let id = "01a1496d-a1d8-7629-abb4-f8a799d63038"
     private let key = "tail:6:local:fixture"
     private func snapshot() -> [String: Any] {

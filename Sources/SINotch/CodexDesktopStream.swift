@@ -13,6 +13,7 @@ final class CodexDesktopStream {
     private var clientID: String?
     private var pending = Data()
     private var tracked: [String: Date] = [:]
+    private var taskSessions: Set<String> = []
     private var feed = CodexDesktopFeed()
     private var subscribed: Set<String> = []
     private var resnapshotAt: [String: Date] = [:]
@@ -28,17 +29,32 @@ final class CodexDesktopStream {
     }
 
     func observe(_ ids: [String], now: Date = Date()) {
-        for id in ids where UUID(uuidString: id) != nil {
-            if tracked[id] != nil || tracked.count < 8 { tracked[id] = now }
-        }
+        track(ids, activity: true, now: now)
         for (id, seen) in tracked where now.timeIntervalSince(seen) > 3600 {
-            follow(id, following: false); tracked[id] = nil; feed.remove(id); subscribed.remove(id)
+            follow(id, following: false); tracked[id] = nil; taskSessions.remove(id)
+            feed.remove(id); subscribed.remove(id); resnapshotAt[id] = nil
         }
         if let connectingAt, now.timeIntervalSince(connectingAt) > 10, clientID == nil { disconnect() }
-        guard !tracked.isEmpty else { return }
+        // Connect before the first log/rollout signal so native local discovery
+        // can subscribe before a short turn (or a turn without reasoning) ends.
         if connection == nil, now >= retryAfter { connect() }
-        if clientID != nil {
-            for id in tracked.keys where !subscribed.contains(id) { follow(id, following: true); subscribed.insert(id) }
+        subscribe(now: now)
+    }
+
+    private func track(_ ids: [String], activity: Bool, now: Date) {
+        for id in ids where UUID(uuidString: id) != nil {
+            tracked[id] = now
+            if activity { taskSessions.insert(id) }
+        }
+    }
+
+    private func subscribe(now: Date = Date()) {
+        guard clientID != nil else { return }
+        for id in tracked.keys where !subscribed.contains(id) ||
+            (!feed.hasSnapshot(id) && now.timeIntervalSince(resnapshotAt[id] ?? .distantPast) >= 5) {
+            follow(id, following: true)
+            subscribed.insert(id)
+            resnapshotAt[id] = now
         }
     }
 
@@ -47,7 +63,7 @@ final class CodexDesktopStream {
     func stop() {
         for id in subscribed { follow(id, following: false) }
         disconnect()
-        tracked.removeAll()
+        tracked.removeAll(); taskSessions.removeAll()
     }
 
     private func connect() {
@@ -105,19 +121,29 @@ final class CodexDesktopStream {
            frame["resultType"] as? String == "success",
            let id = (frame["result"] as? [String: Any])?["clientId"] as? String, UUID(uuidString: id) != nil {
             clientID = id; connectingAt = nil
-            for id in tracked.keys { follow(id, following: true); subscribed.insert(id) }
+            subscribe()
             return
         }
         if frame["type"] as? String == "client-discovery-request", let requestID = frame["requestId"] as? String {
             send(["type": "client-discovery-response", "requestId": requestID, "response": ["canHandle": false]])
             return
         }
-        guard frame["type"] as? String == "broadcast", frame["method"] as? String == "thread-stream-state-changed",
+        guard frame["type"] as? String == "broadcast" else { return }
+        if let targets = frame["targetClientIds"] as? [String], let clientID, !targets.contains(clientID) { return }
+        if frame["method"] as? String == "thread-read-state-changed", frame["version"] as? Int == 3,
+           let params = frame["params"] as? [String: Any], params["hostId"] as? String == "local",
+           let id = params["conversationId"] as? String, UUID(uuidString: id) != nil {
+            // Read-state events identify a local thread but do not establish
+            // that it is running. Ignore all context and request its snapshot.
+            track([id], activity: false, now: Date())
+            subscribe()
+            return
+        }
+        guard frame["method"] as? String == "thread-stream-state-changed",
               frame["version"] as? Int == 11, let params = frame["params"] as? [String: Any],
               let id = params["conversationId"] as? String, subscribed.contains(id),
               let host = params["hostId"] as? String, ["local", "durable"].contains(host),
               let change = params["change"] as? [String: Any] else { return }
-        if let targets = frame["targetClientIds"] as? [String], let clientID, !targets.contains(clientID) { return }
         let update = feed.consume(id: id, host: host, change: change)
         if update.needsSnapshot {
             if Date().timeIntervalSince(resnapshotAt[id] ?? .distantPast) >= 5 {
@@ -126,7 +152,15 @@ final class CodexDesktopStream {
             }
             return
         }
-        if let event = update.event { onEvent(event, update.bootstrap) }
+        if let event = update.event {
+            if event.kind == .working || event.kind == .waiting {
+                tracked[id] = Date()
+                taskSessions.insert(id)
+            }
+            // Opening old history is discovery, not a newly completed task.
+            guard taskSessions.contains(id) else { return }
+            onEvent(event, update.bootstrap)
+        }
     }
 
     private func follow(_ id: String, following: Bool) {
@@ -166,6 +200,8 @@ struct CodexDesktopFeed {
         var fingerprint: AgentEvent
     }
     private var entries: [String: Entry] = [:]
+
+    func hasSnapshot(_ id: String) -> Bool { entries[id] != nil }
 
     func isFresh(_ id: String, now: Date = Date()) -> Bool {
         guard let entry = entries[id] else { return false }

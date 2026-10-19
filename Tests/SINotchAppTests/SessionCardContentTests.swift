@@ -4,6 +4,16 @@ import SINotchCore
 @testable import SINotch
 
 final class SessionCardContentTests: XCTestCase {
+    func testWorkBadgeIsSeparateFromCodexAndSurvivesMetadataOnlyHooks() {
+        var store = SessionStore()
+        store.apply(AgentEvent(sessionID: "work", provider: "codex", kind: .working,
+            title: "Review a document", isWorkSession: true))
+        store.apply(AgentEvent(sessionID: "work", provider: "codex", kind: .toolStarted, toolName: "terminal"))
+        XCTAssertEqual(SessionCardContent(session: store.sessions["work"]!).providerName, "Work")
+        XCTAssertEqual(ProviderStyle(provider: "work").symbol, "briefcase")
+        store.apply(AgentEvent(sessionID: "codex", provider: "codex", kind: .working, title: "Discuss Work"))
+        XCTAssertEqual(SessionCardContent(session: store.sessions["codex"]!).providerName, "Codex")
+    }
     func testModelAndReasoningAreAvailableBeforeSelectionAndRespectIndependentHeightBudgets() {
         var session = AgentSession(id: "s", provider: "hermes", title: "Check metadata")
         session.modelName = "  model-name  "

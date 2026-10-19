@@ -1,8 +1,65 @@
 import Combine
 import XCTest
+import SINotchCore
 @testable import SINotch
 
 final class AppModelTests: XCTestCase {
+    @MainActor
+    func testObservedNewCodexTurnReopensEndedCLIWithAndWithoutBootstrap() throws {
+        for bootstrap in [false, true] {
+            let model = makeModel()
+            defer { model.shutdown() }
+            model.defaults.set(true, forKey: "codexAutoDetect")
+            let endedAt = Date().addingTimeInterval(-5), turn = UUID().uuidString
+            let ended = AgentEvent(sessionID: "resumed-cli", provider: "codex", kind: .sessionEnded, timestamp: endedAt)
+            model.receive(try JSONEncoder().encode(ended)) { _ in }
+            XCTAssertTrue(model.sessions.isEmpty)
+            let working = AgentEvent(sessionID: "resumed-cli", provider: "codex", kind: .working,
+                timestamp: endedAt.addingTimeInterval(1), id: "rollout:\(turn):\(bootstrap ? "bootstrap" : "start")",
+                firstPrompt: "Resume the local test", turnID: turn)
+            model.receiveCodexObservation(working, bootstrap: bootstrap)
+            XCTAssertEqual(model.sessions.first?.status, .working)
+            let complete = AgentEvent(sessionID: "resumed-cli", provider: "codex", kind: .completed,
+                timestamp: endedAt.addingTimeInterval(2), id: "rollout:\(turn):complete", turnID: turn)
+            model.receiveCodexObservation(complete, bootstrap: false)
+            XCTAssertEqual(model.sessions.first?.status, .completed)
+        }
+    }
+
+    @MainActor
+    func testStaleOrUnidentifiedObservationCannotReopenEndedCodex() throws {
+        let model = makeModel()
+        defer { model.shutdown() }
+        model.defaults.set(true, forKey: "codexAutoDetect")
+        let endedAt = Date(), turn = UUID().uuidString
+        model.receive(try JSONEncoder().encode(AgentEvent(sessionID: "ended-cli", provider: "codex",
+            kind: .sessionEnded, timestamp: endedAt))) { _ in }
+        for event in [
+            AgentEvent(sessionID: "ended-cli", provider: "codex", kind: .working,
+                timestamp: endedAt.addingTimeInterval(-1), id: "rollout:\(turn):bootstrap", turnID: turn),
+            AgentEvent(sessionID: "ended-cli", provider: "codex", kind: .working,
+                timestamp: endedAt.addingTimeInterval(1), id: "desktop:late-log", turnID: turn),
+            AgentEvent(sessionID: "ended-cli", provider: "codex", kind: .working,
+                timestamp: endedAt.addingTimeInterval(1), id: "desktop-stream:missing-turn")
+        ] {
+            model.receiveCodexObservation(event, bootstrap: true)
+            XCTAssertTrue(model.sessions.isEmpty)
+            XCTAssertEqual(model.store.sessions["ended-cli"]?.status, .ended)
+        }
+    }
+
+    @MainActor
+    func testFreshRolloutBootstrapRestoresNewTurnOfCompletedSession() throws {
+        let model = makeModel()
+        defer { model.shutdown() }
+        model.defaults.set(true, forKey: "codexAutoDetect")
+        let completedAt = Date().addingTimeInterval(-10), turn = UUID().uuidString
+        model.receive(try JSONEncoder().encode(AgentEvent(sessionID: "completed-cli", provider: "codex",
+            kind: .completed, timestamp: completedAt))) { _ in }
+        model.receiveCodexObservation(AgentEvent(sessionID: "completed-cli", provider: "codex", kind: .working,
+            timestamp: completedAt.addingTimeInterval(1), id: "rollout:\(turn):bootstrap", turnID: turn), bootstrap: true)
+        XCTAssertEqual(model.sessions.first?.status, .working)
+    }
     @MainActor
     func testUnchangedMaintenanceTickDoesNotInvalidateTheInterface() {
         let model = makeModel()

@@ -1,0 +1,3 @@
+- Fixes missing local sessions when starting, resuming, or running parallel tasks.
+- Adds a distinct label and icon for local Work sessions.
+- Prevents completed history from appearing as a new task.

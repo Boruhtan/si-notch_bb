@@ -247,17 +247,40 @@ final class AppModel: ObservableObject {
         if codexObserver == nil {
             codexObserver = CodexSessionObserver { [weak self] event, bootstrap in
                 Task { @MainActor in
-                    guard let self, self.defaults.bool(forKey: "codexAutoDetect"),
-                          self.pending[event.sessionID] == nil,
-                          !bootstrap || self.store.sessions[event.sessionID] == nil || event.id?.hasPrefix("desktop-stream:") == true else { return }
-                    var update = event
-                    if update.id?.hasPrefix("desktop:") == true, self.store.sessions[event.sessionID] != nil { update.title = nil }
-                    guard let data = try? JSONEncoder().encode(update) else { return }
-                    self.receive(data, suppressPresentation: bootstrap, reply: { _ in })
+                    self?.receiveCodexObservation(event, bootstrap: bootstrap)
                 }
             }
         }
         codexObserver?.start()
+    }
+
+    func receiveCodexObservation(_ event: AgentEvent, bootstrap: Bool) {
+        guard defaults.bool(forKey: "codexAutoDetect"), pending[event.sessionID] == nil else { return }
+        let previous = store.sessions[event.sessionID]
+        let nativeSnapshot = event.id?.hasPrefix("desktop-stream:") == true
+        let rolloutStart = event.turnID.map { turn in
+            event.id == "rollout:\(turn):start" || event.id == "rollout:\(turn):bootstrap"
+        } ?? false
+        // SessionEnd from a CLI process closes that process, not the durable
+        // conversation. Only a fresh, identified turn may reopen it. Keep the
+        // reducer's terminal-state protection for arbitrary late tool events.
+        let reopens = previous?.status == .ended && event.turnID != nil &&
+            [.working, .waiting].contains(event.kind) && (nativeSnapshot || rolloutStart) &&
+            event.timestamp >= (previous?.lastEventAt ?? .distantFuture)
+        let freshRolloutTurn = rolloutStart && event.kind == .working &&
+            event.timestamp >= (previous?.lastEventAt ?? .distantFuture)
+        guard !bootstrap || previous == nil || nativeSnapshot || freshRolloutTurn else { return }
+        if reopens {
+            var start = event
+            start.kind = .sessionStarted; start.id = event.id.map { $0 + ":reopen" }
+            start.title = nil; start.message = nil; start.firstPrompt = nil
+            start.attentionRequestID = nil
+            if let data = try? JSONEncoder().encode(start) { receive(data, suppressPresentation: true, reply: { _ in }) }
+        }
+        var update = event
+        if update.id?.hasPrefix("desktop:") == true, previous != nil { update.title = nil }
+        guard let data = try? JSONEncoder().encode(update) else { return }
+        receive(data, suppressPresentation: bootstrap, reply: { _ in })
     }
 
     func receive(_ data: Data, suppressPresentation: Bool = false, reply: @escaping (Data) -> Void) {

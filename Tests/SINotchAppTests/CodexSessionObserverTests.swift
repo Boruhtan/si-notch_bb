@@ -100,6 +100,118 @@ final class CodexSessionObserverTests: XCTestCase {
         XCTAssertTrue(scanner.poll().isEmpty)
     }
 
+    func testResumedSessionInOldDateDirectoryIsDiscovered() throws {
+        let (root, _) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("2025/01/02")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("rollout-resumed.jsonl")
+        try append(metadata(), to: file)
+        try append(record("event_msg", ["type": "task_started", "turn_id": turnID]), to: file)
+        var scanner = CodexRolloutScanner(sessionsRoot: root)
+        XCTAssertEqual(scanner.poll().map(\.event.sessionID), [sessionID])
+        try append(record("event_msg", ["type": "task_complete", "turn_id": turnID]), to: file)
+        XCTAssertEqual(scanner.poll().map(\.event.kind), [.completed])
+    }
+
+    func testParallelSessionsDoNotLoseLeastRecentlyModifiedTurn() throws {
+        let (root, file) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var expected = Set<String>()
+        for index in 0..<20 {
+            let id = UUID().uuidString
+            expected.insert(id)
+            let target = file.deletingLastPathComponent().appendingPathComponent("rollout-\(index).jsonl")
+            try append(record("session_meta", ["id": id, "source": "cli"]), to: target)
+            try append(record("event_msg", ["type": "task_started", "turn_id": UUID().uuidString]), to: target)
+        }
+        var scanner = CodexRolloutScanner(sessionsRoot: root)
+        XCTAssertEqual(Set(scanner.poll().map(\.event.sessionID)), expected)
+    }
+
+    func testFileEventsDiscoverResumedOldSessionAfterInitialScan() throws {
+        let (root, _) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("2025/01/02")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("rollout-event.jsonl")
+        try append(metadata(), to: file)
+        let queue = DispatchQueue(label: "si-notch.rollout-events-test")
+        let watcher = CodexRolloutWatcher(root: root, queue: queue)
+        var scanner = CodexRolloutScanner(sessionsRoot: root)
+        queue.sync {
+            XCTAssertTrue(watcher.start())
+            XCTAssertTrue(scanner.poll(changedPaths: watcher.takeChanges()).isEmpty)
+        }
+        try append(record("event_msg", ["type": "task_started", "turn_id": turnID]), to: file)
+        let discovered = expectation(description: "old session append delivered through FSEvents")
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: 0.05)
+        timer.setEventHandler {
+            if let event = scanner.poll(changedPaths: watcher.takeChanges()).first?.event {
+                XCTAssertEqual(event.sessionID, self.sessionID)
+                timer.cancel()
+                discovered.fulfill()
+            }
+        }
+        timer.resume()
+        wait(for: [discovered], timeout: 4)
+        queue.sync { timer.cancel(); watcher.stop() }
+    }
+
+    func testChangedPathsCannotEscapeRootOrFollowSymlinkDirectories() throws {
+        let (root, _) = try fixture(), (outside, _) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: outside) }
+        let directory = outside.appendingPathComponent("01/02")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let target = directory.appendingPathComponent("rollout-test.jsonl")
+        try append(metadata(), to: target)
+        try append(record("event_msg", ["type": "task_started", "turn_id": turnID]), to: target)
+        let link = root.appendingPathComponent("2025")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+        var scanner = CodexRolloutScanner(sessionsRoot: root)
+        XCTAssertTrue(scanner.poll(changedPaths: [target, link.appendingPathComponent("01/02/rollout-test.jsonl")]).isEmpty)
+        XCTAssertTrue(scanner.poll().isEmpty)
+    }
+
+    func testNullParentDoesNotHideRootSession() throws {
+        let (root, file) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try append(record("session_meta", ["id": sessionID, "source": "cli", "parent_thread_id": NSNull()]), to: file)
+        try append(record("event_msg", ["type": "task_started", "turn_id": turnID]), to: file)
+        var scanner = CodexRolloutScanner(sessionsRoot: root)
+        XCTAssertEqual(scanner.poll().map(\.event.sessionID), [sessionID])
+    }
+
+    func testBatchedTurnBoundariesRetainSourceOrderAndTimes() throws {
+        let (root, file) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try append(metadata(), to: file)
+        var scanner = CodexRolloutScanner(sessionsRoot: root)
+        XCTAssertTrue(scanner.poll().isEmpty)
+        let now = Date(), nextTurn = UUID().uuidString
+        try append(record("event_msg", ["type": "task_started", "turn_id": turnID], at: now.addingTimeInterval(-3)), to: file)
+        try append(record("event_msg", ["type": "task_complete", "turn_id": turnID], at: now.addingTimeInterval(-2)), to: file)
+        try append(record("event_msg", ["type": "task_started", "turn_id": nextTurn], at: now.addingTimeInterval(-1)), to: file)
+        let events = scanner.poll(now: now).map(\.event).sorted { $0.timestamp < $1.timestamp }
+        XCTAssertEqual(events.map(\.kind), [.working, .completed, .working])
+        XCTAssertEqual(events.map(\.turnID), [turnID, turnID, nextTurn])
+        for (index, event) in events.enumerated() {
+            XCTAssertEqual(event.timestamp.timeIntervalSince1970, now.addingTimeInterval(Double(index - 3)).timeIntervalSince1970, accuracy: 0.002)
+        }
+    }
+
+    func testNativeWorkOriginatorIsForwardedWithoutGuessingFromPrompt() throws {
+        let (root, file) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try append(record("session_meta", ["id": sessionID, "source": "vscode", "originator": "codex_work_desktop"]), to: file)
+        try append(record("event_msg", ["type": "task_started", "turn_id": turnID]), to: file)
+        var scanner = CodexRolloutScanner(sessionsRoot: root)
+        XCTAssertEqual(scanner.poll().first?.event.isWorkSession, true)
+        XCTAssertNil(CodexSessionOrigin.isWork(originator: "my_work_integration"))
+        XCTAssertEqual(CodexSessionOrigin.isWork(originator: "Codex Desktop"), false)
+    }
+
     func testIncrementalToolsAndPartialCompletion() throws {
         let (root, file) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }

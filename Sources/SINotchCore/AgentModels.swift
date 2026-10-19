@@ -146,6 +146,7 @@ public struct AgentSession: Identifiable, Codable, Equatable, Sendable {
     public var modelName: String?
     public var reasoningEffort: String?
     public var firstPrompt: String?
+    public var isWorkSession: Bool?
 
     public init(id: String, provider: String = "custom", title: String = "Agent session",
                 projectPath: String? = nil, status: AgentStatus = .idle,

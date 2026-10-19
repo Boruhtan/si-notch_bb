@@ -16,6 +16,10 @@ Custom integrations can set `terminal_bundle_id` (for example, `com.mitchellh.gh
 
 Codex Desktop sessions are observed automatically through local IPC; CLI sessions can also be discovered from local session files. **Connect Codex** adds and authorizes the eight bundled CLI hooks after checking their exact content. Existing hooks and `notify` are preserved. If authorization fails, review the entries in Codex CLI’s `/hooks` screen. The Desktop protocol may change between Codex versions.
 
+Local Desktop discovery does not require a reasoning log message. Resumed CLI rollouts are discovered in older date folders through native file events; active files continue to be polled. Parallel sessions are not limited to eight Desktop subscriptions or sixteen rollout files. Opening completed Desktop history alone does not create a task card. Local-only Work uses the same local integration; its live verification scope is listed in [feature status](parity.md). Cloud Work and dots are outside this integration's supported scope.
+
+Local Work cards show **Work** with a briefcase icon. Codex keeps its code icon and name. This distinction uses native product metadata; mentioning Work in a prompt or title does not change the badge. A new observed turn can restore a conversation after its previous CLI process has exited.
+
 **Connect Pi** registers the bundled extension in `~/.pi/agent/settings.json`. Run `/reload` in an existing Pi session or restart Pi.
 
 ## Claude Code, Gemini CLI, Copilot CLI and Cursor

@@ -296,7 +296,7 @@ struct SessionCard: View {
     @AppStorage("showActivity") var showActivity = true
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var selected: Bool { model.selectedID == session.id || model.pending[session.id] != nil }
-    var providerStyle: ProviderStyle { ProviderStyle(provider: session.provider) }
+    var providerStyle: ProviderStyle { ProviderStyle(provider: session.provider.lowercased() == "codex" && session.isWorkSession == true ? "work" : session.provider) }
     var content: SessionCardContent {
         SessionCardContent(session: session, displayTitle: model.displayTitle(session),
                            displayMessage: session.lastMessage.map { model.displayMessage(session, $0) }, statusLabel: session.status.label)

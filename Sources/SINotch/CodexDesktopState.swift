@@ -71,7 +71,8 @@ struct CodexDesktopState {
             firstPrompt: SessionSnippet.message(prompt?["content"]),
             turnID: (turn["turnId"] as? String ?? turn["id"] as? String).flatMap { UUID(uuidString: $0)?.uuidString.lowercased() },
             isInternalSession: CodexServiceSessionFilter.nativeClassification(source: root["source"], threadSource: root["threadSource"]),
-            attentionRequestID: attention)
+            attentionRequestID: attention,
+            isWorkSession: CodexSessionOrigin.isWork(originator: root["originator"], serviceName: root["serviceName"]))
     }
 
     private static func attentionRequest(in root: [String: Any], turn: [String: Any]) -> String? {
@@ -140,7 +141,7 @@ struct CodexDesktopState {
     private static func isDynamicKey(_ key: String) -> Bool {
         key.count <= 160 && (key.hasPrefix("turn:") || key.hasPrefix("tail:") || UUID(uuidString: key) != nil)
     }
-    private static let fields: Set<String> = ["id", "title", "cwd", "latestModel", "latestReasoningEffort", "source", "threadSource",
+    private static let fields: Set<String> = ["id", "title", "cwd", "latestModel", "latestReasoningEffort", "source", "threadSource", "originator", "serviceName",
         "threadRuntimeStatus", "activeFlags", "type", "turnHistory", "kind", "history", "entitiesByKey", "turns",
         "turnId", "turnStartedAtMs", "status", "params", "model", "effort", "requestedReasoningEffort", "collaborationMode", "settings", "reasoning_effort", "items", "phase", "text", "content", "input", "questions",
         "tool", "requests", "method", "completed", "threadId", "latestTokenUsageInfo", "total", "last", "inputTokens", "outputTokens", "totalTokens", "modelContextWindow"]

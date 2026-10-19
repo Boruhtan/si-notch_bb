@@ -16,6 +16,10 @@
 
 Codex Desktop 会话通过本地 IPC 自动发现；CLI 会话也可从本地日志发现。**连接 Codex** 会核对内容后添加并授权八个内置 CLI hooks，同时保留现有 hooks 和 `notify`。授权失败时，请在 Codex CLI 的 `/hooks` 页面查看条目。Desktop 协议可能随 Codex 更新而变化。
 
+本地 Desktop 会话发现无需等待推理日志。原生文件事件可发现旧日期目录中恢复的 CLI 会话，活动文件仍会持续轮询。已移除八个 Desktop 订阅和十六个 rollout 文件的限制。仅打开已完成的 Desktop 历史记录不会创建任务卡片。完全本地的 Work 使用同一集成；真实会话的验证范围见[功能状态](parity.md)。此集成不支持云端 Work 和 dots。
+
+本地 Work 卡片显示 **Work** 和公文包图标；Codex 保留名称和代码图标。区分依据是原生产品元数据，在提示或标题中提及 Work 不会改变标记。即使之前的 CLI 进程已退出，新发现的轮次仍可恢复该会话。
+
 **连接 Pi** 将内置扩展注册到 `~/.pi/agent/settings.json`。在已有会话中执行 `/reload` 或重启 Pi。
 
 ## Claude Code、Gemini CLI、Copilot CLI 和 Cursor
