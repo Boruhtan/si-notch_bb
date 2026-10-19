@@ -21,7 +21,7 @@ struct IslandFrameMotion {
         self.origin = origin
         self.destination = destination
         self.initialVelocity = initialVelocity
-        let response = Spring(duration: expanding ? 0.40 : 0.28, bounce: 0)
+        let response = Spring(duration: expanding ? 0.28 : 0.24, bounce: 0)
         widthSpring = response
         heightSpring = response
         centerSpring = response

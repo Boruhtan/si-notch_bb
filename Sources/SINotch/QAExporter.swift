@@ -74,6 +74,7 @@ enum QAExporter {
         let requestedSamplesPerSecond: Double
         let samples: [Sample]
         let actions: [Action]
+        let displayLinkFrames: [IslandWindowAnimator.FrameTiming]
     }
 
     private struct Check: Codable {
@@ -104,7 +105,8 @@ enum QAExporter {
         let reduceTransparency: Bool
         let limitations = [
             "PNG files cache this application's own NSView; they are not desktop screenshots or compositor frames.",
-            "Glass backdrop sampling, hardware camera occlusion, display refresh pacing, and other apps are not validated.",
+            "Glass backdrop sampling, hardware camera occlusion, compositor presentation, and other apps are not validated.",
+            "Display-link timestamps measure callbacks and frame-setting cost, not presented compositor FPS.",
             "Bitmap export runs on the main thread and can perturb animation timing; actual timestamps and capture costs are retained.",
             "Static settings captures cover the initial viewport. Scroll positions and control activation are not exercised.",
             "A passed geometry check does not establish subjective visual quality; inspect the PNG sequence separately."
@@ -391,6 +393,9 @@ enum QAExporter {
             let start = ProcessInfo.processInfo.systemUptime
             var samples: [Sample] = []
             var actions: [Action] = []
+            var displayLinkFrames: [IslandWindowAnimator.FrameTiming] = []
+            delegate.onAnimationFrame = { displayLinkFrames.append($0) }
+            defer { delegate.onAnimationFrame = nil }
             var nextAction = 0
             while true {
                 let elapsed = ProcessInfo.processInfo.systemUptime - start
@@ -420,7 +425,8 @@ enum QAExporter {
                 try await pause(max(0.001, start + nextSlot / samplesPerSecond - now))
             }
             let result = Trace(name: name, startedAtMonotonicTime: start, expectedFinalFrame: expected,
-                               requestedSamplesPerSecond: samplesPerSecond, samples: samples, actions: actions)
+                               requestedSamplesPerSecond: samplesPerSecond, samples: samples, actions: actions,
+                               displayLinkFrames: displayLinkFrames)
             let path = "motion/\(name).json"
             try writeJSON(result, relativePath: path)
             report.traceFiles.append(path)

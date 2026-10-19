@@ -711,6 +711,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var panelKeyMonitor: Any?
     var observers: [NSObjectProtocol] = []
     private var frameAnimation: IslandWindowAnimator?
+    // Populated only by the development QA exporter; no production logging.
+    var onAnimationFrame: ((IslandWindowAnimator.FrameTiming) -> Void)?
     private var targetPanelFrame: NSRect?
     private var targetScreenID: String?
     private var targetBelowMenu = false
@@ -877,7 +879,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // and Reduce Motion start from the real current frame without a late snap.
         let animation = IslandWindowAnimator(window: panel, destination: rect,
             expanding: opening, framesPerSecond: screen.maximumFramesPerSecond,
-            initialVelocity: velocity)
+            initialVelocity: velocity, onFrame: onAnimationFrame)
         frameAnimation = animation
         animation.start()
     }

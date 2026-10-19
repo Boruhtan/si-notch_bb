@@ -4,6 +4,21 @@ import SINotchCore
 @testable import SINotch
 
 final class FullScreenTests: XCTestCase {
+    func testSplitFullscreenBrowserToolbarAndContentCoverDisplayTogether() {
+        let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let toolbar = CGRect(x: 0, y: 33, width: 1512, height: 47)
+        let content = CGRect(x: 0, y: 80, width: 1512, height: 902)
+        XCTAssertTrue(FullScreenDetector.coversDisplay([content, toolbar], display: display, topInset: 32))
+        XCTAssertFalse(FullScreenDetector.coversDisplay([content], display: display, topInset: 32))
+        XCTAssertFalse(FullScreenDetector.coversDisplay([toolbar, content.offsetBy(dx: 0, dy: 8)], display: display, topInset: 32))
+        XCTAssertFalse(FullScreenDetector.coversDisplay([toolbar, content.offsetBy(dx: 1512, dy: 0)], display: display, topInset: 32))
+        let external = CGRect(x: -1920, y: -200, width: 1920, height: 1080)
+        XCTAssertTrue(FullScreenDetector.coversDisplay([
+            CGRect(x: -1920, y: -200, width: 1920, height: 50),
+            CGRect(x: -1920, y: -150, width: 1920, height: 1030)
+        ], display: external, topInset: 0))
+    }
+
     func testDisplayCoverageAllowsCameraInsetButRejectsMaximizedAndOtherDisplayWindows() {
         let display = CGRect(x: 0, y: 0, width: 1728, height: 1117)
         XCTAssertTrue(FullScreenDetector.coversDisplay(display, display: display, topInset: 37))

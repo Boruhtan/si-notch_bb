@@ -127,7 +127,7 @@ enum IslandPreviewLayout: String, CaseIterable, Identifiable {
                             .allowsHitTesting(false)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(L10n.tr("appearance.previewLabel", preview.layout.label, preview.status.label))
-                            .animation(reduceMotion ? nil : .spring(duration: 0.40, bounce: 0), value: preview.layout)
+                            .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0), value: preview.layout)
                             .animation(reduceMotion ? nil : .spring(duration: 0.24, bounce: 0), value: preview.status)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

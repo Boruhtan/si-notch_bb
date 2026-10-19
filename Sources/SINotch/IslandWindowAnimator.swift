@@ -5,12 +5,18 @@ import QuartzCore
 /// Display-linked sampling follows the window's actual refresh rate.
 @MainActor
 final class IslandWindowAnimator: NSObject {
+    struct FrameTiming: Codable {
+        let callbackTime: TimeInterval
+        let targetTime: TimeInterval
+        let workSeconds: TimeInterval
+    }
     private weak var window: NSWindow?
     private let destination: NSRect
     private let motion: IslandFrameMotion
     private let framesPerSecond: Double
     private var displayLink: CADisplayLink?
     private var began: TimeInterval = 0
+    private let onFrame: ((FrameTiming) -> Void)?
     var isRunning: Bool { displayLink != nil }
 
     var velocity: IslandFrameMotion.Velocity {
@@ -18,12 +24,13 @@ final class IslandWindowAnimator: NSObject {
     }
 
     init(window: NSWindow, destination: NSRect, expanding: Bool, framesPerSecond: Int,
-         initialVelocity: IslandFrameMotion.Velocity = .init()) {
+         initialVelocity: IslandFrameMotion.Velocity = .init(), onFrame: ((FrameTiming) -> Void)? = nil) {
         self.window = window
         self.destination = destination
         motion = IslandFrameMotion(origin: window.frame, destination: destination,
                                    expanding: expanding, initialVelocity: initialVelocity)
         self.framesPerSecond = Double(max(30, min(120, framesPerSecond)))
+        self.onFrame = onFrame
         super.init()
     }
 
@@ -32,7 +39,10 @@ final class IslandWindowAnimator: NSObject {
         guard let window else { return }
         began = ProcessInfo.processInfo.systemUptime
         let link = window.displayLink(target: self, selector: #selector(displayFrame(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: Float(framesPerSecond), preferred: Float(framesPerSecond))
+        // Request the current display's rate only for this short transition.
+        // Allowing a 30 Hz floor can leave ProMotion motion visibly undersampled.
+        let rate = Float(framesPerSecond)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
         displayLink = link
         link.add(to: .main, forMode: .common)
         step()
@@ -40,7 +50,13 @@ final class IslandWindowAnimator: NSObject {
 
     func stop() { displayLink?.invalidate(); displayLink = nil }
 
-    @objc private func displayFrame(_ link: CADisplayLink) { step() }
+    @objc private func displayFrame(_ link: CADisplayLink) {
+        guard let onFrame else { step(); return }
+        let start = ProcessInfo.processInfo.systemUptime
+        step()
+        onFrame(FrameTiming(callbackTime: start, targetTime: link.targetTimestamp,
+                            workSeconds: ProcessInfo.processInfo.systemUptime - start))
+    }
 
     private func step() {
         guard let window else { stop(); return }

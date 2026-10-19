@@ -8,8 +8,8 @@ final class IslandFrameMotionTests: XCTestCase {
     func testDropOpensAsOneSurfaceWithoutReboundAndWithFixedTop() {
         let motion = IslandFrameMotion(origin: compact, destination: expanded, expanding: true)
         XCTAssertEqual(motion.frame(at: 0), compact)
-        XCTAssertGreaterThan(motion.frame(at: 0.18).height, expanded.height * 0.65)
-        XCTAssertLessThan(motion.frame(at: 0.10).height, expanded.height * 0.65)
+        XCTAssertGreaterThan(motion.frame(at: 0.14).height, expanded.height * 0.75)
+        XCTAssertLessThan(motion.frame(at: 0.05).height, expanded.height * 0.65)
         var previous = compact.height
         for step in 0...120 {
             let frame = motion.frame(at: Double(step) / 120)
