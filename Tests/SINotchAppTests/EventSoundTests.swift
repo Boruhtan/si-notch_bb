@@ -5,6 +5,37 @@ import CryptoKit
 
 final class EventSoundTests: XCTestCase {
     @MainActor
+    func testSettingsNavigationIsSilentWhileExplicitCollapseStillPlays() {
+        _ = NSApplication.shared
+        let suite = "si-notch.settings-sound-tests." + UUID().uuidString
+        let preferences = UserDefaults(suiteName: suite)!
+        defer { preferences.removePersistentDomain(forName: suite) }
+        preferences.set(true, forKey: "sound")
+        var outputs: [Data] = []
+        let player = EventSoundPlayer(defaults: preferences, output: { data, _ in outputs.append(data); return true })
+        let model = AppModel(defaults: preferences, soundPlayer: player)
+        let delegate = AppDelegate(model: model)
+        defer { delegate.settingsWindow?.close(); model.shutdown() }
+
+        model.setExpanded(true, origin: .automatic)
+        delegate.showSettings()
+        XCTAssertFalse(model.expanded)
+        XCTAssertTrue(delegate.settingsPresented)
+        XCTAssertTrue(delegate.settingsWindow?.isVisible == true)
+        XCTAssertTrue(outputs.isEmpty, "Navigating to Settings must not play the collapse cue")
+
+        model.setExpanded(true, origin: .automatic)
+        delegate.settingsWindow?.close()
+        XCTAssertFalse(delegate.settingsPresented)
+        XCTAssertFalse(model.expanded)
+        XCTAssertTrue(outputs.isEmpty, "Closing Settings must not play interface sounds")
+
+        model.setExpanded(true, origin: .automatic)
+        model.setExpanded(false)
+        XCTAssertEqual(outputs, [EventSoundPlayer.wavData(for: .collapse)!], "Explicit panel closing keeps its feedback")
+    }
+
+    @MainActor
     func testEveryCueIsAValidShortNonclippingWAV() throws {
         var distinct = Set<Data>()
         for cue in EventSoundPlayer.Cue.allCases {

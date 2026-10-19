@@ -2,34 +2,37 @@ import XCTest
 @testable import SINotchCore
 
 final class HoverIntentTests: XCTestCase {
-    func testStationaryPointerOpensAfterShortPause() {
+    func testBriefAccidentalHoverDoesNotOpenEvenWithLegacyDelay() {
         var intent = HoverIntent(location: .zero, at: 10)
-        XCTAssertFalse(intent.sample(location: .zero, at: 10.03, delay: 0.05))
-        XCTAssertTrue(intent.sample(location: .zero, at: 10.06, delay: 0.05))
+        XCTAssertFalse(intent.sample(location: .zero, at: 10.08, delay: 0.06))
+        XCTAssertFalse(intent.sample(location: .zero, at: 10.15, delay: 0.06))
+        XCTAssertTrue(intent.sample(location: .zero, at: 10.19, delay: 0.06))
     }
 
-    func testMovementWithinTheRegionUsesTheSameDwell() {
+    func testCrossingTheIslandInEitherDirectionDoesNotOpen() {
         for vertical in [false, true] {
             var intent = HoverIntent(location: .zero, at: 0)
-            for step in 1...4 {
+            for step in 1...16 {
                 let distance = CGFloat(step) * 8
                 let point = CGPoint(x: vertical ? 0 : distance, y: vertical ? -distance : 0)
-                XCTAssertEqual(intent.sample(location: point, at: Double(step) * 0.025, delay: 0.08), step == 4)
+                XCTAssertFalse(intent.sample(location: point, at: Double(step) * 0.025, delay: 0.06))
             }
         }
     }
 
-    func testMovementDoesNotRestartConfiguredDelay() {
+    func testMovingThenStoppingRequiresAFreshPause() {
         var intent = HoverIntent(location: .zero, at: 0)
         let stop = CGPoint(x: 100, y: 30)
-        XCTAssertFalse(intent.sample(location: stop, at: 0.07, delay: 0.08))
-        XCTAssertTrue(intent.sample(location: stop, at: 0.09, delay: 0.08))
+        XCTAssertFalse(intent.sample(location: stop, at: 0.3, delay: 0.06))
+        XCTAssertFalse(intent.sample(location: stop, at: 0.4, delay: 0.06))
+        XCTAssertTrue(intent.sample(location: stop, at: 0.49, delay: 0.06))
     }
 
-    func testUpwardApproachDoesNotRequireStoppingBehindTheNotch() {
-        var intent = HoverIntent(location: CGPoint(x: 100, y: 500), at: 0)
-        XCTAssertFalse(intent.sample(location: CGPoint(x: 101, y: 508), at: 0.025, delay: 0.05))
-        XCTAssertTrue(intent.sample(location: CGPoint(x: 102, y: 516), at: 0.05, delay: 0.05))
+    func testSlowContinuousDriftCannotAccumulateDwell() {
+        var intent = HoverIntent(location: .zero, at: 0)
+        for step in 1...30 {
+            XCTAssertFalse(intent.sample(location: CGPoint(x: step, y: 0), at: Double(step) * 0.025, delay: 0.06))
+        }
     }
 
     func testApproachRegionExtendsOnlyBelowTheVisibleWindow() {
@@ -43,8 +46,8 @@ final class HoverIntentTests: XCTestCase {
 
     func testSmallPointerJitterDoesNotDelayIntent() {
         var intent = HoverIntent(location: .zero, at: 0)
-        XCTAssertFalse(intent.sample(location: CGPoint(x: 1, y: -1), at: 0.05, delay: 0.08))
-        XCTAssertTrue(intent.sample(location: CGPoint(x: -1, y: 1), at: 0.11, delay: 0.08))
+        XCTAssertFalse(intent.sample(location: CGPoint(x: 1, y: -1), at: 0.1, delay: 0.18))
+        XCTAssertTrue(intent.sample(location: CGPoint(x: -1, y: 1), at: 0.19, delay: 0.18))
     }
 
     func testConfiguredDelayAndInvalidSamples() {

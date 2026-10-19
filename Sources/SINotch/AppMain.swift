@@ -699,7 +699,7 @@ final class AppModel: ObservableObject {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    let model = AppModel()
+    let model: AppModel
     var panel: IslandPanel!
     var statusItem: NSStatusItem!
     var settingsWindow: NSWindow?
@@ -718,6 +718,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var targetBelowMenu = false
     private var targetExpanded = false
     private var shortcutConfiguration: String?
+
+    init(model: AppModel? = nil) {
+        self.model = model ?? AppModel()
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panel = IslandPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -955,7 +960,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             w.center(); settingsWindow = w
         }
         if !(settingsWindow?.contentView is NSHostingView<SettingsView>) { setSettingsContent() }
-        model.setExpanded(false)
+        model.setExpanded(false, origin: .automatic, reason: "settings-opened")
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
         model.presentationPolicy?.refresh(forceVisibilityUpdate: true)
@@ -970,7 +975,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // A retained NSHostingView keeps observing agent events and animating
         // companion previews after its window closes. Recreate it on demand.
         closing.contentView = nil
-        model.setExpanded(false)
+        model.setExpanded(false, origin: .automatic, reason: "settings-closed")
         model.presentationPolicy?.noteActivity()
         model.presentationPolicy?.refresh(forceVisibilityUpdate: true)
     }

@@ -513,7 +513,7 @@
 "session.open" = "打开 %@：%@";
 "session.openApp" = "在智能体应用中打开";
 "session.openFailed" = "无法打开此会话的应用。应用可能已关闭，或未提供地址。";
-"settings.hoverIntentHelp" = "将鼠标在刘海或其下边缘短暂停留即可展开。在鼠标下方关闭后，会短暂阻止悬停重新展开。";
+"settings.hoverIntentHelp" = "将鼠标停在刘海或其下边缘即可展开。鼠标经过时不会展开面板。在鼠标下方关闭后，会短暂阻止悬停重新展开。";
 
 /* Named remote connections and profile setup. */
 "remote.defaultName" = "SSH 连接";

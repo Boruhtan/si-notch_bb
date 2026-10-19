@@ -142,7 +142,7 @@ final class PresentationModelTests: XCTestCase {
     }
 
     @MainActor
-    func testMovingPointerWithinPillUsesConfiguredDwell() async throws {
+    func testMovingPointerWithinPillWaitsForAStop() async throws {
         let model = makeModel()
         defer { model.shutdown() }
         var position = CGPoint.zero
@@ -152,8 +152,11 @@ final class PresentationModelTests: XCTestCase {
         for _ in 0..<8 {
             position.x += 12
             try await Task.sleep(for: .milliseconds(30))
+            XCTAssertFalse(model.expanded)
         }
-        XCTAssertTrue(model.expanded)
+        let opened = expectation(description: "a deliberate pause opens the island")
+        model.onLayout = { if model.expanded { opened.fulfill() } }
+        await fulfillment(of: [opened], timeout: 2)
         XCTAssertNil(model.expansionTimer)
     }
 

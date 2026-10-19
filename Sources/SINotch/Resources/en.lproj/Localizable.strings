@@ -513,7 +513,7 @@
 "session.open" = "Open %@: %@";
 "session.openApp" = "Open in agent app";
 "session.openFailed" = "Could not open the app for this session. It may be closed or its address is unavailable.";
-"settings.hoverIntentHelp" = "Keep the pointer over the island or its lower edge briefly. Closing under the pointer briefly blocks hover reopening.";
+"settings.hoverIntentHelp" = "Pause the pointer over the island or its lower edge to open it. Moving across it does not open it. Closing under the pointer briefly blocks hover reopening.";
 
 /* Named remote connections and profile setup. */
 "remote.defaultName" = "SSH connection";

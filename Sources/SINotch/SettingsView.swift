@@ -252,7 +252,12 @@ struct SettingsView: View {
                         catch { model.settingsError = .launchAtLogin(error.localizedDescription); launchAtLogin = SMAppService.mainApp.status == .enabled }
                     }
                     Toggle(L10n.tr("Раскрывать при наведении"), isOn: $hover)
-                    HStack { Text(L10n.tr("Задержка наведения")); Slider(value: $hoverDelay, in: 0.02...0.8, step: 0.01); Text(L10n.tr("%.2f с", hoverDelay)).monospacedDigit() }.disabled(!hover).help(L10n.tr("settings.hoverIntentHelp"))
+                    HStack {
+                        Text(L10n.tr("Задержка наведения"))
+                        Slider(value: Binding(get: { HoverIntent.dwell(for: hoverDelay) }, set: { hoverDelay = $0 }),
+                               in: IslandTiming.hoverEnter...0.8, step: 0.01)
+                        Text(L10n.tr("%.2f с", HoverIntent.dwell(for: hoverDelay))).monospacedDigit()
+                    }.disabled(!hover).help(L10n.tr("settings.hoverIntentHelp"))
                     Picker(L10n.tr("Считать неактивной через"), selection: $idleMinutes) { Text(L10n.tr("30 минут")).tag(30); Text(L10n.tr("2 часа")).tag(120); Text(L10n.tr("8 часов")).tag(480); Text(L10n.tr("Никогда")).tag(0) }
                     Toggle(L10n.tr("settings.hideWhenIdle"), isOn: $hideWhenIdle)
                     Text(L10n.tr("settings.hideWhenIdleHelp")).font(.system(size: 11)).foregroundStyle(.secondary)

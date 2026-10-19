@@ -178,7 +178,9 @@ enum QAExporter {
                     report.screenFrame = Frame(screen.frame)
                     report.screenMaximumFramesPerSecond = screen.maximumFramesPerSecond
                 }
-                if CommandLine.arguments.contains("--qa-display-only") {
+                if CommandLine.arguments.contains("--qa-interaction-only") {
+                    try await verifyInteractions()
+                } else if CommandLine.arguments.contains("--qa-display-only") {
                     try await exportDisplayViews()
                 } else if CommandLine.arguments.contains("--qa-remote-only") {
                     try await exportRemoteViews()
@@ -278,6 +280,67 @@ enum QAExporter {
             for i in 0..<8 { try await send(.working, id: "start", session: "qa-parallel-\(i)") }
             check("audio-ipc-parallel-sessions", outputs == 10,
                   "All eight distinct sessions reach the audio sink; no global sound cooldown is applied.")
+        }
+
+        func verifyInteractions() async throws {
+            let model = delegate.model
+            let host = delegate.panel.contentView as? TrackingHost<IslandView>
+            let onHover = host?.onHover
+            host?.onHover = nil
+            let location = model.hoverLocation
+            defer { model.hover(false); model.hoverLocation = location; host?.onHover = onHover }
+            overrides["hoverExpand"] = true
+            overrides["hoverDelay"] = 0.06 // The previous saved default must also be protected.
+            overrides["keepOpen"] = false
+            applyOverrides()
+            model.hover(false)
+            model.setExpanded(false, origin: .automatic)
+            delegate.layout(allowAnimation: false)
+            let region = model.compactHoverRegion!
+            var point = CGPoint(x: region.minX + 5, y: region.midY)
+            model.hoverLocation = { point }
+            model.hover(true)
+            try await pause(0.09)
+            check("hover-brief-entry-stays-compact", !model.expanded,
+                  "The legacy 60 ms setting does not open the panel on a brief accidental entry.")
+            var crossedWithoutOpening = true
+            for step in 1...12 {
+                point.x = region.minX + 5 + CGFloat(step) * (region.width - 10) / 12
+                try await pause(0.025)
+                crossedWithoutOpening = crossedWithoutOpening && !model.expanded
+            }
+            check("hover-crossing-stays-compact", crossedWithoutOpening,
+                  "Moving continuously through the actual compact activation region never opens the panel.")
+            try await pause(0.3)
+            check("hover-pause-opens-native-panel", model.expanded && delegate.panel.frame.height > region.height,
+                  "Stopping within the region opens the real NSWindow after the protected pause.")
+            model.hover(false)
+            try await pause(0.6)
+            check("hover-leave-collapses-native-panel", !model.expanded,
+                  "Leaving still collapses the native panel and cancels intent sampling.")
+
+            let suite = "si-notch.qa-settings-sound." + UUID().uuidString
+            let preferences = UserDefaults(suiteName: suite)!
+            var arguments = overrides
+            arguments["sound"] = true
+            arguments["quiet"] = false
+            preferences.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            defer { preferences.removePersistentDomain(forName: suite); applyOverrides() }
+            var outputs: [Data] = []
+            let player = EventSoundPlayer(defaults: preferences, output: { data, _ in outputs.append(data); return true })
+            let settingsModel = AppModel(defaults: preferences, soundPlayer: player)
+            let settingsDelegate = AppDelegate(model: settingsModel)
+            defer { settingsDelegate.settingsWindow?.close(); settingsModel.shutdown() }
+            settingsModel.setExpanded(true, origin: .automatic)
+            settingsDelegate.showSettings()
+            check("settings-navigation-is-silent", !settingsModel.expanded && outputs.isEmpty &&
+                  settingsDelegate.settingsWindow?.isVisible == true,
+                  "The real Settings action shows its NSWindow and collapses silently with sounds enabled.")
+            settingsDelegate.settingsWindow?.close()
+            settingsModel.setExpanded(true, origin: .automatic)
+            settingsModel.setExpanded(false)
+            check("explicit-collapse-keeps-sound", outputs == [EventSoundPlayer.wavData(for: .collapse)!],
+                  "An explicit panel close still reaches the audio sink with the bundled collapse recording.")
         }
 
         func clearFixtures() {

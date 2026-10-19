@@ -1,0 +1,2 @@
+- Reduced accidental panel openings when moving the pointer past the island.
+- Removed the panel closing sound when opening Settings.

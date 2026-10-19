@@ -1,21 +1,34 @@
 import Foundation
 
-/// A cancellable dwell. The caller revalidates the logical hit region on each
-/// sample; pointer speed and direction do not change the configured delay.
+/// A cancellable pause within a small radius. The caller revalidates the logical
+/// hit region on each sample; travelling through it must not count as intent.
 public struct HoverIntent: Sendable {
     public static let sampleInterval: TimeInterval = 0.025
     public static let approachMargin: CGFloat = 20
-    private let enteredAt: TimeInterval
+    private var anchor: CGPoint
+    private var settledSince: TimeInterval
 
     public init(location: CGPoint, at time: TimeInterval) {
-        enteredAt = time
+        anchor = location
+        settledSince = time
     }
 
     public mutating func sample(location: CGPoint, at time: TimeInterval, delay: TimeInterval) -> Bool {
-        guard time.isFinite, enteredAt.isFinite, time >= enteredAt,
+        guard time.isFinite, settledSince.isFinite, time >= settledSince,
+              anchor.x.isFinite, anchor.y.isFinite,
               location.x.isFinite, location.y.isFinite else { return false }
-        let dwell = delay.isFinite ? max(0.02, delay) : IslandTiming.hoverEnter
-        return time - enteredAt >= dwell
+        // Anchor the tolerance to the start of the pause, so slow movement cannot
+        // accumulate dwell through many individually small samples.
+        if hypot(location.x - anchor.x, location.y - anchor.y) > 4 {
+            anchor = location
+            settledSince = time
+        }
+        return time - settledSince >= Self.dwell(for: delay)
+    }
+
+    /// Older saved delays may be shorter than a deliberate pause.
+    public static func dwell(for delay: TimeInterval) -> TimeInterval {
+        delay.isFinite ? max(IslandTiming.hoverEnter, delay) : IslandTiming.hoverEnter
     }
 
     /// A narrow strip below the visible island lets the pointer stay visible on
