@@ -52,6 +52,14 @@ public struct NotchGeometry: Equatable, Sendable {
         return (auxiliaryTopLeftArea!.maxX + auxiliaryTopRightArea!.minX) / 2
     }
 
+    /// A small, click-through hover target retained while fullscreen hides the
+    /// island. The strip below a physical cutout keeps the cursor reachable.
+    public var fullScreenRevealFrame: CGRect {
+        let width = min(screenFrame.width, max(80, min(200, notchWidth + 24)))
+        let height = max(6, topInset + 6)
+        return CGRect(x: centerX - width / 2, y: screenFrame.maxY - height, width: width, height: height)
+    }
+
     /// Collapsed bounds cover the physical cutout and only the requested control wings.
     public func compactFrame(wingWidth: CGFloat, minimumHeight: CGFloat = 32,
                              topOffset: CGFloat = 0) -> CGRect {

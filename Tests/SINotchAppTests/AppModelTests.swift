@@ -109,6 +109,29 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(result["decision"] as? String, "cancelled")
     }
     @MainActor
+    func testDesktopObservationCannotCancelLiveCodexPermissionButCompletionDoes() throws {
+        let model = makeModel()
+        defer { model.shutdown() }
+        var replies: [Data] = []
+        let request: [String: Any] = ["session_id": "codex-permission", "provider": "codex", "event": "approval.request",
+            "request_id": "exact-request", "approval_id": "exact-request", "await_response": true, "response_timeout": 60]
+        model.receive(try JSONSerialization.data(withJSONObject: request)) { replies.append($0) }
+        let token = try XCTUnwrap(model.pending["codex-permission"]?.token)
+        for event in ["agent.working", "agent.waiting", "approval.request"] {
+            model.receive(try JSONSerialization.data(withJSONObject: ["session_id": "codex-permission", "provider": "codex",
+                "event": event, "id": "desktop-stream:\(UUID().uuidString)"])) { _ in }
+            XCTAssertEqual(model.pending["codex-permission"]?.token, token)
+            XCTAssertEqual(model.store.sessions["codex-permission"]?.status, .approval)
+            XCTAssertTrue(replies.isEmpty)
+        }
+        model.receive(try JSONSerialization.data(withJSONObject: ["session_id": "codex-permission", "provider": "codex",
+            "event": "agent.completed", "id": "desktop-stream:completed"])) { _ in }
+        XCTAssertNil(model.pending["codex-permission"])
+        XCTAssertEqual(replies.count, 1)
+        model.respond("codex-permission", expectedToken: token, decision: "allow")
+        XCTAssertEqual(replies.count, 1, "A stale button must not answer after completion")
+    }
+    @MainActor
     func testDeadlineUsesClientTimeoutAndReleasesCallback() async {
         let model = makeModel()
         var replies: [Data] = []

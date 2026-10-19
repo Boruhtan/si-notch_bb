@@ -77,7 +77,6 @@ final class AppModel: ObservableObject {
     private var expansionGeneration: UInt64 = 0
     private var revealGeneration: UInt64 = 0
     private var expansionOrigin: IslandExpansionOrigin = .manual
-    private var expandedHeightFloor: CGFloat = 0
     private var codexServiceSessions = CodexServiceSessionFilter()
     private var observedAttention: [String: (id: String, seenAt: TimeInterval)] = [:]
     var pointerInside = false
@@ -156,11 +155,7 @@ final class AppModel: ObservableObject {
     }
 
     func panelHeight(limitedTo maximum: CGFloat) -> CGFloat {
-        // Keep the bottom navigation under the pointer while content changes.
-        // A new expansion starts at the current content's natural height.
-        let height = min(maximum, max(desiredPanelHeight, expanded ? expandedHeightFloor : 0))
-        expandedHeightFloor = expanded ? height : 0
-        return height
+        min(maximum, desiredPanelHeight)
     }
 
     func selectAgents(_ value: Bool) {
@@ -172,7 +167,6 @@ final class AppModel: ObservableObject {
     private func sessionQueryChanged() {
         // Filters sit at the top, so their hit targets stay put while the panel
         // resizes. Do not wait for a card measurement or the next agent event.
-        expandedHeightFloor = 0
         cancelExpansionTimer()
         cancelRevealTimer()
         onLayout?()
@@ -296,18 +290,30 @@ final class AppModel: ObservableObject {
                         "remote_connections": remoteConnections.connections.map { ["id": $0.id.uuidString, "name": $0.displayName,
                             "status": remoteConnections.state($0.id).statusName] },
                         "expanded": expanded, "expansion_history": expansionHistory,
+                        "presentation": presentationPolicy?.diagnostics ?? [:],
                         "providers": providerReceipts.mapValues { $0.timeIntervalSince1970 },
                         "sessions": sessions.map { ["id": $0.id, "provider": $0.provider, "status": $0.status.rawValue] }]))
             return
         }
         guard !paused else { reply(json(["ok": false, "error": "paused"])); return }
         do {
-            let event = try AgentEvent.parse(data: data)
+            var event = try AgentEvent.parse(data: data)
             if event.provider.lowercased() == "pi", event.id?.hasPrefix("pi-file:") != true {
                 piObserver?.markHookObserved(sessionID: event.sessionID)
             }
             let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             let waitingForReply = raw["await_response"] as? Bool == true
+            // Desktop's follower can report a stale running/waiting snapshot
+            // while a PermissionRequest hook owns a live reply channel. It must
+            // not remove the buttons or decide that request on the user's behalf.
+            let preservesPending = !waitingForReply && event.provider == "codex" &&
+                event.id?.hasPrefix("desktop-stream:") == true && pending[event.sessionID] != nil &&
+                [.working, .waiting, .approvalRequested].contains(event.kind)
+            if preservesPending, let request = pending[event.sessionID] {
+                event.kind = request.question ? .waiting : .approvalRequested
+                event.message = nil
+                event.approvalID = request.requestID
+            }
             if event.kind == .agentPresence {
                 guard !waitingForReply else { reply(json(["ok": false, "error": "invalid_presence"])); return }
                 presenceNow = Date()
@@ -381,7 +387,7 @@ final class AppModel: ObservableObject {
             if raw["title"] != nil { appOwnedTitles[event.sessionID] = nil }
             if raw["message"] != nil { appOwnedMessages[event.sessionID] = nil }
             let supersedesDecision: Set<AgentEventKind> = [.sessionStarted, .working, .toolStarted, .toolFinished, .toolFailed, .waiting, .approvalRequested, .completed, .failed, .sessionEnded]
-            if disposition == .applied && supersedesDecision.contains(event.kind) { cancelRequest(event.sessionID) }
+            if disposition == .applied && !preservesPending && supersedesDecision.contains(event.kind) { cancelRequest(event.sessionID) }
             if waitingForReply && disposition == .applied && [.approval, .waiting].contains(store.sessions[event.sessionID]?.status ?? .idle), let rid = raw["request_id"] as? String, !rid.isEmpty, rid.count <= 160 {
                 guard pending.count < 8 else { reply(json(["ok": false, "decision": "busy", "request_id": rid])); return }
                 let requestedTimeout = raw["response_timeout"] as? Double ?? 60
@@ -538,7 +544,6 @@ final class AppModel: ObservableObject {
     func setExpanded(_ value: Bool, origin: IslandExpansionOrigin = .manual, reason: String? = nil) {
         cancelExpansionTimer()
         cancelRevealTimer()
-        if !value { expandedHeightFloor = 0 }
         if value { expansionOrigin = origin }
         guard expanded != value else { presentationPolicy?.expansionChanged(value, origin: origin); return }
         if !value {
@@ -611,16 +616,19 @@ final class AppModel: ObservableObject {
             }
             expansionTimer = timer
             RunLoop.main.add(timer, forMode: .common)
-        } else if expanded && pending.isEmpty && !defaults.bool(forKey: "keepOpen") && (presentationPolicy?.canCollapseOnMouseLeave ?? true) {
+        } else if canCollapseAfterPointerLeave {
             expansionTimer = Timer.scheduledTimer(withTimeInterval: IslandTiming.hoverExit, repeats: false) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.expansionGeneration == generation,
-                          self.expanded, !self.pointerInside, self.presentationPolicy?.canCollapseOnMouseLeave ?? true,
-                          self.pending.isEmpty, !self.defaults.bool(forKey: "keepOpen") else { return }
+                          self.canCollapseAfterPointerLeave else { return }
                     self.setExpanded(false, origin: self.expansionOrigin == .automatic ? .automatic : .hover)
                 }
             }
         }
+    }
+    private var canCollapseAfterPointerLeave: Bool {
+        presentationPolicy?.canCollapseOnMouseLeave ??
+            (expanded && !pointerInside && pending.isEmpty && !defaults.bool(forKey: "keepOpen"))
     }
     func activateSession(_ session: AgentSession) {
         if defaults.bool(forKey: "disableClickJump") {
@@ -691,6 +699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var targetPanelFrame: NSRect?
     private var targetScreenID: String?
     private var targetBelowMenu = false
+    private var targetExpanded = false
     private var shortcutConfiguration: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -744,7 +753,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 return state
             }, panel: { [weak self] in self?.panel },
             onVisibilityChange: { [weak self] in self?.applyIslandVisibility($0) },
-            onAutoDismiss: { [weak model] in model?.setExpanded(false, origin: .automatic) })
+            onAutoDismiss: { [weak model] in model?.setExpanded(false, origin: .automatic) },
+            fullScreen: { [weak self] in FullScreenDetector.isFullScreen(on: self?.selectedScreen()) },
+            onFullScreenChange: { [weak self] in self?.fullScreenChanged($0) })
         model.presentationPolicy?.start()
         model.start()
         UpdateBackgroundChecker.shared.start()
@@ -821,7 +832,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // collapse the departing large panel must not become a hover target.
         model.hoverRegion = HoverIntent.region(for: rect)
         model.compactHoverRegion = HoverIntent.region(for: menuMode ? compactFrame : geometry.coveringTopEdge(compactFrame))
-        (panel.contentView as? TrackingHost<IslandView>)?.interactionFrame = rect
+        if let host = panel.contentView as? TrackingHost<IslandView> {
+            host.hiddenInteractionFrame = geometry.fullScreenRevealFrame
+            host.interactionFrame = rect
+        }
         let currentScreenID = screenID(screen)
         let animate = allowAnimation && targetPanelFrame != nil && panel.isVisible &&
             targetScreenID == currentScreenID && targetBelowMenu == menuMode &&
@@ -829,11 +843,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Events and preferences may request the same destination while the
         // visible window is still travelling. Do not restart that animation.
         if targetPanelFrame == rect && animate && (panel.frame == rect || frameAnimation?.isRunning == true) { return }
+        let velocity = frameAnimation?.isRunning == true ? frameAnimation!.velocity : .init()
+        let opening = model.expanded && !targetExpanded
         frameAnimation?.stop()
         frameAnimation = nil
         targetPanelFrame = rect
         targetScreenID = currentScreenID
         targetBelowMenu = menuMode
+        targetExpanded = model.expanded
         guard panel.frame != rect else { return }
         // A system reposition is not an animation origin. Reattach first so the
         // next hover expands down from the screen edge rather than from a gap.
@@ -844,23 +861,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Retain an explicitly cancellable animation so reversal, display changes,
         // and Reduce Motion start from the real current frame without a late snap.
         let animation = IslandWindowAnimator(window: panel, destination: rect,
-            response: model.expanded ? IslandTiming.expandResponse : IslandTiming.collapseResponse,
-            framesPerSecond: screen.maximumFramesPerSecond)
+            expanding: opening, framesPerSecond: screen.maximumFramesPerSecond,
+            initialVelocity: velocity)
         frameAnimation = animation
         animation.start()
     }
     func applyIslandVisibility(_ visible: Bool) {
+        let host = panel.contentView as? TrackingHost<IslandView>
+        host?.tracksHiddenHover = model.presentationPolicy?.currentDecision?.hiddenReason == .fullScreen
         if visible {
-            layout(allowAnimation: false)
+            let reveal = !panel.isVisible && model.presentationPolicy?.isFullScreen == true && model.expanded
+            if model.presentationPolicy?.isFullScreen == true && model.expanded {
+                let playerLevel = FullScreenDetector.coveringWindowLevel(on: selectedScreen()) ?? 0
+                panel.level = NSWindow.Level(rawValue: max(NSWindow.Level.statusBar.rawValue,
+                    min(Int(CGShieldingWindowLevel()) + 1, playerLevel + 1)))
+            }
+            if !reveal { layout(allowAnimation: false) }
             panel.orderFrontRegardless()
+            if reveal { layout() }
         } else {
             panel.orderOut(nil)
+            panel.level = .statusBar
             model.hover(false)
             if model.presentationPolicy?.currentDecision?.hiddenReason == .noSessions {
                 model.setExpanded(false, origin: .automatic)
             }
             layout(allowAnimation: false)
         }
+    }
+    func fullScreenChanged(_ active: Bool) {
+        // Entering a fullscreen Space must also dismiss an already-open panel.
+        // A pointer parked at the camera must leave and return before revealing.
+        model.hover(false)
+        model.setExpanded(false, origin: .automatic)
+        (panel.contentView as? TrackingHost<IslandView>)?.resetHover(requiringExit: active)
     }
     func screenID(_ s: NSScreen) -> String { String(describing: s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] ?? "main") }
     func windowDidMove(_ notification: Notification) {
@@ -987,6 +1021,9 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
         didSet { if oldValue != interactionFrame { synchronizeHover() } }
     }
     private var pointerIsInside = false
+    var hiddenInteractionFrame: CGRect?
+    var tracksHiddenHover = false
+    private var requiresReentry = false
     private var localMotionMonitor: Any?
     private var globalMotionMonitor: Any?
 
@@ -1021,11 +1058,19 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
         if let area { addTrackingArea(area) }
         synchronizeHover()
     }
+    func resetHover(requiringExit: Bool) {
+        requiresReentry = requiringExit && (hiddenInteractionFrame?.contains(NSEvent.mouseLocation) ?? false)
+        pointerIsInside = false
+        onHover?(false)
+    }
     private func synchronizeHover() {
         let inside: Bool
-        if let window, window.isVisible, let interactionFrame {
+        if requiresReentry {
+            if hiddenInteractionFrame?.contains(NSEvent.mouseLocation) != true { requiresReentry = false }
+            inside = false
+        } else if let window, window.isVisible, let interactionFrame {
             inside = HoverIntent.region(for: interactionFrame).contains(NSEvent.mouseLocation)
-        } else { inside = false }
+        } else { inside = tracksHiddenHover && (hiddenInteractionFrame?.contains(NSEvent.mouseLocation) ?? false) }
         guard inside != pointerIsInside else { return }
         pointerIsInside = inside
         onHover?(inside)

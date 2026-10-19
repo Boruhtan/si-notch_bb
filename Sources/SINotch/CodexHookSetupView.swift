@@ -126,7 +126,7 @@ struct CodexHookSetupView: View {
         let authorization = CodexHookAuthorization(command: setup.command, sourcePath: setup.hooksURL.path)
         Task {
             do {
-                // Connect is explicit consent for this bundled observer. Codex
+                // Connect is explicit consent for these bundled hooks. Codex
                 // supplies its current definition hashes; authorization rechecks
                 // them and changes only these eight exact hook definitions.
                 let plan = try await authorization.prepare(binary: binary)

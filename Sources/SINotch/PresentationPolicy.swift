@@ -2,8 +2,8 @@ import AppKit
 import SINotchCore
 
 /// The OS adapter for IslandPresentationPolicy. It observes app/Space changes
-/// and mouse buttons only; it does not request Accessibility, Input Monitoring,
-/// or Screen Recording access and never reads another application's settings.
+/// and mouse buttons; it never requests Accessibility, Input Monitoring, or
+/// Screen Recording access and never reads another application's settings.
 @MainActor
 final class PresentationPolicy {
     static let registeredDefaults: [String: Any] = [
@@ -21,6 +21,8 @@ final class PresentationPolicy {
     private let panel: () -> NSWindow?
     private let onVisibilityChange: (Bool) -> Void
     private let onAutoDismiss: () -> Void
+    private let fullScreen: () -> Bool
+    private let onFullScreenChange: (Bool) -> Void
     private let now: () -> TimeInterval
     private var policy: IslandPresentationPolicy
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
@@ -28,6 +30,9 @@ final class PresentationPolicy {
     private var globalMouseMonitor: Any?
     private var timer: Timer?
     private var started = false
+    private var refreshing = false
+    private(set) var isFullScreen = false
+    private var presentationObservation: NSKeyValueObservation?
     private(set) var currentDecision: IslandPresentationDecision?
 
     init(defaults: UserDefaults = .standard,
@@ -35,12 +40,16 @@ final class PresentationPolicy {
          panel: @escaping () -> NSWindow?,
          onVisibilityChange: @escaping (Bool) -> Void,
          onAutoDismiss: @escaping () -> Void,
+         fullScreen: @escaping () -> Bool = { FullScreenDetector.isFullScreen(on: NSScreen.main) },
+         onFullScreenChange: @escaping (Bool) -> Void = { _ in },
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.defaults = defaults
         readState = state
         self.panel = panel
         self.onVisibilityChange = onVisibilityChange
         self.onAutoDismiss = onAutoDismiss
+        self.fullScreen = fullScreen
+        self.onFullScreenChange = onFullScreenChange
         self.now = now
         policy = IslandPresentationPolicy(now: now())
         defaults.register(defaults: Self.registeredDefaults)
@@ -63,6 +72,12 @@ final class PresentationPolicy {
         policy.canCollapseOnMouseLeave(options: options, state: snapshot())
     }
     var expansionOrigin: IslandExpansionOrigin? { policy.expansionOrigin }
+    var diagnostics: [String: Any] {
+        ["fullscreen": isFullScreen,
+         "hidden_reason": currentDecision?.hiddenReason.map { String(describing: $0) } ?? "none",
+         "panel_visible": panel()?.isVisible ?? false,
+         "system_presentation_options": NSApp.currentSystemPresentationOptions.rawValue]
+    }
 
     func start() {
         guard !started else { return }
@@ -70,8 +85,10 @@ final class PresentationPolicy {
         observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didActivateApplicationNotification)
         observe(NSWorkspace.shared.notificationCenter, NSWorkspace.activeSpaceDidChangeNotification)
         observe(NotificationCenter.default, UserDefaults.didChangeNotification)
-        // A foreground app can enter native fullscreen without activating again.
-        // Poll the public system presentation flags; no window enumeration needed.
+        presentationObservation = NSApp.observe(\.currentSystemPresentationOptions, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in self?.refresh() }
+        }
+        // Also reconcile after fullscreen transitions finish moving windows.
         let tick = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -96,6 +113,7 @@ final class PresentationPolicy {
         started = false
         timer?.invalidate()
         timer = nil
+        presentationObservation = nil
         for (center, observer) in observers { center.removeObserver(observer) }
         observers.removeAll()
         if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
@@ -108,9 +126,16 @@ final class PresentationPolicy {
     /// alone does not reset the idle clock. The forced variant reconciles window
     /// ordering after another owner has explicitly ordered the panel out.
     func refresh(forceVisibilityUpdate: Bool = false) {
-        guard started else { return }
-        let next = policy.decision(options: options, state: snapshot(), at: now())
-        let changed = next.isVisible != currentDecision?.isVisible
+        guard started, !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
+        let fullScreen = options.hideInFullScreen && self.fullScreen()
+        if fullScreen != isFullScreen {
+            isFullScreen = fullScreen
+            onFullScreenChange(fullScreen)
+        }
+        let next = policy.decision(options: options, state: snapshot(fullScreen: fullScreen), at: now())
+        let changed = currentDecision == nil || next.hiddenReason != currentDecision?.hiddenReason
         currentDecision = next
         if changed || forceVisibilityUpdate { onVisibilityChange(next.isVisible) }
     }
@@ -133,17 +158,21 @@ final class PresentationPolicy {
             frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
     }
 
-    private func snapshot() -> IslandPresentationState {
+    private func snapshot(fullScreen: Bool? = nil) -> IslandPresentationState {
         var state = readState()
-        // Unlike NSApp.presentationOptions, this is the foreground application's
-        // effective system state (documented in NSApplication.h).
-        state.isNativeFullScreen = NSApp.currentSystemPresentationOptions.contains(.fullScreen)
+        state.isNativeFullScreen = fullScreen ?? self.fullScreen()
         return state
     }
 
     private func observe(_ center: NotificationCenter, _ name: Notification.Name) {
         let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in
+                guard let self else { return }
+                if name == NSWorkspace.activeSpaceDidChangeNotification && self.isFullScreen {
+                    self.onFullScreenChange(true)
+                }
+                self.refresh()
+            }
         }
         observers.append((center, observer))
     }

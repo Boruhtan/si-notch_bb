@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,40 @@ spec.loader.exec_module(hook_adapter)
 
 
 class CodexHookTests(unittest.TestCase):
+    def permission(self):
+        return {"hook_event_name": "PermissionRequest", "session_id": "thread_123", "tool_name": "Bash",
+                "cwd": "/tmp/project", "tool_input": {"command": "printf approval-smoke", "description": "Local harmless check"}}
+
+    def test_permission_roundtrip_uses_exact_request_and_complete_input(self):
+        for decision, code in (("allow", 0), ("deny", 1)):
+            seen = []
+            def runner(args, **kwargs):
+                event = json.loads(kwargs["input"])
+                seen.append(event)
+                self.assertEqual(args[1:], ["request", "--timeout", "70"])
+                self.assertEqual(event["event"], "approval.request")
+                return SimpleNamespace(returncode=code, stdout=json.dumps({"ok": True, "decision": decision, "request_id": event["request_id"]}))
+            payload = self.permission()
+            payload["tool_input"]["command"] += "x" * 600
+            result = hook_adapter.permission_decision(payload, "/tmp/helper", runner)
+            self.assertEqual(result["hookSpecificOutput"]["decision"]["behavior"], decision)
+            self.assertEqual(json.loads(seen[0]["message"].split("\n", 1)[1]), payload["tool_input"])
+
+    def test_permission_never_accepts_stale_invalid_or_implicit_decisions(self):
+        for reply, code in (({"ok": True, "decision": "allow", "request_id": "stale"}, 0),
+                            ({"ok": True, "decision": "allow"}, 0),
+                            ({"ok": False, "decision": "allow"}, 0),
+                            ({"ok": True, "decision": "allow"}, 2)):
+            result = hook_adapter.permission_decision(self.permission(), "/tmp/helper",
+                lambda *a, **kw: SimpleNamespace(returncode=code, stdout=json.dumps(reply)))
+            self.assertEqual(result, {})
+        def unavailable(*a, **kw):
+            raise subprocess.TimeoutExpired("helper", 75)
+        self.assertEqual(hook_adapter.permission_decision(self.permission(), "/tmp/helper", unavailable), {})
+        oversized = self.permission()
+        oversized["tool_input"]["command"] = "x" * 13000
+        self.assertEqual(hook_adapter.permission_decision(oversized, "/tmp/helper", lambda *a, **kw: self.fail("Must not present partial input")), {})
+
     def test_lifecycle_mapping_copies_only_supported_bounded_summaries(self):
         cases = {
             "SessionStart": "session.start",

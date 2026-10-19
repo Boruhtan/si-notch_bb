@@ -44,7 +44,7 @@ final class IslandPresentationPolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(options: options, state: .init(isExpanded: true), at: 1).hiddenReason, .noSessions)
         policy.expansionChanged(true, origin: .manual, at: 2)
         XCTAssertTrue(policy.decision(options: options, state: .init(isExpanded: true), at: 2).isVisible)
-        XCTAssertEqual(policy.decision(options: options, state: .init(isExpanded: true, isNativeFullScreen: true), at: 2).hiddenReason, .fullScreen)
+        XCTAssertTrue(policy.decision(options: options, state: .init(isExpanded: true, isNativeFullScreen: true), at: 2).isVisible)
         policy.expansionChanged(false, origin: .manual, at: 3)
         XCTAssertEqual(policy.decision(options: options, state: .init(), at: 3).hiddenReason, .noSessions)
         policy.expansionChanged(true, origin: .automatic, at: 4)
@@ -179,5 +179,28 @@ final class IslandPresentationPolicyTests: XCTestCase {
         for invalid in [TimeInterval.nan, .infinity, -.infinity, 90] { policy.noteActivity(at: invalid) }
         XCTAssertEqual(policy.decision(options: options, state: .init(), at: 129).idleDeadline, 130)
         XCTAssertEqual(policy.decision(options: options, state: .init(), at: 130).hiddenReason, .idle)
+    }
+
+    func testFullscreenStaysQuietForTasksAndRequestsButAllowsIntentionalReveal() {
+        var policy = IslandPresentationPolicy(now: 0)
+        var options = IslandPresentationOptions()
+        options.showOnlyWithSessions = true
+        var state = IslandPresentationState(hasWorkingSessions: true, hasPendingRequest: true,
+                                             pointerInside: true, keepOpen: true, isNativeFullScreen: true)
+        XCTAssertEqual(policy.decision(options: options, state: state, at: 1).hiddenReason, .fullScreen)
+        policy.expansionChanged(true, origin: .automatic, at: 2)
+        state.isExpanded = true
+        XCTAssertEqual(policy.decision(options: options, state: state, at: 2).hiddenReason, .fullScreen)
+        policy.expansionChanged(false, origin: .automatic, at: 3)
+        policy.expansionChanged(true, origin: .hover, at: 3)
+        XCTAssertTrue(policy.decision(options: options, state: state, at: 3).isVisible)
+        XCTAssertFalse(policy.canAutomaticallyReveal(options: options, state: state, targetBundleID: nil, frontmostBundleID: nil))
+        state.pointerInside = false
+        options.collapseOnMouseLeave = false
+        XCTAssertTrue(policy.canCollapseOnMouseLeave(options: options, state: state), "Fullscreen hover must dismiss even with a pending request or pin")
+        XCTAssertTrue(policy.shouldDismissForOutsideClick(options: options, state: state))
+        policy.expansionChanged(false, origin: .hover, at: 4)
+        state.isExpanded = false
+        XCTAssertEqual(policy.decision(options: options, state: state, at: 4).hiddenReason, .fullScreen)
     }
 }

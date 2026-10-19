@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Fail-open Codex observer with bounded task/result snippets for the local UI.
+"""Codex status observer and request-bound native permission bridge.
 
-Never forward full hook payloads, tool arguments, tool output or transcripts.
+Status events omit tool arguments, outputs and transcripts. PermissionRequest
+alone shows the complete bounded tool input for an explicit one-time decision.
 """
 
 import json
@@ -16,6 +17,8 @@ from pathlib import Path
 MAX_INPUT_BYTES = 128 * 1024
 MAX_EVENT_BYTES = 8 * 1024
 TIMEOUT_SECONDS = 1.2
+PERMISSION_SECONDS = 70
+MAX_PERMISSION_BYTES = 12000
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
 SAFE_TOOL = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
@@ -102,15 +105,62 @@ def cli_path(argv):
     return os.environ.get("SI_NOTCH_CLI") or str(Path(__file__).resolve().parents[2] / "Helpers" / "si-notchctl")
 
 
+def permission_decision(hook, cli, runner=subprocess.run):
+    """No decision means Codex retains its normal approval flow."""
+    session = safe_identifier(hook.get("session_id"))
+    tool = hook.get("tool_name")
+    tool_input = hook.get("tool_input")
+    if not session or len(session) > 160 or not isinstance(tool, str) or not SAFE_TOOL.fullmatch(tool):
+        return {}
+    if not isinstance(tool_input, dict) or not tool_input:
+        return {}
+    try:
+        preview = json.dumps(tool_input, ensure_ascii=True, sort_keys=True, indent=2, allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        return {}
+    # Never offer Allow for an elided or partial command.
+    if len(preview.encode("utf-8")) > MAX_PERMISSION_BYTES:
+        return {}
+    request_id = uuid.uuid4().hex
+    event = {"event": "approval.request", "provider": "codex", "session_id": session,
+             "id": "codex-permission-" + request_id, "request_id": request_id, "approval_id": request_id,
+             "tool_name": tool, "title": "Codex permission: " + tool,
+             "message": tool + "\n" + preview}
+    cwd = hook.get("cwd")
+    if isinstance(cwd, str) and os.path.isabs(cwd) and len(cwd.encode("utf-8")) <= 4096 and "\x00" not in cwd:
+        event["cwd"] = cwd
+    try:
+        result = runner([cli, "request", "--timeout", str(PERMISSION_SECONDS)],
+                        input=json.dumps(event, separators=(",", ":")), text=True, capture_output=True,
+                        timeout=PERMISSION_SECONDS + 5, check=False)
+        if result.returncode not in (0, 1) or len(result.stdout) > 4096:
+            return {}
+        reply = json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, TypeError, ValueError):
+        return {}
+    if not isinstance(reply, dict) or reply.get("ok") is not True or reply.get("request_id") != request_id:
+        return {}
+    decision = reply.get("decision")
+    if (decision, result.returncode) not in (("allow", 0), ("deny", 1)):
+        return {}
+    return {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": decision}}}
+
+
 def main(argv=None):
     argv = sys.argv if argv is None else argv
     try:
         raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
         if not raw or len(raw) > MAX_INPUT_BYTES:
             return 0
-        event = event_from_hook(json.loads(raw))
+        hook = json.loads(raw)
         cli = cli_path(argv)
-        if not event or not cli or not os.path.isabs(cli) or not os.access(cli, os.X_OK):
+        if not cli or not os.path.isabs(cli) or not os.access(cli, os.X_OK):
+            return 0
+        if isinstance(hook, dict) and hook.get("hook_event_name") == "PermissionRequest":
+            print(json.dumps(permission_decision(hook, cli), separators=(",", ":")))
+            return 0
+        event = event_from_hook(hook)
+        if not event:
             return 0
         data = json.dumps(event, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         if len(data) > MAX_EVENT_BYTES:

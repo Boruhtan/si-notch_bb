@@ -97,7 +97,12 @@ public struct IslandPresentationPolicy: Sendable {
         wasProtectedFromIdle = protectedFromIdle
         let deadline = options.hideWhenIdle ? lastActivity + Self.idleDelay : nil
         let reason: IslandHiddenReason?
-        if options.hideInFullScreen && state.isNativeFullScreen && !state.isSettingsVisible { reason = .fullScreen }
+        if options.hideInFullScreen && state.isNativeFullScreen && !state.isSettingsVisible {
+            // Fullscreen is quiet until an intentional hover or manual action.
+            // The OS adapter clears expansions when entering a fullscreen Space.
+            let userOpened = state.isExpanded && (expansionOrigin == .hover || expansionOrigin == .manual)
+            reason = userOpened ? nil : .fullScreen
+        }
         else if options.showOnlyWithSessions && !state.hasSessions && !state.hasPendingRequest &&
                     !(state.isExpanded && expansionOrigin == .manual) { reason = .noSessions }
         else if let deadline, now.isFinite, now >= deadline { reason = .idle }
@@ -118,13 +123,15 @@ public struct IslandPresentationPolicy: Sendable {
 
     public func shouldDismissForOutsideClick(options: IslandPresentationOptions,
                                             state: IslandPresentationState) -> Bool {
-        options.dismissAutoRevealOnOutsideClick && expansionOrigin == .automatic &&
+        if options.hideInFullScreen && state.isNativeFullScreen { return state.isExpanded }
+        return options.dismissAutoRevealOnOutsideClick && expansionOrigin == .automatic &&
             state.isExpanded && !state.hasPendingRequest && !state.keepOpen
     }
 
     public func canCollapseOnMouseLeave(options: IslandPresentationOptions,
                                        state: IslandPresentationState) -> Bool {
-        options.collapseOnMouseLeave && state.isExpanded && !state.pointerInside &&
+        if options.hideInFullScreen && state.isNativeFullScreen { return state.isExpanded && !state.pointerInside }
+        return options.collapseOnMouseLeave && state.isExpanded && !state.pointerInside &&
             !state.hasPendingRequest && !state.keepOpen
     }
 

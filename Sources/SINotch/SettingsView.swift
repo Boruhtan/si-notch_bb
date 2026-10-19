@@ -297,6 +297,9 @@ struct SettingsView: View {
                         .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Toggle(L10n.tr("settings.hideInFullScreen"), isOn: $hideInFullScreen)
+                    Text(L10n.tr("settings.hideInFullScreenHelp"))
+                        .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }.padding(10)
             }
             IslandPreviewSettingsView()

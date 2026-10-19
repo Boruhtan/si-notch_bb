@@ -4,6 +4,17 @@ import XCTest
 @testable import SINotchCore
 
 final class NotchGeometryTests: XCTestCase {
+    func testFullscreenHoverTargetStaysAtTopCenterWithoutCoveringContent() {
+        let plain = NotchGeometry(screenFrame: CGRect(x: -1920, y: -100, width: 1920, height: 1080))
+        XCTAssertEqual(plain.fullScreenRevealFrame.maxY, 980)
+        XCTAssertEqual(plain.fullScreenRevealFrame.midX, -960)
+        XCTAssertEqual(plain.fullScreenRevealFrame.height, 6)
+        let notched = NotchGeometry(screenFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117),
+                                    topInset: 37, auxiliaryLeftWidth: 769, auxiliaryRightWidth: 769)
+        XCTAssertEqual(notched.fullScreenRevealFrame.height, 43)
+        XCTAssertTrue(notched.fullScreenRevealFrame.contains(CGPoint(x: 864, y: 1075)))
+        XCTAssertFalse(notched.fullScreenRevealFrame.contains(CGPoint(x: 100, y: 1075)))
+    }
     func testCompactStatusWingDoesNotGrowWithTitleOrCrossMenuClearance() {
         let geometry = NotchGeometry(screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
                                      topInset: 32, auxiliaryLeftWidth: 663.5, auxiliaryRightWidth: 663.5,

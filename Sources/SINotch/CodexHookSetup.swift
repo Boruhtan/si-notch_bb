@@ -27,6 +27,7 @@ struct CodexHookSetup {
 
     static let events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
                          "PermissionRequest", "Stop", "Interrupt", "SessionEnd"]
+    static let permissionTimeout = 80
 
     let adapterPath: String
     let helperPath: String
@@ -65,9 +66,10 @@ struct CodexHookSetup {
         var added: [String] = []
         for event in Self.events {
             var groups = hooks[event] as? [[String: Any]] ?? []
+            let timeout = event == "PermissionRequest" ? Self.permissionTimeout : 3
             if hooks[event] != nil && !(hooks[event] is [[String: Any]]) { throw SetupError.unsupportedFile }
             var alreadyPresent = false
-            for group in groups {
+            for (index, group) in groups.enumerated() {
                 guard let handlers = group["hooks"] as? [[String: Any]] else { throw SetupError.unsupportedFile }
                 for handler in handlers {
                     guard let existing = handler["command"] as? String else { continue }
@@ -78,16 +80,22 @@ struct CodexHookSetup {
                         guard group.count == 1, handlers.count == 1,
                               handler.count == 3,
                               handler["type"] as? String == "command",
-                              handler["timeout"] as? Int == 3 else {
+                              let oldTimeout = handler["timeout"] as? Int,
+                              oldTimeout == timeout || (event == "PermissionRequest" && oldTimeout == 3) else {
                             throw SetupError.ambiguousInstallation
                         }
                         alreadyPresent = true
+                        if oldTimeout != timeout {
+                            groups[index] = ["hooks": [["type": "command", "command": command, "timeout": timeout]]]
+                            hooks[event] = groups
+                            added.append(event)
+                        }
                     }
                     else if existing.contains("codex-hook.py") { throw SetupError.ambiguousInstallation }
                 }
             }
             if alreadyPresent { continue }
-            groups.append(["hooks": [["type": "command", "command": command, "timeout": 3]]])
+            groups.append(["hooks": [["type": "command", "command": command, "timeout": timeout]]])
             hooks[event] = groups
             added.append(event)
         }

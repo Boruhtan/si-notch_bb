@@ -3,6 +3,29 @@ import XCTest
 @testable import SINotch
 
 final class CodexHookSetupTests: XCTestCase {
+    func testMigrationExtendsOnlyTheOwnedPermissionHookAndPreservesOtherHandlers() throws {
+        let (directory, adapter, helper, hooks) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let setup = CodexHookSetup(adapterPath: adapter.path, helperPath: helper.path, hooksURL: hooks)
+        _ = try setup.apply(setup.preview())
+        var original = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as? [String: Any])
+        var groups = try XCTUnwrap(original["hooks"] as? [String: [[String: Any]]])
+        let other: [String: Any] = ["matcher": "Bash", "hooks": [["type": "command", "command": "/other/permission", "timeout": 17]]]
+        groups["PermissionRequest"] = [["hooks": [["type": "command", "command": setup.command, "timeout": 3]]], other]
+        original["hooks"] = groups
+        let before = try JSONSerialization.data(withJSONObject: original)
+        try before.write(to: hooks)
+        let preview = try setup.preview()
+        XCTAssertEqual(preview.addedEvents, ["PermissionRequest"])
+        let backup = try XCTUnwrap(setup.apply(preview))
+        XCTAssertEqual(try Data(contentsOf: backup), before)
+        let updated = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as? [String: Any])
+        let updatedGroups = try XCTUnwrap(updated["hooks"] as? [String: [[String: Any]]])
+        XCTAssertEqual((updatedGroups["PermissionRequest"]?[0]["hooks"] as? [[String: Any]])?[0]["timeout"] as? Int, 80)
+        XCTAssertEqual(updatedGroups["PermissionRequest"]?[1] as NSDictionary?, other as NSDictionary)
+        XCTAssertEqual(updatedGroups["Stop"] as NSArray?, groups["Stop"] as NSArray?)
+        XCTAssertFalse(try setup.preview().canApply)
+    }
     private func fixture() throws -> (URL, URL, URL, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("si-notch-codex-hook-setup-\(UUID().uuidString)", isDirectory: true)

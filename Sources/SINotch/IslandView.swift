@@ -38,6 +38,7 @@ struct IslandView: View {
             let compactHeight = max(33, model.headerHeight)
             let expansion = min(1, max(0, (viewport.size.height - compactHeight) /
                 max(1, model.expandedPanelHeight - compactHeight)))
+            let droplet = reduceMotion ? 0 : sin(expansion * .pi)
             VStack(spacing: 0) {
                 if renderedExpanded {
                     // Lay out the content once at its destination width. The native
@@ -47,7 +48,7 @@ struct IslandView: View {
                         .frame(width: model.expandedPanelWidth, height: model.expandedPanelHeight, alignment: .top)
                         .opacity(contentEntered ? 1 : 0)
                         .scaleEffect(contentEntered || reduceMotion ? 1 : 0.985, anchor: .top)
-                } else { compactContent }
+                } else { compactContent.frame(height: compactHeight) }
             }
             .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
             .clipped()
@@ -58,7 +59,8 @@ struct IslandView: View {
             // Switching these radii with the boolean state caused a corner pop
             // before the first animation frame and again on fast reversal.
             .clipShape(IslandSilhouette(shoulder: model.compactShoulderWidth + (14 - model.compactShoulderWidth) * expansion,
-                                       bottomRadius: 13 + 11 * expansion))
+                                       bottomRadius: 13 + 11 * expansion + 12 * droplet,
+                                       droplet: droplet))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)
@@ -69,7 +71,7 @@ struct IslandView: View {
                 if reduceMotion { contentEntered = true; return }
                 try? await Task.sleep(for: .milliseconds(40))
                 guard !Task.isCancelled else { return }
-                withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.14)) { contentEntered = true }
+                withAnimation(.spring(duration: 0.24, bounce: 0.08)) { contentEntered = true }
             } else {
                 if reduceMotion { contentEntered = false; renderedExpanded = false; return }
                 withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.10)) { contentEntered = false }
@@ -137,6 +139,8 @@ struct IslandView: View {
                 Button { model.setExpanded(false) } label: { Image(systemName: "chevron.up").font(.system(size: 11, weight: .semibold)) }.buttonStyle(IslandGlassButtonStyle()).controlSize(.small).padding(.leading, 4).help(L10n.tr("Свернуть")).accessibilityLabel(L10n.tr("Свернуть панель"))
             }
             .frame(height: model.headerHeight).padding(.horizontal, 20)
+            // Navigation stays at the top while either tab adapts its height.
+            navigation
             if let error = model.serverError {
                 Label(error.text, systemImage: "exclamationmark.triangle").font(.system(size: 11)).foregroundStyle(.red).padding(.horizontal, 22).padding(.bottom, 10)
             }
@@ -183,7 +187,6 @@ struct IslandView: View {
                     }
                 }
             }.frame(maxHeight: .infinity, alignment: .top)
-            navigation
         }
     }
     var navigation: some View {
@@ -449,7 +452,13 @@ struct SessionCard: View {
                 if let request = model.pending[session.id] {
                     Divider().overlay(.white.opacity(0.08))
                     if model.pending.count > 1 { Text(L10n.count("queued", model.pending.count)).font(.system(size: 10)).foregroundStyle(NotchDesign.muted) }
-                    Text(request.messageIsAppOwned ? L10n.tr(request.message) : request.message).font(.system(size: 12)).foregroundStyle(NotchDesign.secondary).lineLimit(8).fixedSize(horizontal: false, vertical: true)
+                    ScrollView {
+                        Text(request.messageIsAppOwned ? L10n.tr(request.message) : request.message)
+                            .font(.system(size: 11, design: request.question ? .default : .monospaced))
+                            .foregroundStyle(NotchDesign.secondary).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }.frame(height: request.message.count > 300 ? 160 : 100)
                     if request.question { TextField(L10n.tr("Ваш ответ"), text: $answer).textFieldStyle(.roundedBorder).font(.system(size: 12)) }
                     HStack {
                         Button(L10n.tr("Отклонить")) { model.respond(session.id, expectedToken: request.token, decision: "deny") }.buttonStyle(NotchActionButtonStyle(destructive: true)).accessibilityIdentifier("deny-" + session.id)

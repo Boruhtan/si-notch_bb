@@ -245,6 +245,7 @@
 "settings.hideWhenIdle" = "Hide when idle";
 "settings.hideWhenIdleHelp" = "The island hides after 30 seconds without active work or a pending request. New activity or interaction brings it back.";
 "settings.hideInFullScreen" = "Hide in full-screen apps";
+"settings.hideInFullScreenHelp" = "Stay hidden during full-screen apps and videos. Hover near the camera or top center to open; move away to hide again. The keyboard shortcut also works.";
 "settings.suppressTargetFrontmost" = "Do not auto-expand over the target app";
 "settings.suppressTargetHelp" = "Uses the event’s app address to detect the frontmost app. This is an app-level approximation, not terminal-tab detection.";
 "settings.dismissOutside" = "Collapse automatic expansion on outside click";
@@ -395,11 +396,11 @@
 "discovery.support.hermes" = "Bundled plugin for Hermes lifecycle and tool events.";
 "discovery.support.hooks" = "Manual hooks for supported session, agent, and completion events.";
 "discovery.support.custom" = "Use the local JSON event protocol with another harness.";
-"discovery.permissions" = "Permission decisions remain in the agent; observer adapters do not answer them.";
+"discovery.permissions" = "Connected Codex permission hooks support one-time Allow or Deny in the island. Other observer-only requests are answered in the agent.";
 "discovery.customPermissions" = "Interactive decisions require the explicit si-notch request API.";
 "discovery.cliMissing" = "This app was found, but its CLI connection still needs setup.";
 "codex.hooks.title" = "Codex connection";
-"codex.hooks.description" = "Follow Codex CLI sessions and tool activity in the island.";
+"codex.hooks.description" = "Follow local Codex sessions and tool activity. Permission hooks show the complete request and wait up to 70 seconds for Allow once or Deny. If unavailable, Codex keeps its own approval prompt.";
 "codex.hooks.addEvents" = "Events to add";
 "codex.hooks.preview" = "Preview changes";
 "codex.hooks.refresh" = "Refresh preview";

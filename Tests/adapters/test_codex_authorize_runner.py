@@ -39,7 +39,7 @@ class CodexAuthorizeRunnerTests(unittest.TestCase):
             names = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
                      "PermissionRequest", "Stop", "Interrupt", "SessionEnd")
             hooks.write_text(json.dumps({"hooks": {name: [{"hooks": [
-                {"type": "command", "command": command, "timeout": 3}
+                {"type": "command", "command": command, "timeout": 80 if name == "PermissionRequest" else 3}
             ]}] for name in names}}))
             state = directory / "state"
             state.write_text("untrusted")

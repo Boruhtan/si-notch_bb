@@ -482,11 +482,11 @@ enum QAExporter {
                 report.checks.append(Check(name: trace.name + "-intermediate-native-frames",
                     outcome: intermediate >= 2 ? "passed" : "inconclusive",
                     detail: "Observed \(intermediate) native frames distinct from both endpoints."))
-                let direction = expected.height >= anchor.height ? 1.0 : -1.0
-                let monotonic = zip(trace.samples, trace.samples.dropFirst()).allSatisfy { pair in
-                    (pair.1.frame.height - pair.0.frame.height) * direction >= -1
-                }
-                check(trace.name + "-monotonic-height", monotonic, "Sampled height must move toward the destination without a >1 pt backward step.")
+                let lower = min(anchor.height, expected.height)
+                let upper = max(anchor.height, expected.height)
+                let bounce = max(2, (upper - lower) * 0.06)
+                let bounded = trace.samples.allSatisfy { $0.frame.height >= lower - 1 && $0.frame.height <= upper + bounce }
+                check(trace.name + "-bounded-spring", bounded, "The native drop may overshoot by at most 6 percent of its travel before settling.")
             }
         }
 
@@ -686,10 +686,14 @@ enum QAExporter {
                 delegate.model.selectAgents(true)
                 try await settle(expanded: true)
                 try capturePanel(name: "island-agents-separated-\(language)", language: language)
-                check("agents-separated-\(language)", delegate.model.sessions.count == 1 && delegate.model.agents.count == 2,
+                // Saved remote profiles may also be present; assert only the
+                // two fixtures rather than depending on the operator's settings.
+                let fixtureAgents = delegate.model.agents.filter { ["qa-fixture", "pi"].contains($0.id) }
+                check("agents-separated-\(language)", delegate.model.sessions.count == 1 && fixtureAgents.count == 2,
                       "An idle harness belongs to Agents and must not increase the task count.")
-                check("tab-navigation-stable-\(language)", delegate.panel.frame == sessionFrame,
-                      "Switching to Agents keeps the bottom navigation at the same screen position.")
+                check("tab-adaptive-height-\(language)", abs(delegate.panel.frame.height - delegate.model.panelHeight(limitedTo: 560) - 1) <= 1 &&
+                      delegate.panel.frame.maxY == sessionFrame.maxY,
+                      "Switching tabs adopts the new content height; the top navigation remains attached to the screen edge.")
                 delegate.model.selectAgents(false)
                 delegate.model.activeFilter = "Готово"
                 try await settle(expanded: true)

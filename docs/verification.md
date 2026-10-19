@@ -28,6 +28,12 @@ The exporter checks window geometry, layout, session states, transparency and IP
 
 Add `--qa-display-only` to check session-only visibility through the native panel and export the Display settings in all three languages, including the full scroll content. This mode does not start agent services.
 
+Add `--qa-motion-only` for geometry sampling without bitmap capture. Opening uses a bounded spring bounce; checks cover the fixed top edge, final bounds, repeated layout and fast reversal. Bitmap sampling and geometry sampling are separate from compositor frame-rate measurement.
+
+For fullscreen, check a native fullscreen window and a fullscreen video player separately. The island should disappear even if already expanded, remain quiet for incoming requests, open after a deliberate hover at the camera/top center, and hide after pointer exit or an outside click. Check the keyboard shortcut and restoration after leaving fullscreen. A pointer parked at the camera before entering fullscreen must leave and return before opening. Repeat on each intended display, with the menu bar visible and hidden, and with Reduce Motion enabled.
+
+The implementation uses Apple's [system presentation options](https://developer.apple.com/documentation/appkit/nsapplication/currentsystempresentationoptions), public window bounds for players that do not set fullscreen flags, [SwiftUI Spring](https://developer.apple.com/documentation/swiftui/spring), and a [window display link](https://developer.apple.com/documentation/appkit/nswindow/displaylink(target:selector:)). Window titles and screen pixels are not read by the detector. Hover-to-open and hiding in fullscreen are also established options in [Droppy](https://getdroppy.app/docs/notch).
+
 Static captures do not measure animation smoothness or compositor frame rate. Check hover activation, dismissal, Mission Control, fullscreen apps and display changes manually. Play sound previews through the intended audio output.
 
 ## Update installation

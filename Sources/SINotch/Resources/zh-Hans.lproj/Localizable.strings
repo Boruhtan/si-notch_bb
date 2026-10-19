@@ -245,6 +245,7 @@
 "settings.hideWhenIdle" = "闲置时隐藏";
 "settings.hideWhenIdleHelp" = "没有正在进行的工作或待处理请求时，灵动岛会在 30 秒后隐藏。新活动或交互会使其重新出现。";
 "settings.hideInFullScreen" = "在全屏应用中隐藏";
+"settings.hideInFullScreenHelp" = "在全屏应用和视频中保持隐藏。将指针移至摄像头附近或屏幕顶部中央即可展开，移开后再次隐藏。键盘快捷键也可使用。";
 "settings.suppressTargetFrontmost" = "目标应用在前台时不自动展开";
 "settings.suppressTargetHelp" = "根据事件中的应用地址判断前台应用。这只是应用级近似判断，无法识别终端标签页。";
 "settings.dismissOutside" = "点击面板外时收起自动展开的面板";
@@ -395,11 +396,11 @@
 "discovery.support.hermes" = "内置插件可观察 Hermes 的生命周期和工具事件。";
 "discovery.support.hooks" = "手动 hooks 可观察受支持的会话、智能体和完成事件。";
 "discovery.support.custom" = "使用本地 JSON 事件协议连接其他智能体。";
-"discovery.permissions" = "权限决定仍由智能体处理；观察适配器不会代为作答。";
+"discovery.permissions" = "连接 Codex 权限钩子后，可在灵动岛中允许一次或拒绝请求。其他仅观察的请求仍需在智能体中回复。";
 "discovery.customPermissions" = "交互式决定需要明确使用 si-notch request API。";
 "discovery.cliMissing" = "已找到此应用，但仍需设置其 CLI 连接。";
 "codex.hooks.title" = "连接 Codex";
-"codex.hooks.description" = "在灵动岛中关注 Codex CLI 会话和工具活动。";
+"codex.hooks.description" = "查看本地 Codex 会话和工具活动。权限钩子显示完整请求，等待最多 70 秒以允许一次或拒绝。灵动岛不可用时，仍由 Codex 显示审批提示。";
 "codex.hooks.addEvents" = "将添加的事件";
 "codex.hooks.preview" = "预览更改";
 "codex.hooks.refresh" = "刷新预览";

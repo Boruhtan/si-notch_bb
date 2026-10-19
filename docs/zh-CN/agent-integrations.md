@@ -22,6 +22,8 @@ Codex Desktop 会话通过本地 IPC 自动发现；CLI 会话也可从本地日
 
 **连接 Pi** 将内置扩展注册到 `~/.pi/agent/settings.json`。在已有会话中执行 `/reload` 或重启 Pi。
 
+内置 PermissionRequest hook 会为支持的请求在刘海中提供 **允许一次** 和 **拒绝**。决定前可查看完整工具输入。每个决定仅绑定一个请求，截止时间为 70 秒，不会创建永久授权。缺失、过期、过大或不支持的请求回退到 Codex 原有权限流程。升级旧 hooks 后，请重新连接 Codex：仅将 si-notch 自有权限 hook 的超时改为 80 秒，更新后的 hook 需要授权。已在 CLI 0.161.0 上验证真实允许、拒绝及超时；参见[验证范围](parity.md)。
+
 ## Claude Code、Gemini CLI、Copilot CLI 和 Cursor
 
 点击 **连接** 将内置适配器合并到以下配置中。现有设置和 hooks 会保留，修改的文件旁会生成备份。无效 JSON、已禁用的 hooks 或冲突的旧适配器需要手动检查。这些集成不需要 Python。

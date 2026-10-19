@@ -49,7 +49,7 @@ final class PresentationModelTests: XCTestCase {
     }
 
     @MainActor
-    func testSwitchingTabsKeepsNavigationUnderPointerAndStillClosesOnLeave() async throws {
+    func testSwitchingTabsAdaptsHeightAndStillClosesOnLeave() async throws {
         let model = makeModel()
         defer { model.shutdown() }
         model.store.apply(AgentEvent(sessionID: "task", provider: "codex", kind: .working, title: "Review"))
@@ -59,7 +59,7 @@ final class PresentationModelTests: XCTestCase {
         let sessionsHeight = model.panelHeight(limitedTo: 560)
         model.selectAgents(true)
         XCTAssertLessThan(model.desiredPanelHeight, sessionsHeight)
-        XCTAssertEqual(model.panelHeight(limitedTo: 560), sessionsHeight)
+        XCTAssertEqual(model.panelHeight(limitedTo: 560), model.desiredPanelHeight)
         try await Task.sleep(for: .milliseconds(220))
         XCTAssertTrue(model.expanded)
         model.selectAgents(false)
@@ -73,7 +73,7 @@ final class PresentationModelTests: XCTestCase {
     }
 
     @MainActor
-    func testExpandedHeightRespectsDisplayLimitAndHoldsWhenTasksDisappear() {
+    func testExpandedHeightRespectsDisplayLimitAndShrinksWhenTasksDisappear() {
         let model = makeModel()
         defer { model.shutdown() }
         model.store.apply(AgentEvent(sessionID: "task", provider: "codex", kind: .working))
@@ -81,8 +81,8 @@ final class PresentationModelTests: XCTestCase {
         model.setExpanded(true)
         XCTAssertEqual(model.panelHeight(limitedTo: 560), 560)
         model.store.removeSession(id: "task")
-        XCTAssertEqual(model.panelHeight(limitedTo: 560), 560)
-        XCTAssertEqual(model.panelHeight(limitedTo: 345), 345)
+        XCTAssertEqual(model.panelHeight(limitedTo: 560), model.desiredPanelHeight)
+        XCTAssertEqual(model.panelHeight(limitedTo: 345), min(345, model.desiredPanelHeight))
         model.setExpanded(false)
         XCTAssertEqual(model.panelHeight(limitedTo: 560), model.desiredPanelHeight)
     }
