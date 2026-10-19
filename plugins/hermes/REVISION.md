@@ -1,5 +1,19 @@
 # Tested revision
 
+Plugin version: **1.8**. App release: **0.4.15**.
+
+Immutable runtime source: [`29ccd66be43adad63abff82a2112d5cc083fbed4`](https://github.com/eugeneb1ack/si-notch/commit/29ccd66be43adad63abff82a2112d5cc083fbed4).
+
+```sh
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 29ccd66be43adad63abff82a2112d5cc083fbed4 --no-enable
+```
+
+The application bundles these runtime files. Plugin 1.8 adds profile heartbeats every 30 seconds, bound to Hermes native plugin unload. App-managed setup deploys it without changing profile identity, text sharing or configuration. Adapter lifecycle/privacy tests, the full app suite and a real Lane API task passed. Live presence recovered after restarting si-notch, remained separate from active work, and was delivered from all eight enabled profiles.
+
+A finite live check observed fresh receipts from every enabled profile for more than three minutes. Interrupting only the application-owned SSH child changed transport to retrying and profile/task display to Last seen/unknown; it reconnected automatically in 2.65 seconds and a new Lane heartbeat arrived 15.73 seconds after interruption. The test API run returned SI_NOTCH_AGENT_OK, with the installed Agents view showing Lane working and then idle while still online. No gateway restart or profile configuration changes were required.
+
+## Previous plugin 1.7 verification
+
 Plugin version: **1.7**. App release: **0.4.11**.
 
 Immutable runtime source: [`abb6ae74296be712cdba2d25ec7d623137746e5c`](https://github.com/eugeneb1ack/si-notch/tree/abb6ae74296be712cdba2d25ec7d623137746e5c/plugins/hermes).
@@ -8,7 +22,7 @@ Immutable runtime source: [`abb6ae74296be712cdba2d25ec7d623137746e5c`](https://g
 hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref abb6ae74296be712cdba2d25ec7d623137746e5c --no-enable
 ```
 
-The application bundles these exact runtime files. On the tested remote macOS host, the previous 1.2-second plugin process deadline failed five of seven presence delivery probes with the running gateway's PATH. Plugin 1.7 runs the app-managed Python relay with Hermes' current interpreter and allows 2.5 seconds for startup and bounded delivery. The same seven probes all succeeded in 0.82–1.02 seconds after the fix. Disconnection still fails open with a five-second retry backoff.
+This published revision bundles the runtime files listed below. On the tested remote macOS host, the previous 1.2-second plugin process deadline failed five of seven presence delivery probes with the running gateway's PATH. Plugin 1.7 runs the app-managed Python relay with Hermes' current interpreter and allows 2.5 seconds for startup and bounded delivery. The same seven probes all succeeded in 0.82–1.02 seconds after the fix. Disconnection still fails open with a five-second retry backoff.
 
 The app setup protocol updated only the observer source and manifest in eight already-enabled profiles. The remote receipt verified that unrelated configuration remained unchanged. Some reload acknowledgements exceeded the native timeout; a subsequent read of the running gateway's `plugins.list` confirmed version 1.7, 13 hooks and no load error in every selected profile. Profile discovery and identity handling also have regression cases for a single default profile and three profiles with arbitrary names.
 

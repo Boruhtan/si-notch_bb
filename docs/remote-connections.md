@@ -6,7 +6,7 @@
 
 **Check connection** verifies SSH login using existing keys and `known_hosts`. It does not open a tunnel, install files or verify the server's forwarding policy. **Connect** starts reverse Unix-socket forwarding and enables **Connect automatically at launch**. **Disconnect** stops the connection and turns automatic reconnection off. Quitting the app preserves the startup choice. You can change that choice independently, including after a failed connection. Previously saved connections need one Connect or an explicit startup check after upgrading; new connections stay off until requested. Host and socket edits require disconnecting first. Two active connections cannot share the same host and socket path.
 
-Connections appear as collapsible groups in **Agents**, with their configured profiles inside. Rename a connection at any time or uncheck **Show in Agents**. Removing a connection closes its tunnel and removes its local settings; it does not uninstall the remote plugin. To disable remote reporting, deselect profiles and apply those changes before removing the connection.
+Connections appear as collapsible groups in **Agents**, with their configured profiles inside. The group shows the SSH transport state. Each profile separately shows presence and task activity; the navigation count is the number of profiles online, not the number of SSH connections or tasks. A connected tunnel alone does not mark saved profiles online. Rename a connection at any time or uncheck **Show in Agents**. Removing a connection closes its tunnel and removes its local settings; it does not uninstall the remote plugin. To disable remote reporting, deselect profiles and apply those changes before removing the connection.
 
 ## Set up Hermes profiles
 
@@ -14,7 +14,7 @@ Connections appear as collapsible groups in **Agents**, with their configured pr
 2. Click **Check profiles**. The app uses Hermes' existing Python environment to inspect profile names and plugin metadata. It returns no credentials, transcripts or configuration contents.
 3. Select profiles, edit their display names, and optionally enable **Show task and assistant messages**. The advanced paths support nonstandard Hermes installations.
 4. Click **Preview changes**, review the profiles and file/configuration counts, then **Apply plugin changes**. A changed selection or remote configuration requires a new preview. Backups remain on the remote host, and the result shows their directory.
-5. Use the inspected absolute remote socket path and click **Connect**. If setup ran before connecting, a profile's next turn supplies fresh presence information.
+5. Use the inspected absolute remote socket path and click **Connect**. A loaded plugin restores presence within one 30-second heartbeat interval, without requiring a new task.
 
 Setup installs the bundled observer and portable relay, preserves other plugin settings and hooks, and asks Hermes to reload its plugins. A profile without a running gateway loads the plugin on its next start. Interrupted setup requires **Check profiles** before another apply; configuration changes are not silently replayed.
 

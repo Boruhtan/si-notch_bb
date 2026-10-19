@@ -2,12 +2,14 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.13 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.15 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
 
 | Feature | Availability and verification |
 | --- | --- |
+| About companion | The cat uses the same click reaction as the notch companion. The reaction was manually confirmed in the installed local build. |
 | Panel interaction | Hover activation, delayed dismissal and automatic expansion for active input requests. Geometry, timers, cancellation and request handling have automated coverage; hover feel requires manual checking. |
 | Session navigation | Opens Codex task links or the originating app. Routing and failure handling are tested; selecting a specific terminal tab is not supported. |
+| Agent status | SSH transport, profile presence and task activity are displayed separately. A connected host does not make saved profiles online. Plugin 1.8 sends presence every 30 seconds and stops on native unload. Profile isolation, idle recovery, completion and transport loss have regression coverage; a real Lane task, more than three minutes of heartbeat delivery, app restart recovery and automatic recovery after an owned SSH tunnel interruption were verified. |
 | Codex Desktop | Session details over local IPC. Live event delivery and session recovery after restart are tested. Local discovery without lifecycle logs, twelve parallel subscriptions and suppression of completed-history replay have socket-level regression coverage. Current-turn reasoning metadata and null legacy fields have regression coverage; the actual active session was checked. |
 | Codex CLI | Local session detection and hooks. Live lifecycle events and hook setup are tested. With CLI 0.161.0, a real conversation was resumed after process exit with hooks disabled for that invocation; Working → Done was verified in the installed app. Resumed rollouts in old date directories, more than sixteen active files, native file-event delivery and null parent metadata have regression coverage. |
 | Local ChatGPT Work | Shares local hooks and Desktop observation when orchestration and execution are local. Native product metadata and a complete real local Work turn were verified in the installed app with Desktop 26.1013.40934. The chat ran /bin/sleep 20, returned SI_NOTCH_WORK_OK and changed from Working to Done while retaining its Work label and briefcase icon beside an ordinary Codex card. Metadata preservation and product classification have regression coverage. Cloud Work and dots are outside this change's scope. |

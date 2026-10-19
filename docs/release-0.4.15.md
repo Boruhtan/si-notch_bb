@@ -1,0 +1,3 @@
+- Separates SSH connection status, agent presence, and task activity.
+- Keeps idle agent profiles online and restores their presence after reconnecting.
+- Adds the cat's happy reaction when clicked in About.
