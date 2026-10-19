@@ -64,6 +64,10 @@ private struct RemoteConnectionCard: View {
                         Spacer()
                         Toggle(L10n.tr("remote.showInAgents"), isOn: field(\.showInAgents)).toggleStyle(.checkbox)
                     }
+                    Toggle(L10n.tr("remote.reconnectAtLaunch"), isOn: Binding(
+                        get: { manager.reconnectAtLaunch(id) },
+                        set: { manager.setReconnectAtLaunch(id, enabled: $0) }))
+                        .toggleStyle(.checkbox).font(.system(size: 11)).disabled(setup.busy)
                     if setup.sshChecked {
                         Label(L10n.tr("remote.sshChecked"), systemImage: "checkmark.circle.fill")
                             .font(.system(size: 11)).foregroundStyle(.green)

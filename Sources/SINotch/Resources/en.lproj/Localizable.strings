@@ -518,7 +518,7 @@
 "remote.defaultName" = "SSH connection";
 "remote.numberedName" = "SSH connection %d";
 "remote.add" = "Add connection";
-"remote.connectionsHelp" = "Save named SSH connections and choose which Hermes profiles appear in Agents. Each connection starts only when you click Connect.";
+"remote.connectionsHelp" = "Save named SSH connections and choose which Hermes profiles appear in Agents. Connect remembers a connection for the next launch. Disconnect turns automatic reconnection off.";
 "remote.empty" = "No SSH connections yet.";
 "remote.name" = "Connection name";
 "remote.showInAgents" = "Show in Agents";
@@ -570,3 +570,4 @@
 
 "settings.cardDetailsHelp" = "These switches control information supplied by the agent. Model and reasoning appear on the card; tasks, subagents and full activity are available in its details. Update an existing plugin to receive new metadata.";
 "remote.error.socketRecoveryFailed" = "The remote socket could not be recovered safely. Check the remote Python path, socket permissions, and any existing connection.";
+"remote.reconnectAtLaunch" = "Connect automatically at launch";

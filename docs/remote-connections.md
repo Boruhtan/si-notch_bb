@@ -4,7 +4,7 @@
 
 **Settings → Remote SSH** manages multiple independently named connections. Add a connection, choose a name, and enter an SSH host or alias. Existing single-host settings migrate without automatically reconnecting.
 
-**Check connection** verifies SSH login using existing keys and `known_hosts`. It does not open a tunnel, install files or verify the server's forwarding policy. **Connect** starts reverse Unix-socket forwarding; **Disconnect** stops that connection. Host and socket edits require disconnecting first. Two active connections cannot share the same host and socket path.
+**Check connection** verifies SSH login using existing keys and `known_hosts`. It does not open a tunnel, install files or verify the server's forwarding policy. **Connect** starts reverse Unix-socket forwarding and enables **Connect automatically at launch**. **Disconnect** stops the connection and turns automatic reconnection off. Quitting the app preserves the startup choice. You can change that choice independently, including after a failed connection. Previously saved connections need one Connect or an explicit startup check after upgrading; new connections stay off until requested. Host and socket edits require disconnecting first. Two active connections cannot share the same host and socket path.
 
 Connections appear as collapsible groups in **Agents**, with their configured profiles inside. Rename a connection at any time or uncheck **Show in Agents**. Removing a connection closes its tunnel and removes its local settings; it does not uninstall the remote plugin. To disable remote reporting, deselect profiles and apply those changes before removing the connection.
 

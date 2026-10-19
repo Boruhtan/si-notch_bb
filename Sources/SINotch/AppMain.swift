@@ -224,6 +224,7 @@ final class AppModel: ObservableObject {
             try ipc.start()
             server = ipc
             serverError = nil
+            remoteConnections.restoreConnections(localSocketPath: socketPath)
         } catch { serverError = .channel(error.localizedDescription) }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }

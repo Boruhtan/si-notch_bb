@@ -40,6 +40,106 @@ final class RemoteConnectionManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testConnectionIntentSurvivesShutdownAndExplicitDisconnectStaysOff() async throws {
+        let suite = "si-notch.remote-manager." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ssh = try fakeSSH(in: directory)
+        var createdControllers = 0
+        let factory = {
+            createdControllers += 1
+            return RemoteConnectionController(defaults: nil, sshExecutable: ssh, retryDelays: [], socketAvailable: { _ in true })
+        }
+        let manager = RemoteConnectionManager(defaults: defaults, makeController: factory)
+        defer { manager.disconnectAll() }
+        let id = try XCTUnwrap(manager.add()), idle = try XCTUnwrap(manager.add())
+        var connection = manager.connections[0]
+        connection.host = "fixture"; connection.remoteSocketPath = "/home/a/events.sock"
+        manager.update(connection)
+        manager.restoreConnections(localSocketPath: "/Users/test/e.sock")
+        XCTAssertEqual(createdControllers, 0)
+        manager.connect(id, localSocketPath: "/Users/test/e.sock")
+        try await waitForConnection(manager, id)
+        XCTAssertTrue(manager.reconnectAtLaunch(id))
+        XCTAssertFalse(manager.reconnectAtLaunch(idle))
+        manager.disconnectAll()
+
+        let restarted = RemoteConnectionManager(defaults: defaults, makeController: factory)
+        defer { restarted.disconnectAll() }
+        XCTAssertEqual(restarted.state(id), .disconnected)
+        restarted.restoreConnections(localSocketPath: "/Users/test/e.sock")
+        restarted.restoreConnections(localSocketPath: "/Users/test/e.sock")
+        try await waitForConnection(restarted, id)
+        XCTAssertEqual(createdControllers, 2)
+        XCTAssertEqual(restarted.state(idle), .disconnected)
+        restarted.disconnect(id)
+
+        let optedOut = RemoteConnectionManager(defaults: defaults, makeController: factory)
+        optedOut.restoreConnections(localSocketPath: "/Users/test/e.sock")
+        XCTAssertEqual(optedOut.state(id), .disconnected)
+        XCTAssertFalse(optedOut.reconnectAtLaunch(id))
+        XCTAssertEqual(createdControllers, 2)
+        optedOut.setReconnectAtLaunch(id, enabled: true)
+        optedOut.remove(id)
+        XCTAssertFalse(optedOut.reconnectAtLaunch(id))
+    }
+
+    @MainActor
+    func testStartupChoiceCanBeDisabledAfterFailureAndEndpointEditsClearIt() throws {
+        let suite = "si-notch.remote-manager." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let manager = RemoteConnectionManager(defaults: defaults, makeController: {
+            RemoteConnectionController(defaults: nil, socketAvailable: { _ in false })
+        })
+        let id = try XCTUnwrap(manager.add())
+        var connection = manager.connections[0]
+        connection.host = "fixture"; connection.remoteSocketPath = "/home/a/events.sock"
+        manager.update(connection)
+        manager.setReconnectAtLaunch(id, enabled: true)
+        manager.restoreConnections(localSocketPath: "/missing.sock")
+        XCTAssertEqual(manager.state(id), .failed(.localSocketUnavailable))
+        XCTAssertTrue(manager.reconnectAtLaunch(id))
+        manager.setReconnectAtLaunch(id, enabled: false)
+        XCTAssertFalse(RemoteConnectionManager(defaults: defaults).reconnectAtLaunch(id))
+        manager.setReconnectAtLaunch(id, enabled: true)
+        connection.name = "Renamed"
+        manager.update(connection)
+        XCTAssertTrue(manager.reconnectAtLaunch(id))
+        connection.host = "other-host"
+        manager.update(connection)
+        XCTAssertFalse(manager.reconnectAtLaunch(id))
+        XCTAssertFalse(RemoteConnectionManager(defaults: defaults).reconnectAtLaunch(id))
+    }
+
+    @MainActor
+    private func waitForConnection(_ manager: RemoteConnectionManager, _ id: UUID) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        while ProcessInfo.processInfo.systemUptime < deadline, manager.state(id) != .connected {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(manager.state(id), .connected)
+    }
+
+    private func fakeSSH(in directory: URL) throws -> URL {
+        let ssh = directory.appendingPathComponent("ssh")
+        try """
+        #!/bin/sh
+        for arg in "$@"; do
+          if [ "$previous" = '-R' ]; then forward="$arg"; fi
+          previous="$arg"
+        done
+        printf 'debug1: remote forward success for: listen %s:-2, connect %s:-2\\n' "${forward%:*}" "${forward#*:}" >&2
+        exec /bin/cat >/dev/null
+        """.write(to: ssh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ssh.path)
+        return ssh
+    }
+
+    @MainActor
     func testTunnelsAreIndependentAndDuplicateEndpointIsRejected() async throws {
         let suite = "si-notch.remote-manager." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!

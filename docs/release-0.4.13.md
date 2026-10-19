@@ -1,0 +1,2 @@
+- Reconnects previously connected remote hosts automatically when the app starts.
+- Adds a per-connection startup option and preserves explicit disconnection across restarts.

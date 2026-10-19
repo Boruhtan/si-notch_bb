@@ -518,7 +518,7 @@
 "remote.defaultName" = "SSH 连接";
 "remote.numberedName" = "SSH 连接 %d";
 "remote.add" = "添加连接";
-"remote.connectionsHelp" = "为 SSH 连接命名，并选择在 Agents 中显示的 Hermes 配置。仅在点击连接时启动。";
+"remote.connectionsHelp" = "为 SSH 连接命名，并选择在 Agents 中显示的 Hermes 配置。点击连接后，下次启动会自动重连；点击断开连接会关闭自动重连。";
 "remote.empty" = "尚无 SSH 连接。";
 "remote.name" = "连接名称";
 "remote.showInAgents" = "在 Agents 中显示";
@@ -570,3 +570,4 @@
 
 "settings.cardDetailsHelp" = "这些开关控制代理提供的信息。模型和推理模式直接显示在卡片上；任务、子代理和完整活动显示在卡片详情中。请更新已安装的插件以接收新增元数据。";
 "remote.error.socketRecoveryFailed" = "无法安全恢复远程套接字。请检查远程 Python 路径、套接字权限及现有连接。";
+"remote.reconnectAtLaunch" = "启动时自动连接";
