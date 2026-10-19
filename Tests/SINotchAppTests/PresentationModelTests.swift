@@ -5,6 +5,50 @@ import SINotchCore
 
 final class PresentationModelTests: XCTestCase {
     @MainActor
+    func testRemoteGroupExpansionGrowsAndCollapsesPanelWithoutAgentEvents() throws {
+        let model = makeModel()
+        defer { model.shutdown() }
+        let id = try XCTUnwrap(model.remoteConnections.add())
+        var connection = try XCTUnwrap(model.remoteConnections.connections.first)
+        connection.profiles = (0..<8).map { index in
+            RemoteHermesProfile(id: "profile-\(index)", home: "/tmp/hermes", displayName: "Profile \(index)",
+                enabled: true, showSessionText: false, pluginInstalled: true, connectionId: "connection-\(index)")
+        }
+        model.remoteConnections.update(connection)
+        model.selectAgents(true)
+        let collapsed = model.desiredPanelHeight
+        model.setConnectorExpanded(id, true)
+        XCTAssertGreaterThan(model.desiredPanelHeight, collapsed + 200)
+        model.measureAgentsList(620)
+        XCTAssertEqual(model.panelHeight(limitedTo: 560), 560)
+        model.setConnectorExpanded(id, false)
+        XCTAssertEqual(model.desiredPanelHeight, collapsed)
+        XCTAssertNil(model.measuredAgentsHeight)
+        XCTAssertTrue(model.expanded)
+    }
+
+    @MainActor
+    func testMeasuredAgentContentShrinksAndDoesNotResizeSessionsTab() {
+        let model = makeModel()
+        defer { model.shutdown() }
+        model.selectAgents(true)
+        model.measureAgentsList(400)
+        let large = model.desiredPanelHeight
+        model.measureAgentsList(80)
+        XCTAssertLessThan(model.desiredPanelHeight, large)
+        let previous = model.measuredAgentsHeight
+        for invalid: CGFloat in [0, -.infinity, .nan, 10001] { model.measureAgentsList(invalid) }
+        XCTAssertEqual(model.measuredAgentsHeight, previous)
+        model.selectAgents(false)
+        let sessions = model.desiredPanelHeight
+        var layouts = 0
+        model.onLayout = { layouts += 1 }
+        model.measureAgentsList(600)
+        XCTAssertEqual(model.desiredPanelHeight, sessions)
+        XCTAssertEqual(layouts, 0)
+    }
+
+    @MainActor
     func testFiltersResizeImmediatelyWithAlreadyMeasuredCards() {
         let model = makeModel()
         defer { model.shutdown() }

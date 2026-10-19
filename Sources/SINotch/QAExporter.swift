@@ -694,6 +694,21 @@ enum QAExporter {
                 check("tab-adaptive-height-\(language)", abs(delegate.panel.frame.height - delegate.model.panelHeight(limitedTo: 560) - 1) <= 1 &&
                       delegate.panel.frame.maxY == sessionFrame.maxY,
                       "Switching tabs adopts the new content height; the top navigation remains attached to the screen edge.")
+                for connection in delegate.model.remoteConnections.connections.filter(\.showInAgents) {
+                    let collapsed = delegate.panel.frame
+                    delegate.model.setConnectorExpanded(connection.id, true)
+                    try await settle(expanded: true)
+                    let measured = delegate.model.measuredAgentsHeight ?? 0
+                    check("agent-group-expand-\(connection.id)-\(language)", measured > 0 &&
+                          abs(delegate.panel.frame.height - delegate.model.panelHeight(limitedTo: 560) - 1) <= 1 &&
+                          delegate.panel.frame.maxY == collapsed.maxY,
+                          "Opening a remote group follows its measured content height within the display limit.")
+                    try capturePanel(name: "island-agent-group-\(connection.id)-\(language)", language: language)
+                    delegate.model.setConnectorExpanded(connection.id, false)
+                    try await settle(expanded: true)
+                    check("agent-group-collapse-\(connection.id)-\(language)", delegate.panel.frame.height <= collapsed.height + 1,
+                          "Closing a remote group releases its extra height without an incoming event.")
+                }
                 delegate.model.selectAgents(false)
                 delegate.model.activeFilter = "Готово"
                 try await settle(expanded: true)

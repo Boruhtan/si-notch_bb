@@ -1,4 +1,4 @@
 - Hides the island during full-screen apps and videos, with hover and keyboard access when needed.
 - Opens sooner as the pointer approaches, with a softer expansion and smoother direction changes.
-- Adapts the expanded panel to the selected tab and keeps navigation in place.
-- Allows supported permission requests to be approved or declined directly in the island.
+- Adapts the panel to tabs, session details, and expanded agent groups while keeping navigation in place.
+- Allows supported requests that need manual approval to be handled directly in the island.

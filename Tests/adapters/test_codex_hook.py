@@ -17,9 +17,50 @@ spec.loader.exec_module(hook_adapter)
 
 
 class CodexHookTests(unittest.TestCase):
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        self.transcript = Path(self.scratch.name) / "session.jsonl"
+        self.context = {"turn_id": "turn_456", "approval_policy": "on-request", "approvals_reviewer": "user"}
+        self.write_context()
+
+    def write_context(self):
+        self.transcript.write_text(json.dumps({"type": "session_meta", "payload": {"id": "thread_123"}}) + "\n" +
+                                   json.dumps({"type": "turn_context", "payload": self.context}) + "\n")
+
     def permission(self):
         return {"hook_event_name": "PermissionRequest", "session_id": "thread_123", "tool_name": "Bash",
+                "turn_id": "turn_456", "transcript_path": str(self.transcript), "permission_mode": "default",
                 "cwd": "/tmp/project", "tool_input": {"command": "printf approval-smoke", "description": "Local harmless check"}}
+
+    def test_auto_review_and_noninteractive_modes_never_create_native_request(self):
+        for reviewer, policy in (("auto_review", "on-request"), ("user", "never"), (None, "on-request"),
+                                 ("user", {"granular": {"sandbox_approval": False}})):
+            self.context.update(approvals_reviewer=reviewer, approval_policy=policy)
+            self.write_context()
+            self.assertEqual(hook_adapter.permission_decision(self.permission(), "/tmp/helper",
+                lambda *a, **kw: self.fail("Must leave the native auto-review/approval policy in charge")), {})
+        self.context.update(approvals_reviewer="user", approval_policy="on-request")
+        self.write_context()
+        for mode in ("dontAsk", "bypassPermissions"):
+            payload = dict(self.permission(), permission_mode=mode)
+            self.assertFalse(hook_adapter.requires_manual_permission(payload))
+
+    def test_missing_stale_mismatched_and_symlink_context_defer_to_codex(self):
+        for overrides in ({"transcript_path": None}, {"turn_id": "old_turn"}, {"session_id": "other_session"}):
+            self.assertFalse(hook_adapter.requires_manual_permission(dict(self.permission(), **overrides)))
+        self.transcript.write_text(self.transcript.read_text() + json.dumps({"type": "turn_context", "payload": {
+            "turn_id": "new_turn", "approval_policy": "on-request", "approvals_reviewer": "user"}}) + "\n")
+        self.assertFalse(hook_adapter.requires_manual_permission(self.permission()))
+        self.write_context()
+        link = self.transcript.with_name("link.jsonl")
+        link.symlink_to(self.transcript)
+        self.assertFalse(hook_adapter.requires_manual_permission(dict(self.permission(), transcript_path=str(link))))
+
+    def test_context_lookup_is_bounded_and_never_uses_an_old_manual_turn(self):
+        with self.transcript.open("a") as stream:
+            stream.write(json.dumps({"type": "response_item", "payload": "x" * (hook_adapter.MAX_CONTEXT_BYTES + 1)}) + "\n")
+        self.assertFalse(hook_adapter.requires_manual_permission(self.permission()))
 
     def test_permission_roundtrip_uses_exact_request_and_complete_input(self):
         for decision, code in (("allow", 0), ("deny", 1)):

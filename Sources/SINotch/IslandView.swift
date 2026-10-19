@@ -9,6 +9,11 @@ private struct SessionHeightPreferenceKey: PreferenceKey {
     }
 }
 
+private struct AgentsHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 extension AgentStatus {
     var label: String {
         switch self { case .idle: return L10n.tr("На связи"); case .working: return L10n.tr("В работе"); case .waiting: return L10n.tr("Ждёт ответа"); case .approval: return L10n.tr("Нужно разрешение"); case .completed: return L10n.tr("Готово"); case .failed: return L10n.tr("Ошибка"); case .ended: return L10n.tr("Завершена") }
@@ -23,7 +28,6 @@ extension AgentStatus {
 
 struct IslandView: View {
     @ObservedObject var model: AppModel
-    @State private var expandedConnectors: Set<UUID> = []
     @AppStorage("appLanguage") var appLanguage = "auto"
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @AppStorage("showCompanion") var showCompanion = true
@@ -217,13 +221,15 @@ struct IslandView: View {
                     ForEach(model.agents.filter { $0.connectorID == nil }) { agent in agentRow(agent) }
                     ForEach(model.remoteConnections.connections.filter(\.showInAgents)) { connection in
                         let profiles = model.agents.filter { $0.connectorID == connection.id }
-                        DisclosureGroup(isExpanded: Binding(get: { expandedConnectors.contains(connection.id) }, set: {
-                            if $0 { expandedConnectors.insert(connection.id) } else { expandedConnectors.remove(connection.id) }
+                        DisclosureGroup(isExpanded: Binding(get: { model.expandedConnectors.contains(connection.id) }, set: {
+                            model.setConnectorExpanded(connection.id, $0)
                         })) {
-                            ForEach(profiles) { agent in agentRow(agent).padding(.leading, 12) }
-                            if profiles.isEmpty {
-                                Text(L10n.tr("remote.noProfiles")).font(.system(size: 11))
-                                    .foregroundStyle(NotchDesign.secondary).padding(.vertical, 8)
+                            VStack(spacing: 0) {
+                                ForEach(profiles) { agent in agentRow(agent).padding(.leading, 12) }
+                                if profiles.isEmpty {
+                                    Text(L10n.tr("remote.noProfiles")).font(.system(size: 11))
+                                        .foregroundStyle(NotchDesign.secondary).padding(.vertical, 8)
+                                }
                             }
                         } label: {
                             HStack(spacing: 8) {
@@ -239,11 +245,16 @@ struct IslandView: View {
                                     .frame(width: 5, height: 5)
                             }.font(.system(size: 11)).frame(height: 32)
                         }.padding(.horizontal, 24).tint(NotchDesign.secondary)
+                            .transaction { $0.animation = nil; $0.disablesAnimations = true }
+                            .accessibilityIdentifier("agent-connection-" + connection.id.uuidString)
                     }
                     if model.agents.isEmpty {
                         Text(L10n.tr("agents.empty")).font(.system(size: 12)).foregroundStyle(NotchDesign.secondary).padding(20)
                     }
-                }
+                }.background(GeometryReader { geometry in
+                    Color.clear.preference(key: AgentsHeightPreferenceKey.self, value: geometry.size.height)
+                })
+                    .onPreferenceChange(AgentsHeightPreferenceKey.self) { model.measureAgentsList($0) }
             }.scrollIndicators(.hidden)
             Button { model.openIntegrations?() } label: {
                 Text(L10n.tr("agents.manage")).font(.system(size: 11))
@@ -337,9 +348,7 @@ struct SessionCard: View {
                     .accessibilityIdentifier("open-session-" + session.id)
                     .help(L10n.tr("session.openApp"))
                 Button {
-                    withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 1)) {
-                        model.selectSession(selected ? nil : session.id)
-                    }
+                    model.selectSession(selected ? nil : session.id)
                 } label: {
                     Image(systemName: selected ? "chevron.up" : "chevron.down")
                         .font(.system(size: 10, weight: .semibold)).foregroundStyle(NotchDesign.muted)
@@ -401,6 +410,7 @@ struct SessionCard: View {
                     } label: {
                         Text(L10n.tr("session.task")).font(.system(size: 10, weight: .medium)).foregroundStyle(NotchDesign.muted)
                     }.tint(NotchDesign.muted).padding(.top, 2)
+                        .transaction { $0.animation = nil; $0.disablesAnimations = true }
                 }
                 if showTasks, !session.tasks.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {

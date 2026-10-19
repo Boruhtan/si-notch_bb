@@ -8,6 +8,7 @@ alone shows the complete bounded tool input for an explicit one-time decision.
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ MAX_EVENT_BYTES = 8 * 1024
 TIMEOUT_SECONDS = 1.2
 PERMISSION_SECONDS = 70
 MAX_PERMISSION_BYTES = 12000
+MAX_CONTEXT_BYTES = 2 * 1024 * 1024
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
 SAFE_TOOL = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
@@ -105,8 +107,63 @@ def cli_path(argv):
     return os.environ.get("SI_NOTCH_CLI") or str(Path(__file__).resolve().parents[2] / "Helpers" / "si-notchctl")
 
 
+def requires_manual_permission(hook):
+    """A hook precedes auto-review. Unknown context must defer, never prompt.
+
+    Codex currently omits the reviewer from PermissionRequest. Read only the
+    matching turn's metadata from its supplied transcript, without retaining or
+    forwarding transcript content. This is deliberately conservative if that
+    non-stable format changes or the turn context has fallen out of the tail.
+    """
+    if hook.get("permission_mode") in ("bypassPermissions", "dontAsk"):
+        return False
+    path = hook.get("transcript_path")
+    turn = safe_identifier(hook.get("turn_id"))
+    session = safe_identifier(hook.get("session_id"))
+    if not turn or not session or not isinstance(path, str) or not os.path.isabs(path):
+        return False
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                return False
+            first = stream.readline(MAX_INPUT_BYTES + 1)
+            if len(first) > MAX_INPUT_BYTES:
+                return False
+            metadata = json.loads(first)
+            if metadata.get("type") != "session_meta" or metadata.get("payload", {}).get("id") != session:
+                return False
+            start = max(0, info.st_size - MAX_CONTEXT_BYTES)
+            stream.seek(start)
+            if start:
+                stream.readline(MAX_CONTEXT_BYTES)  # Discard a potentially partial JSON line.
+            tail = stream.read(MAX_CONTEXT_BYTES)
+        context = None
+        for line in tail.splitlines():
+            if len(line) > MAX_INPUT_BYTES:
+                continue
+            try:
+                record = json.loads(line)
+                if record.get("type") == "turn_context":
+                    context = record.get("payload")
+            except (ValueError, AttributeError):
+                continue
+        if not isinstance(context, dict) or context.get("turn_id") != turn:
+            return False
+        policy = context.get("approval_policy")
+        # Granular policies do not expose this request's category in the hook.
+        # Leave them to Codex rather than prompting for an auto-rejected category.
+        interactive = isinstance(policy, str) and policy in ("on-request", "untrusted")
+        return context.get("approvals_reviewer") == "user" and interactive
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
+
+
 def permission_decision(hook, cli, runner=subprocess.run):
     """No decision means Codex retains its normal approval flow."""
+    if not requires_manual_permission(hook):
+        return {}
     session = safe_identifier(hook.get("session_id"))
     tool = hook.get("tool_name")
     tool_input = hook.get("tool_input")

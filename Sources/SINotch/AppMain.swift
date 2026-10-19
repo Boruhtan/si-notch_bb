@@ -43,6 +43,8 @@ final class AppModel: ObservableObject {
         didSet { if oldValue != search { sessionQueryChanged() } }
     }
     @Published var showAgents = false
+    @Published var expandedConnectors: Set<UUID> = []
+    private(set) var measuredAgentsHeight: CGFloat?
     @Published var detectedHarnesses: [HarnessDetection] = []
     @Published var runningAgentProviders: Set<String> = []
     @Published var presenceNow = Date()
@@ -134,8 +136,12 @@ final class AppModel: ObservableObject {
     let compactShoulderWidth: CGFloat = 3
     var desiredPanelHeight: CGFloat {
         if showAgents {
-            let groups = remoteConnections.connections.filter(\.showInAgents).count
-            return headerHeight + 92 + CGFloat(min(5, max(2, agents.count + groups))) * 32
+            let connections = remoteConnections.connections.filter(\.showInAgents)
+            let rows = agents.filter { $0.connectorID == nil }.count + connections.count +
+                connections.filter { expandedConnectors.contains($0.id) }.reduce(0) { count, connection in
+                    count + max(1, agents.filter { $0.connectorID == connection.id }.count)
+                }
+            return headerHeight + agentsSectionHeight + 52 + (measuredAgentsHeight ?? CGFloat(max(1, rows)) * 32)
         }
         if sessions.isEmpty { return headerHeight + (quiet ? 166 : 142) + agentsSectionHeight }
         let filters: CGFloat = 38
@@ -162,6 +168,19 @@ final class AppModel: ObservableObject {
         showAgents = value
         setExpanded(true)
         onLayout?()
+    }
+
+    func setConnectorExpanded(_ id: UUID, _ value: Bool) {
+        if value { expandedConnectors.insert(id) } else { expandedConnectors.remove(id) }
+        measuredAgentsHeight = nil
+        onLayout?()
+    }
+
+    func measureAgentsList(_ height: CGFloat) {
+        guard height.isFinite, (1...10000).contains(height),
+              abs((measuredAgentsHeight ?? 0) - height) > 0.5 else { return }
+        measuredAgentsHeight = height
+        if showAgents { onLayout?() }
     }
 
     private func sessionQueryChanged() {
