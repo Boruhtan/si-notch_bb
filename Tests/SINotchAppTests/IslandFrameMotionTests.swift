@@ -5,6 +5,22 @@ final class IslandFrameMotionTests: XCTestCase {
     let compact = CGRect(x: 600, y: 967, width: 230, height: 33)
     let expanded = CGRect(x: 375, y: 650, width: 680, height: 350)
 
+    @MainActor
+    func testOpenOutlineAndContentDoNotReenterWhenAgentGroupChangesHeight() {
+        // The remote group changes only height (221 ↔ 477 pt). Its shoulders,
+        // droplet deformation and content opacity must remain fully expanded.
+        for height in [221.0, 270, 350, 477, 350, 221] {
+            XCTAssertEqual(IslandView.revealProgress(viewport: CGSize(width: 680, height: height),
+                compactWidth: 236, expandedWidth: 680), 1)
+        }
+        let before = IslandView.revealProgress(viewport: CGSize(width: 458, height: 130),
+            compactWidth: 236, expandedWidth: 680)
+        let retargeted = IslandView.revealProgress(viewport: CGSize(width: 458, height: 300),
+            compactWidth: 236, expandedWidth: 680)
+        XCTAssertEqual(before, 0.5)
+        XCTAssertEqual(retargeted, before, "A measured card height must not jump the outline halfway through opening")
+    }
+
     func testDropOpensAsOneSurfaceWithoutReboundAndWithFixedTop() {
         let motion = IslandFrameMotion(origin: compact, destination: expanded, expanding: true)
         XCTAssertEqual(motion.frame(at: 0), compact)

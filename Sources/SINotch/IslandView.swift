@@ -33,8 +33,9 @@ struct IslandView: View {
         let _ = appLanguage
         GeometryReader { viewport in
             let compactHeight = max(33, model.headerHeight)
-            let expansion = min(1, max(0, (viewport.size.height - compactHeight) /
-                max(1, model.expandedPanelHeight - compactHeight)))
+            let compactWidth = model.cameraWidth + model.compactWingWidth + model.compactStatusWidth + 2 * model.compactShoulderWidth
+            let expansion = Self.revealProgress(viewport: viewport.size, compactWidth: compactWidth,
+                                                expandedWidth: model.expandedPanelWidth)
             let droplet = reduceMotion ? 0 : sin(expansion * .pi)
             let reveal = min(1, max(0, (expansion - 0.12) / 0.60))
             let contentOpacity = reveal * reveal * (3 - 2 * reveal)
@@ -80,6 +81,13 @@ struct IslandView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("si-notch, %@", L10n.count("sessions", model.sessions.count)))
+    }
+
+    static func revealProgress(viewport: CGSize, compactWidth: CGFloat, expandedWidth: CGFloat) -> CGFloat {
+        // Width tracks compact ↔ expanded motion. Height also changes while an
+        // already open group/card resizes; using it would reopen the outline and
+        // fade the content every time the destination height changes.
+        min(1, max(0, (viewport.width - compactWidth) / max(1, expandedWidth - compactWidth)))
     }
 
     var compactContent: some View {

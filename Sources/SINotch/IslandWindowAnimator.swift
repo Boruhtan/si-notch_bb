@@ -62,7 +62,7 @@ final class IslandWindowAnimator: NSObject {
         guard let window else { stop(); return }
         let elapsed = ProcessInfo.processInfo.systemUptime - began
         if motion.isSettled(at: elapsed) || elapsed >= 1.5 {
-            window.setFrame(destination, display: false, animate: false)
+            window.setFrame(destination, display: true, animate: false)
             stop()
             return
         }
@@ -74,5 +74,9 @@ final class IslandWindowAnimator: NSObject {
         let height = snap(frame.height)
         window.setFrame(NSRect(x: snap(frame.midX - width / 2), y: snap(frame.maxY) - height, width: width, height: height),
                         display: false, animate: false)
+        // Complete the dirty SwiftUI layout and drawing in this display-link
+        // turn. Deferring it lets AppKit pace content separately from the frame.
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
     }
 }
