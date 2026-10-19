@@ -27,6 +27,7 @@ fi
 if [[ -f scripts/adapters/codex-hook.py ]]; then cp scripts/adapters/codex-hook.py "$app/Contents/Resources/adapters/"; fi
 if [[ -f scripts/adapters/harness-hook.py ]]; then cp scripts/adapters/harness-hook.py "$app/Contents/Resources/adapters/"; fi
 cp scripts/remote-hermes-setup.py "$app/Contents/Resources/adapters/"
+cp scripts/remote-socket-recovery.py "$app/Contents/Resources/adapters/"
 if [[ -f plugins/hermes/relay.py ]]; then cp plugins/hermes/relay.py "$app/Contents/Resources/adapters/remote-relay.py"; fi
 if [[ -f scripts/claude-permission.py ]]; then cp scripts/claude-permission.py "$app/Contents/Resources/adapters/claude-permission.py"; fi
 iconset="$scratch/AppIcon.iconset"

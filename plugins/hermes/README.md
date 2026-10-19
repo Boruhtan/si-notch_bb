@@ -71,7 +71,7 @@ Profile and session IDs are hashed. `instanceId` is the stable local profile ide
 ## Troubleshooting and recovery
 
 - **No socket / `not_connected`:** open si-notch Remote SSH and click **Connect**, after checking the host and absolute path. SSH login and forwarding are separate checks.
-- **`stale_socket` / forwarding fails with exit 255 after restart:** an unused Unix socket may remain. Disconnect this connection on the Mac, then run:
+- **`stale_socket` / forwarding fails with exit 255 after restart:** si-notch 0.4.12 automatically preserves an unused private socket and retries after a rejected forward. This uses the configured remote Python path and requires `lsof`; active or unsafe sockets are left unchanged. For older versions, disconnect this connection on the Mac, then run:
 
   ```sh
   python3 "$HOME/.hermes/plugins/si-notch/configure.py" repair-socket

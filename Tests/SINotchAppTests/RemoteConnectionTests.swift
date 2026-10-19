@@ -107,6 +107,68 @@ final class RemoteConnectionTests: XCTestCase {
         XCTAssertEqual(controller.state, .failed(.localSocketUnavailable))
     }
 
+    @MainActor
+    func testRejectedForwardRecoversOnceAndReconnects() async throws {
+        try await assertForwardRecovery(recoveryFails: false)
+    }
+
+    @MainActor
+    func testUnsafeSocketStopsRecoveryWithoutFurtherRetries() async throws {
+        try await assertForwardRecovery(recoveryFails: true)
+    }
+
+    @MainActor
+    private func assertForwardRecovery(recoveryFails: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let marker = directory.appendingPathComponent("recovered")
+        let ssh = directory.appendingPathComponent("ssh")
+        let remote = "/home/fixture/run/events.sock", local = "/Users/fixture/run/events.sock"
+        try """
+        #!/bin/sh
+        if [ ! -f '\(marker.path)' ]; then
+          printf '%s\\n' 'debug1: remote forward failure for: listen \(remote):-2, connect \(local):-2' >&2
+          exit 255
+        fi
+        printf '%s\\n' 'debug1: remote forward success for: listen \(remote):-2, connect \(local):-2' >&2
+        exec sleep 20
+        """.write(to: ssh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ssh.path)
+        var recoveries = 0
+        let controller = RemoteConnectionController(defaults: nil, sshExecutable: ssh,
+            retryDelays: [0.01], socketAvailable: { _ in true }, recoverSocket: { command, python in
+                XCTAssertEqual(command.remoteSocketPath, remote)
+                XCTAssertEqual(python, "/custom/python")
+                recoveries += 1
+                if recoveryFails { throw RemoteSetupError.invalidResponse }
+                try Data().write(to: marker)
+            })
+        defer { controller.disconnect() }
+        controller.host = "fixture"
+        controller.remoteSocketPath = remote
+        controller.pythonPath = "/custom/python"
+        controller.connect(localSocketPath: local)
+        let expected: RemoteConnectionState = recoveryFails ? .failed(.socketRecoveryFailed) : .connected
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        while ProcessInfo.processInfo.systemUptime < deadline, controller.state != expected {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(controller.state, expected)
+        XCTAssertEqual(recoveries, 1)
+        if !recoveryFails {
+            controller.disconnect()
+            try FileManager.default.removeItem(at: marker)
+            controller.connect(localSocketPath: local)
+            let secondDeadline = ProcessInfo.processInfo.systemUptime + 3
+            while ProcessInfo.processInfo.systemUptime < secondDeadline, controller.state != .connected {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(controller.state, .connected)
+            XCTAssertEqual(recoveries, 2)
+        }
+    }
+
     func testPortableRemoteRelayDeliversObservationAndCorrelatedDecision() throws {
         let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

@@ -54,7 +54,7 @@ python3 "$HOME/.hermes/plugins/si-notch/configure.py" check
 ## 故障处理
 
 - `not_connected`：检查主机和绝对路径，并在 Mac 点击 Connect。
-- `stale_socket` 或重启后转发错误 255：先断开 Mac 连接，运行 `configure.py repair-socket` 预览，再明确执行 `configure.py repair-socket --apply`。仅在连接被拒绝、权限/所有者正确、`lsof` 无持有进程且 inode 未变时，将旧套接字重命名为备份。不会移动活动套接字；缺少 `lsof` 时不会修改。之后重新连接并 check。
+- `stale_socket` 或重启后转发错误 255：si-notch 0.4.12 会在转发失败后安全保留未使用的私有套接字并重试。此操作使用已配置的远程 Python 路径，需要 `lsof`，不会修改活动或不安全的套接字。旧版本可先断开 Mac 连接，再运行 `configure.py repair-socket` 预览，然后明确执行 `configure.py repair-socket --apply`。
 - `relay_failed`：检查 helper、套接字及 si-notch 是否运行/暂停。不要降低 host-key 检查或目录权限。
 - 只有工具没有消息：为该配置开启文本并开始新一轮；部分模型或入口不触发中间消息 hook。
 - Installed/Last seen 仅表示没有新事件。SSH 连接本身不能证明配置活动。

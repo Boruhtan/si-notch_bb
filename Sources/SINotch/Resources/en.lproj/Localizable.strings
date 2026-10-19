@@ -564,8 +564,9 @@
 
 "settings.visibility" = "Visibility";
 "settings.showOnlyWithSessions" = "Show only when there are sessions";
-"settings.showOnlyWithSessionsHelp" = "Hide the island when the session list is empty. Completed tasks also count. You can still open the island from the menu bar or keyboard shortcut.";
+"settings.showOnlyWithSessionsHelp" = "Experimental. Off by default. Hide the island when the session list is empty. Completed tasks also count. You can still open the island from the menu bar or keyboard shortcut.";
 "settings.resetDisplay" = "Restore Defaults";
 "settings.resetDisplayHelp" = "Restore the default position, size, visibility and card details.";
 
 "settings.cardDetailsHelp" = "These switches control information supplied by the agent. Model and reasoning appear on the card; tasks, subagents and full activity are available in its details. Update an existing plugin to receive new metadata.";
+"remote.error.socketRecoveryFailed" = "The remote socket could not be recovered safely. Check the remote Python path, socket permissions, and any existing connection.";

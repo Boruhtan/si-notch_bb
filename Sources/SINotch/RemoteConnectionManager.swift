@@ -127,6 +127,7 @@ final class RemoteConnectionManager: ObservableObject {
         }
         controller.host = host
         controller.remoteSocketPath = path
+        controller.pythonPath = connection.pythonPath
         controller.connect(localSocketPath: localSocketPath)
     }
 

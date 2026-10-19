@@ -196,6 +196,7 @@ private struct RemoteConnectionCard: View {
         case .invalidPath: L10n.tr("remote.error.invalidPath")
         case .localSocketUnavailable: L10n.tr("remote.error.localSocketUnavailable")
         case .sshUnavailable: L10n.tr("remote.error.sshUnavailable")
+        case .socketRecoveryFailed: L10n.tr("remote.error.socketRecoveryFailed")
         case .connectionFailed(let status): L10n.tr("remote.error.connectionFailed", status)
         }
     }

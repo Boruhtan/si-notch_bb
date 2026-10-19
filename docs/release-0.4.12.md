@@ -1,0 +1,2 @@
+- Fixed remote connections failing after an application restart.
+- Clarified that session-only visibility is experimental and off by default.

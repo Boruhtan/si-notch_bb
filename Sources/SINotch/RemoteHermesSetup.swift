@@ -97,6 +97,18 @@ struct RemoteHermesSetupClient {
         try await request(connection, operation: "inspect")
     }
 
+    func recoverSocket(_ command: RemoteSSHCommand, pythonPath: String) async throws {
+        guard let resources,
+              let source = try? String(contentsOf: resources.appendingPathComponent("remote-socket-recovery.py"), encoding: .utf8) else {
+            throw RemoteSetupError.missingResources
+        }
+        let arguments = try Self.arguments(host: command.host, pythonPath: pythonPath, source: source)
+        let input = try JSONSerialization.data(withJSONObject: ["socket_path": command.remoteSocketPath])
+        let output = try await execute(arguments: arguments, input: input, deadline: min(timeout, 15))
+        guard let response = try? JSONSerialization.jsonObject(with: output) as? [String: Any],
+              response["ok"] as? Bool == true else { throw RemoteSetupError.invalidResponse }
+    }
+
     func preview(_ connection: RemoteSSHConnection, snapshot: String,
                  profiles: [RemoteHermesProfile]) async throws -> RemoteHermesPlan {
         try await request(connection, operation: "preview", snapshot: snapshot, profiles: profiles)

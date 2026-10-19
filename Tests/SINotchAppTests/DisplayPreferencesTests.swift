@@ -5,6 +5,19 @@ import SINotchCore
 
 final class DisplayPreferencesTests: XCTestCase {
     @MainActor
+    func testSessionOnlyVisibilityIsOptInForNewAndResetPreferences() {
+        let suite = "si-notch.display-tests." + UUID().uuidString
+        let preferences = UserDefaults(suiteName: suite)!
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let model = AppModel(defaults: preferences)
+        defer { model.shutdown() }
+        XCTAssertFalse(preferences.bool(forKey: "showOnlyWithSessions"))
+        preferences.set(true, forKey: "showOnlyWithSessions")
+        DisplayPreferences.reset(in: preferences)
+        XCTAssertFalse(preferences.bool(forKey: "showOnlyWithSessions"))
+    }
+
+    @MainActor
     func testResetRestoresDisplayWithoutChangingOtherPreferencesOrSessions() {
         let suite = "si-notch.display-tests." + UUID().uuidString
         let preferences = UserDefaults(suiteName: suite)!

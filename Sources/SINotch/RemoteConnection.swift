@@ -6,6 +6,7 @@ enum RemoteConnectionFailure: Equatable {
     case invalidPath
     case localSocketUnavailable
     case sshUnavailable
+    case socketRecoveryFailed
     case connectionFailed(Int32)
 }
 
@@ -73,6 +74,10 @@ enum RemoteSSHForwardConfirmation {
         // Its stream-local sentinel is -2 for both paths. Match both endpoints.
         line == "debug1: remote forward success for: listen \(remoteSocketPath):-2, connect \(localSocketPath):-2"
     }
+
+    static func rejects(_ line: String, remoteSocketPath: String, localSocketPath: String) -> Bool {
+        line == "debug1: remote forward failure for: listen \(remoteSocketPath):-2, connect \(localSocketPath):-2"
+    }
 }
 
 @MainActor
@@ -80,11 +85,13 @@ final class RemoteConnectionController: ObservableObject {
     @Published var host: String { didSet { defaults?.set(host, forKey: "remoteSSHHost") } }
     @Published var remoteSocketPath: String { didSet { defaults?.set(remoteSocketPath, forKey: "remoteSSHSocketPath") } }
     @Published private(set) var state: RemoteConnectionState = .disconnected
+    var pythonPath = "~/.hermes/hermes-agent/venv/bin/python"
 
     private let defaults: UserDefaults?
     private let sshExecutable: URL
     private let socketAvailable: (String) -> Bool
     private let retryDelays: [TimeInterval]
+    private let recoverSocket: (RemoteSSHCommand, String) async throws -> Void
     private var process: Process?
     private var command: RemoteSSHCommand?
     private var generation: UInt64 = 0
@@ -92,16 +99,23 @@ final class RemoteConnectionController: ObservableObject {
     private var retryTask: Task<Void, Never>?
     private var readyTask: Task<Void, Never>?
     private var diagnosticTask: Task<Void, Never>?
+    private var recoveryTask: Task<Void, Never>?
+    private var forwardRejected = false
+    private var recoveryAttempted = false
     private var errorPipe: Pipe?
     private var diagnosticLine = Data()
     private var discardingLongLine = false
 
     init(defaults: UserDefaults? = .standard, sshExecutable: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
-         retryDelays: [TimeInterval] = [1, 2, 4], socketAvailable: @escaping (String) -> Bool = RemoteConnectionController.isSocketAvailable) {
+         retryDelays: [TimeInterval] = [1, 2, 4], socketAvailable: @escaping (String) -> Bool = RemoteConnectionController.isSocketAvailable,
+         recoverSocket: @escaping (RemoteSSHCommand, String) async throws -> Void = {
+             try await RemoteHermesSetupClient(timeout: 15).recoverSocket($0, pythonPath: $1)
+         }) {
         self.defaults = defaults
         self.sshExecutable = sshExecutable
         self.retryDelays = retryDelays
         self.socketAvailable = socketAvailable
+        self.recoverSocket = recoverSocket
         host = defaults?.string(forKey: "remoteSSHHost") ?? ""
         remoteSocketPath = defaults?.string(forKey: "remoteSSHSocketPath") ?? ""
     }
@@ -129,6 +143,8 @@ final class RemoteConnectionController: ObservableObject {
         retryTask?.cancel(); retryTask = nil
         readyTask?.cancel(); readyTask = nil
         diagnosticTask?.cancel(); diagnosticTask = nil
+        recoveryTask?.cancel(); recoveryTask = nil
+        recoveryAttempted = false
         errorPipe?.fileHandleForReading.readabilityHandler = nil
         errorPipe = nil
         diagnosticLine.removeAll()
@@ -149,6 +165,7 @@ final class RemoteConnectionController: ObservableObject {
         guard let command else { return }
         generation &+= 1
         let token = generation
+        forwardRejected = false
         let child = Process()
         child.executableURL = sshExecutable
         child.arguments = ["-v"] + command.arguments
@@ -164,7 +181,11 @@ final class RemoteConnectionController: ObservableObject {
             }
         }
         child.terminationHandler = { [weak self] finished in
-            Task { @MainActor [weak self] in self?.terminated(finished, token: token) }
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == token else { return }
+                await self.diagnosticTask?.value
+                self.terminated(finished, token: token)
+            }
         }
         state = attempt == 0 ? .connecting : .retrying
         do {
@@ -199,6 +220,10 @@ final class RemoteConnectionController: ObservableObject {
                                                             localSocketPath: command.localSocketPath) {
                         readyTask?.cancel(); readyTask = nil
                         state = .connected
+                        recoveryAttempted = false
+                    } else if RemoteSSHForwardConfirmation.rejects(line, remoteSocketPath: command.remoteSocketPath,
+                                                                  localSocketPath: command.localSocketPath) {
+                        forwardRejected = true
                     }
                 }
                 diagnosticLine.removeAll(keepingCapacity: true)
@@ -222,6 +247,23 @@ final class RemoteConnectionController: ObservableObject {
         diagnosticLine.removeAll()
         discardingLongLine = false
         readyTask?.cancel(); readyTask = nil
+        if child.terminationStatus == 255, forwardRejected, !recoveryAttempted, let command {
+            recoveryAttempted = true
+            state = .retrying
+            let python = pythonPath
+            recoveryTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.recoverSocket(command, python)
+                    guard !Task.isCancelled, self.generation == token else { return }
+                    self.launch()
+                } catch {
+                    guard !Task.isCancelled, self.generation == token else { return }
+                    self.state = .failed(.socketRecoveryFailed)
+                }
+            }
+            return
+        }
         scheduleRetry(status: child.terminationStatus, token: token)
     }
 
