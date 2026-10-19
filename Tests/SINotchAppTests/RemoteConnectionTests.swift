@@ -8,7 +8,8 @@ final class RemoteConnectionTests: XCTestCase {
                                            remoteSocketPath: "/home/alice/.si-notch/run/events.sock",
                                            localSocketPath: "/Users/alice/.si-notch/run/events.sock")
         let args = command.arguments
-        XCTAssertEqual(args.suffix(2), ["--", "alice@build-box"])
+        XCTAssertEqual(args.suffix(3), ["--", "alice@build-box", "exec /bin/cat >/dev/null"])
+        XCTAssertFalse(args.contains("-N"))
         XCTAssertTrue(args.contains("/home/alice/.si-notch/run/events.sock:/Users/alice/.si-notch/run/events.sock"))
         for requirement in ["BatchMode=yes", "StrictHostKeyChecking=yes", "ExitOnForwardFailure=yes",
                             "ForwardAgent=no", "StreamLocalBindMask=0177", "StreamLocalBindUnlink=no",
@@ -110,6 +111,40 @@ final class RemoteConnectionTests: XCTestCase {
     @MainActor
     func testRejectedForwardRecoversOnceAndReconnects() async throws {
         try await assertForwardRecovery(recoveryFails: false)
+    }
+
+    @MainActor
+    func testTunnelInputStaysOpenUntilDisconnect() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ssh = directory.appendingPathComponent("ssh"), closed = directory.appendingPathComponent("eof")
+        try """
+        #!/bin/sh
+        trap '' TERM
+        printf '%s\\n' 'debug1: remote forward success for: listen /home/test/e.sock:-2, connect /Users/test/e.sock:-2' >&2
+        /bin/cat >/dev/null
+        touch '\(closed.path)'
+        """.write(to: ssh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ssh.path)
+        let controller = RemoteConnectionController(defaults: nil, sshExecutable: ssh,
+            retryDelays: [], socketAvailable: { _ in true })
+        defer { controller.disconnect() }
+        controller.host = "fixture"
+        controller.remoteSocketPath = "/home/test/e.sock"
+        controller.connect(localSocketPath: "/Users/test/e.sock")
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        while ProcessInfo.processInfo.systemUptime < deadline, controller.state != .connected {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(controller.state, .connected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: closed.path))
+        controller.disconnect()
+        let closeDeadline = ProcessInfo.processInfo.systemUptime + 3
+        while ProcessInfo.processInfo.systemUptime < closeDeadline, !FileManager.default.fileExists(atPath: closed.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: closed.path))
     }
 
     @MainActor

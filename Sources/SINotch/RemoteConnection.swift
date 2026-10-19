@@ -43,13 +43,13 @@ struct RemoteSSHCommand {
     }
 
     var arguments: [String] {
-        ["-N", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+        ["-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
          "-o", "ExitOnForwardFailure=yes", "-o", "ForwardAgent=no", "-o", "ForwardX11=no",
          "-o", "RequestTTY=no", "-o", "ConnectTimeout=5", "-o", "ConnectionAttempts=1",
          "-o", "ControlPath=none", "-o", "ControlMaster=no", "-o", "ControlPersist=no",
          "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
          "-o", "StreamLocalBindMask=0177", "-o", "StreamLocalBindUnlink=no",
-         "-R", remoteSocketPath + ":" + localSocketPath, "--", host]
+         "-R", remoteSocketPath + ":" + localSocketPath, "--", host, "exec /bin/cat >/dev/null"]
     }
 
     private static func validHostByte(_ byte: UInt8) -> Bool {
@@ -103,6 +103,7 @@ final class RemoteConnectionController: ObservableObject {
     private var forwardRejected = false
     private var recoveryAttempted = false
     private var errorPipe: Pipe?
+    private var lifetimePipe: Pipe?
     private var diagnosticLine = Data()
     private var discardingLongLine = false
 
@@ -145,6 +146,8 @@ final class RemoteConnectionController: ObservableObject {
         diagnosticTask?.cancel(); diagnosticTask = nil
         recoveryTask?.cancel(); recoveryTask = nil
         recoveryAttempted = false
+        try? lifetimePipe?.fileHandleForWriting.close()
+        lifetimePipe = nil
         errorPipe?.fileHandleForReading.readabilityHandler = nil
         errorPipe = nil
         diagnosticLine.removeAll()
@@ -169,7 +172,10 @@ final class RemoteConnectionController: ObservableObject {
         let child = Process()
         child.executableURL = sshExecutable
         child.arguments = ["-v"] + command.arguments
-        child.standardInput = FileHandle.nullDevice
+        // EOF ends the remote command and SSH even if the application crashes.
+        let lifetime = Pipe()
+        lifetimePipe = lifetime
+        child.standardInput = lifetime
         child.standardOutput = FileHandle.nullDevice
         let pipe = Pipe()
         child.standardError = pipe
@@ -205,6 +211,8 @@ final class RemoteConnectionController: ObservableObject {
             }
         } catch {
             pipe.fileHandleForReading.readabilityHandler = nil
+            try? lifetime.fileHandleForWriting.close()
+            lifetimePipe = nil
             scheduleRetry(status: -1, token: token)
         }
     }
@@ -241,6 +249,8 @@ final class RemoteConnectionController: ObservableObject {
     private func terminated(_ child: Process, token: UInt64) {
         guard generation == token else { return }
         if process === child { process = nil }
+        try? lifetimePipe?.fileHandleForWriting.close()
+        lifetimePipe = nil
         diagnosticTask?.cancel(); diagnosticTask = nil
         errorPipe?.fileHandleForReading.readabilityHandler = nil
         errorPipe = nil

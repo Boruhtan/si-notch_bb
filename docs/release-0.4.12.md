@@ -1,2 +1,3 @@
 - Fixed remote connections failing after an application restart.
+- Closed remote connections when the application exits unexpectedly.
 - Clarified that session-only visibility is experimental and off by default.
