@@ -5,19 +5,22 @@ final class IslandFrameMotionTests: XCTestCase {
     let compact = CGRect(x: 600, y: 967, width: 230, height: 33)
     let expanded = CGRect(x: 375, y: 650, width: 680, height: 350)
 
-    func testDropOpensPromptlyWithSmallBoundedBounceAndFixedTop() {
+    func testDropOpensAsOneSurfaceWithoutReboundAndWithFixedTop() {
         let motion = IslandFrameMotion(origin: compact, destination: expanded, expanding: true)
         XCTAssertEqual(motion.frame(at: 0), compact)
-        XCTAssertGreaterThan(motion.frame(at: 0.18).height, expanded.height * 0.9)
-        var peak: CGFloat = 0
+        XCTAssertGreaterThan(motion.frame(at: 0.18).height, expanded.height * 0.65)
+        XCTAssertLessThan(motion.frame(at: 0.10).height, expanded.height * 0.65)
+        var previous = compact.height
         for step in 0...120 {
             let frame = motion.frame(at: Double(step) / 120)
             XCTAssertEqual(frame.maxY, expanded.maxY, accuracy: 0.001)
-            peak = max(peak, frame.height)
-            XCTAssertLessThan(frame.width, expanded.width * 1.04)
+            XCTAssertGreaterThanOrEqual(frame.height, previous)
+            XCTAssertLessThanOrEqual(frame.height, expanded.height)
+            let widthProgress = (frame.width - compact.width) / (expanded.width - compact.width)
+            let heightProgress = (frame.height - compact.height) / (expanded.height - compact.height)
+            XCTAssertEqual(widthProgress, heightProgress, accuracy: 0.0001)
+            previous = frame.height
         }
-        XCTAssertGreaterThan(peak, expanded.height + 1)
-        XCTAssertLessThan(peak, expanded.height * 1.06)
         XCTAssertTrue(motion.isSettled(at: 0.7))
     }
 

@@ -29,8 +29,6 @@ struct IslandView: View {
     @AppStorage("showCompanion") var showCompanion = true
     @AppStorage("shortcutModifier") var shortcutModifier = "ctrlAlt"
     @AppStorage("shortcutEnabled") var shortcutEnabled = true
-    @State private var renderedExpanded = false
-    @State private var contentEntered = false
     var shortcutLabel: String { shortcutEnabled ? L10n.tr(shortcutModifier == "ctrlShiftAlt" ? "settings.shortcut.ctrlShiftAlt" : "settings.shortcut.ctrlAlt") : "" }
     var body: some View {
         let _ = appLanguage
@@ -39,16 +37,27 @@ struct IslandView: View {
             let expansion = min(1, max(0, (viewport.size.height - compactHeight) /
                 max(1, model.expandedPanelHeight - compactHeight)))
             let droplet = reduceMotion ? 0 : sin(expansion * .pi)
-            VStack(spacing: 0) {
-                if renderedExpanded {
+            let reveal = min(1, max(0, (expansion - 0.12) / 0.60))
+            let contentOpacity = reveal * reveal * (3 - 2 * reveal)
+            ZStack(alignment: .top) {
+                // The native frame includes one point of top bleed. Do not keep
+                // the expanded hierarchy alive for that compact-only pixel.
+                if model.expanded || viewport.size.height > compactHeight + 1.5 {
                     // Lay out the content once at its destination width. The native
                     // window reveals it; shrinking text during the transition causes
                     // line wrapping and makes the header visibly jump.
                     expandedContent
                         .frame(width: model.expandedPanelWidth, height: model.expandedPanelHeight, alignment: .top)
-                        .opacity(contentEntered ? 1 : 0)
-                        .scaleEffect(contentEntered || reduceMotion ? 1 : 0.985, anchor: .top)
-                } else { compactContent.frame(height: compactHeight) }
+                        .opacity(contentOpacity)
+                        .allowsHitTesting(model.expanded)
+                        .accessibilityHidden(!model.expanded)
+                }
+                if !model.expanded || expansion < 0.72 {
+                    compactContent.frame(height: compactHeight)
+                        .opacity(1 - contentOpacity)
+                        .allowsHitTesting(!model.expanded)
+                        .accessibilityHidden(model.expanded)
+                }
             }
             .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
             .clipped()
@@ -59,27 +68,12 @@ struct IslandView: View {
             // Switching these radii with the boolean state caused a corner pop
             // before the first animation frame and again on fast reversal.
             .clipShape(IslandSilhouette(shoulder: model.compactShoulderWidth + (14 - model.compactShoulderWidth) * expansion,
-                                       bottomRadius: 13 + 11 * expansion + 12 * droplet,
-                                       droplet: droplet))
+                                       bottomRadius: 13 + 11 * expansion + 6 * droplet,
+                                       droplet: droplet * 0.5))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)
         .environment(\.locale, Locale(identifier: L10n.language))
-        .task(id: model.expanded) {
-            if model.expanded {
-                renderedExpanded = true
-                if reduceMotion { contentEntered = true; return }
-                try? await Task.sleep(for: .milliseconds(40))
-                guard !Task.isCancelled else { return }
-                withAnimation(.spring(duration: 0.24, bounce: 0.08)) { contentEntered = true }
-            } else {
-                if reduceMotion { contentEntered = false; renderedExpanded = false; return }
-                withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.10)) { contentEntered = false }
-                try? await Task.sleep(for: .milliseconds(100))
-                guard !Task.isCancelled else { return }
-                renderedExpanded = false
-            }
-        }
         .onExitCommand { model.setExpanded(false) }
         .onMoveCommand { direction in
             if direction == .down { model.moveSelection(1) }

@@ -56,7 +56,7 @@ public struct NotchGeometry: Equatable, Sendable {
     /// island. The strip below a physical cutout keeps the cursor reachable.
     public var fullScreenRevealFrame: CGRect {
         let width = min(screenFrame.width, max(80, min(200, notchWidth + 24)))
-        let height = max(6, topInset + 6)
+        let height = max(HoverIntent.approachMargin, topInset + HoverIntent.approachMargin)
         return CGRect(x: centerX - width / 2, y: screenFrame.maxY - height, width: width, height: height)
     }
 

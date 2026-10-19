@@ -46,7 +46,7 @@ final class IslandWindowAnimator: NSObject {
         guard let window else { stop(); return }
         let elapsed = ProcessInfo.processInfo.systemUptime - began
         if motion.isSettled(at: elapsed) || elapsed >= 1.5 {
-            window.setFrame(destination, display: true, animate: false)
+            window.setFrame(destination, display: false, animate: false)
             stop()
             return
         }
@@ -57,6 +57,6 @@ final class IslandWindowAnimator: NSObject {
         let width = snap(frame.width)
         let height = snap(frame.height)
         window.setFrame(NSRect(x: snap(frame.midX - width / 2), y: snap(frame.maxY) - height, width: width, height: height),
-                        display: true, animate: false)
+                        display: false, animate: false)
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// SwiftUI's native spring model drives the AppKit frame as well as the content.
-/// Width leads height slightly, like a drop spreading before it settles. Every
+/// Both axes share one response so the outline grows as one surface. Every
 /// component carries its velocity into an interrupted or reversed transition.
 struct IslandFrameMotion {
     struct Velocity {
@@ -21,9 +21,10 @@ struct IslandFrameMotion {
         self.origin = origin
         self.destination = destination
         self.initialVelocity = initialVelocity
-        widthSpring = Spring(duration: expanding ? 0.24 : 0.20, bounce: expanding ? 0.12 : 0)
-        heightSpring = Spring(duration: expanding ? 0.30 : 0.22, bounce: expanding ? 0.22 : 0)
-        centerSpring = Spring(duration: 0.24, bounce: 0)
+        let response = Spring(duration: expanding ? 0.40 : 0.28, bounce: 0)
+        widthSpring = response
+        heightSpring = response
+        centerSpring = response
     }
 
     func frame(at time: TimeInterval) -> CGRect {

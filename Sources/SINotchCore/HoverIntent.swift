@@ -4,7 +4,7 @@ import Foundation
 /// sample; pointer speed and direction do not change the configured delay.
 public struct HoverIntent: Sendable {
     public static let sampleInterval: TimeInterval = 0.025
-    public static let approachMargin: CGFloat = 10
+    public static let approachMargin: CGFloat = 20
     private let enteredAt: TimeInterval
 
     public init(location: CGPoint, at time: TimeInterval) {

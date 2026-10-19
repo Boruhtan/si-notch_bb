@@ -8,11 +8,11 @@ final class NotchGeometryTests: XCTestCase {
         let plain = NotchGeometry(screenFrame: CGRect(x: -1920, y: -100, width: 1920, height: 1080))
         XCTAssertEqual(plain.fullScreenRevealFrame.maxY, 980)
         XCTAssertEqual(plain.fullScreenRevealFrame.midX, -960)
-        XCTAssertEqual(plain.fullScreenRevealFrame.height, 6)
+        XCTAssertEqual(plain.fullScreenRevealFrame.height, 20)
         let notched = NotchGeometry(screenFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117),
                                     topInset: 37, auxiliaryLeftWidth: 769, auxiliaryRightWidth: 769)
-        XCTAssertEqual(notched.fullScreenRevealFrame.height, 43)
-        XCTAssertTrue(notched.fullScreenRevealFrame.contains(CGPoint(x: 864, y: 1075)))
+        XCTAssertEqual(notched.fullScreenRevealFrame.height, 57)
+        XCTAssertTrue(notched.fullScreenRevealFrame.contains(CGPoint(x: 864, y: 1062)), "Hover starts with the pointer visible below the cutout")
         XCTAssertFalse(notched.fullScreenRevealFrame.contains(CGPoint(x: 100, y: 1075)))
     }
     func testCompactStatusWingDoesNotGrowWithTitleOrCrossMenuClearance() {

@@ -1,7 +1,7 @@
 import Foundation
 
 public enum IslandTiming {
-    public static let hoverEnter: TimeInterval = 0.15
+    public static let hoverEnter: TimeInterval = 0.06
     public static let hoverExit: TimeInterval = 0.25
     public static let expandResponse: TimeInterval = 0.26
     public static let collapseResponse: TimeInterval = 0.22

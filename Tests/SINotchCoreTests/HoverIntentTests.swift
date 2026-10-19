@@ -35,8 +35,8 @@ final class HoverIntentTests: XCTestCase {
     func testApproachRegionExtendsOnlyBelowTheVisibleWindow() {
         let frame = CGRect(x: 500, y: 800, width: 240, height: 33)
         let region = HoverIntent.region(for: frame)
-        XCTAssertTrue(region.contains(CGPoint(x: 620, y: 795)))
-        XCTAssertFalse(region.contains(CGPoint(x: 620, y: 789)))
+        XCTAssertTrue(region.contains(CGPoint(x: 620, y: 782)), "The cursor can remain fully below the physical cutout")
+        XCTAssertFalse(region.contains(CGPoint(x: 620, y: 779)))
         XCTAssertFalse(region.contains(CGPoint(x: 499, y: 810)))
         XCTAssertEqual(region.maxY, frame.maxY)
     }
