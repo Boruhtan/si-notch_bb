@@ -2,7 +2,7 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.21 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.22 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
 
 | Feature | Availability and verification |
 | --- | --- |

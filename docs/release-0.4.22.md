@@ -1,0 +1,2 @@
+- Prevents the notch from opening before the pointer reaches its visible edge.
+- Reduces accidental opening when moving past the notch or dragging windows.
