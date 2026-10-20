@@ -1049,6 +1049,7 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
     var area: NSTrackingArea?
     var onHover: ((Bool) -> Void)?
     var onPointerMove: ((CGPoint, CGPoint) -> Void)?
+    var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
     private var lastMotion: (location: CGPoint, time: TimeInterval)?
     var interactionFrame: CGRect? {
         didSet { if oldValue != interactionFrame { synchronizeHover() } }
@@ -1079,6 +1080,7 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
         if let globalMotionMonitor { NSEvent.removeMonitor(globalMotionMonitor) }
         localMotionMonitor = nil
         globalMotionMonitor = nil
+        lastMotion = nil
     }
     deinit {
         if let localMotionMonitor { NSEvent.removeMonitor(localMotionMonitor) }
@@ -1092,17 +1094,19 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
         synchronizeHover()
     }
     func resetHover(requiringExit: Bool) {
-        requiresReentry = requiringExit && (hiddenInteractionFrame?.contains(NSEvent.mouseLocation) ?? false)
+        requiresReentry = requiringExit && (hiddenInteractionFrame?.contains(pointerLocation()) ?? false)
         pointerIsInside = false
         lastMotion = nil
         onHover?(false)
     }
     private func synchronizeHover(motion: NSEvent? = nil) {
-        let location = NSEvent.mouseLocation
+        let location = pointerLocation()
         var previous: CGPoint?
         if let motion, motion.timestamp.isFinite,
            lastMotion == nil || motion.timestamp > lastMotion!.time {
-            if let lastMotion, motion.timestamp - lastMotion.time <= 0.12 { previous = lastMotion.location }
+            // A pause does not invalidate the last physical pointer position.
+            // Otherwise starting just below the strip would lose the approach.
+            previous = lastMotion?.location
             lastMotion = (location, motion.timestamp)
         }
         let inside: Bool
