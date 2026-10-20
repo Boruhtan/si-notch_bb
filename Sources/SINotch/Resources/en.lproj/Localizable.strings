@@ -513,7 +513,9 @@
 "session.open" = "Open %@: %@";
 "session.openApp" = "Open in agent app";
 "session.openFailed" = "Could not open the app for this session. It may be closed or its address is unavailable.";
-"settings.hoverIntentHelp" = "Pause the pointer over the island or its lower edge to open it. Moving across it does not open it. Closing under the pointer briefly blocks hover reopening.";
+"settings.hoverIntentHelp" = "Approach from below to open while the pointer is still visible. Side entry requires a short pause. A longer delay also applies to the upward approach. Closing under the pointer briefly blocks hover reopening.";
+"session.serviceMemory" = "Background · Memory";
+"session.serviceMemoryHelp" = "A background memory-processing task. Its status and details remain available.";
 
 /* Named remote connections and profile setup. */
 "remote.defaultName" = "SSH connection";

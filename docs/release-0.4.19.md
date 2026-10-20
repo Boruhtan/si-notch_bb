@@ -1,0 +1,2 @@
+- Improved panel opening when approaching from below while keeping accidental side passes quiet.
+- Added a background memory task label to session cards.

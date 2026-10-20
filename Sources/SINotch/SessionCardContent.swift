@@ -15,11 +15,14 @@ struct SessionCardContent: Equatable {
     let taskPrompt: String?
     let modelName: String?
     let reasoningEffort: String?
+    let isMemoryService: Bool
 
     init(session: AgentSession, displayTitle: String? = nil, displayMessage: String? = nil, statusLabel: String? = nil) {
         providerName = session.provider.lowercased() == "codex" && session.isWorkSession == true ? "Work" : Self.providerName(session.provider)
         modelName = Self.singleLine(session.modelName, limit: 256)
         reasoningEffort = Self.singleLine(session.reasoningEffort, limit: 128)
+        isMemoryService = session.provider.lowercased() == "codex" &&
+            CodexServiceSessionFilter.isMemoryRequest(session.firstPrompt ?? session.title)
         shortID = String(session.id.suffix(8))
         projectName = session.projectPath.flatMap { path in
             guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }

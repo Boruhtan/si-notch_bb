@@ -364,6 +364,13 @@ struct SessionCard: View {
                 }.frame(width: 14, height: 15).animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: session.status)
                 Text(session.status.label).font(.system(size: 10, weight: .medium)).contentTransition(.opacity)
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: session.status)
+                if info.isMemoryService {
+                    Label(L10n.tr("session.serviceMemory"), systemImage: "gearshape")
+                        .font(.system(size: 9, weight: .medium)).foregroundStyle(NotchDesign.secondary)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.white.opacity(0.07), in: Capsule())
+                        .help(L10n.tr("session.serviceMemoryHelp"))
+                }
                 if showActivity, let tool = info.tool {
                     Text("·").foregroundStyle(NotchDesign.muted)
                     Label(tool, systemImage: info.toolSymbol).font(.system(size: 10, design: .monospaced))

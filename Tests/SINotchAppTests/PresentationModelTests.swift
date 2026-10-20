@@ -142,6 +142,24 @@ final class PresentationModelTests: XCTestCase {
     }
 
     @MainActor
+    func testApproachOpensSynchronouslyAndCancelsDwellButRespectsCustomDelay() {
+        for delay in [0.06, 0.5] {
+            let model = makeModel()
+            defer { model.shutdown() }
+            model.defaults.set(delay, forKey: "hoverDelay")
+            model.compactHoverRegion = CGRect(x: 100, y: 100, width: 200, height: 53)
+            model.hoverLocation = { CGPoint(x: 200, y: 110) }
+            model.hover(true)
+            model.hoverMovement(from: CGPoint(x: 200, y: 90), to: CGPoint(x: 200, y: 110))
+            XCTAssertEqual(model.expanded, delay == 0.06)
+            if delay == 0.06 {
+                XCTAssertNil(model.expansionTimer)
+                XCTAssertEqual(model.expansionHistory.last?["reason"] as? String, "pointer-approach")
+            }
+        }
+    }
+
+    @MainActor
     func testMovingPointerWithinPillWaitsForAStop() async throws {
         let model = makeModel()
         defer { model.shutdown() }

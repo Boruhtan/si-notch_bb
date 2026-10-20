@@ -178,7 +178,9 @@ enum QAExporter {
                     report.screenFrame = Frame(screen.frame)
                     report.screenMaximumFramesPerSecond = screen.maximumFramesPerSecond
                 }
-                if CommandLine.arguments.contains("--qa-interaction-only") {
+                if CommandLine.arguments.contains("--qa-service-only") {
+                    try await exportMemoryServices()
+                } else if CommandLine.arguments.contains("--qa-interaction-only") {
                     try await verifyInteractions()
                 } else if CommandLine.arguments.contains("--qa-display-only") {
                     try await exportDisplayViews()
@@ -286,9 +288,11 @@ enum QAExporter {
             let model = delegate.model
             let host = delegate.panel.contentView as? TrackingHost<IslandView>
             let onHover = host?.onHover
+            let onPointerMove = host?.onPointerMove
             host?.onHover = nil
+            host?.onPointerMove = nil
             let location = model.hoverLocation
-            defer { model.hover(false); model.hoverLocation = location; host?.onHover = onHover }
+            defer { model.hover(false); model.hoverLocation = location; host?.onHover = onHover; host?.onPointerMove = onPointerMove }
             overrides["hoverExpand"] = true
             overrides["hoverDelay"] = 0.06 // The previous saved default must also be protected.
             overrides["keepOpen"] = false
@@ -314,10 +318,19 @@ enum QAExporter {
             try await pause(0.3)
             check("hover-pause-opens-native-panel", model.expanded && delegate.panel.frame.height > region.height,
                   "Stopping within the region opens the real NSWindow after the protected pause.")
+            point = CGPoint(x: region.midX, y: region.minY - 60)
             model.hover(false)
             try await pause(0.6)
             check("hover-leave-collapses-native-panel", !model.expanded,
                   "Leaving still collapses the native panel and cancels intent sampling.")
+            point = CGPoint(x: region.midX, y: region.minY + 9)
+            model.hover(true)
+            model.hoverMovement(from: CGPoint(x: region.midX, y: region.minY - 4), to: point)
+            check("hover-approach-opens-with-visible-pointer", model.expanded &&
+                  point.y < region.minY + HoverIntent.approachMargin && model.expansionTimer == nil,
+                  "An upward approach opens synchronously with the pointer below the visible edge, without waiting for dwell.")
+            model.hover(false)
+            model.setExpanded(false, origin: .automatic)
 
             let suite = "si-notch.qa-settings-sound." + UUID().uuidString
             let preferences = UserDefaults(suiteName: suite)!
@@ -341,6 +354,30 @@ enum QAExporter {
             settingsModel.setExpanded(false)
             check("explicit-collapse-keeps-sound", outputs == [EventSoundPlayer.wavData(for: .collapse)!],
                   "An explicit panel close still reaches the audio sink with the bundled collapse recording.")
+        }
+
+        func exportMemoryServices() async throws {
+            let model = delegate.model
+            overrides["panelWidth"] = 680.0
+            let prompts = [
+                "## Memory Writing Agent: Phase 2 (Consolidation) You are a Memory Writing Agent.",
+                "Consolidate the supplied rollout summaries into `memory_summary.md` so another agent understands them.",
+                "Review parser changes"
+            ]
+            for language in ["en", "ru", "zh-Hans"] {
+                clearFixtures()
+                overrides["appLanguage"] = language
+                applyOverrides()
+                for (index, prompt) in prompts.enumerated() {
+                    model.inject(["event": "agent.working", "session_id": "qa-memory-\(index)", "provider": "codex",
+                        "title": prompt, "first_prompt": prompt, "cwd": index == 0 ? "/work/memories" : "/work/memories_v2"])
+                }
+                check("memory-service-labels-\(language)", model.sessions.count == 3 &&
+                      model.sessions.filter { SessionCardContent(session: $0).isMemoryService }.count == 2,
+                      "The two observed memory jobs carry a service label; an ordinary task in the same folder remains ordinary.")
+                try await settle(expanded: true)
+                try capturePanel(name: "island-memory-services-\(language)", language: language)
+            }
         }
 
         func clearFixtures() {

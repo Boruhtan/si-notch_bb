@@ -641,6 +641,14 @@ final class AppModel: ObservableObject {
             }
         }
     }
+    func hoverMovement(from previous: CGPoint, to location: CGPoint) {
+        guard pointerInside, showHover, !expanded,
+              ProcessInfo.processInfo.systemUptime >= hoverCooldownUntil,
+              HoverIntent.dwell(for: defaults.double(forKey: "hoverDelay")) <= IslandTiming.hoverEnter,
+              let region = compactHoverRegion,
+              hoverIntent?.approach(from: previous, to: location, region: region) == true else { return }
+        setExpanded(true, origin: .hover, reason: "pointer-approach")
+    }
     private var canCollapseAfterPointerLeave: Bool {
         presentationPolicy?.canCollapseOnMouseLeave ??
             (expanded && !pointerInside && pending.isEmpty && !defaults.bool(forKey: "keepOpen"))
@@ -737,6 +745,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // through the AppKit frame animation.
         host.sizingOptions = []
         host.onHover = { [weak model] inside in model?.hover(inside) }
+        host.onPointerMove = { [weak model] previous, location in model?.hoverMovement(from: previous, to: location) }
         panel.contentView = host
         model.onLayout = { [weak self] in
             self?.model.presentationPolicy?.refresh()
@@ -1039,6 +1048,8 @@ final class IslandPanel: NSPanel {
 final class TrackingHost<Content: View>: NSHostingView<Content> {
     var area: NSTrackingArea?
     var onHover: ((Bool) -> Void)?
+    var onPointerMove: ((CGPoint, CGPoint) -> Void)?
+    private var lastMotion: (location: CGPoint, time: TimeInterval)?
     var interactionFrame: CGRect? {
         didSet { if oldValue != interactionFrame { synchronizeHover() } }
     }
@@ -1055,11 +1066,11 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
             // Event-driven proximity tracking: no polling and no extra window
             // over the application's content below the notch.
             localMotionMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-                self?.synchronizeHover()
+                self?.synchronizeHover(motion: event)
                 return event
             }
-            globalMotionMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-                self?.synchronizeHover()
+            globalMotionMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+                self?.synchronizeHover(motion: event)
             }
         } else if window == nil { removeMotionMonitors() }
     }
@@ -1076,27 +1087,38 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let area { removeTrackingArea(area) }
-        area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
         if let area { addTrackingArea(area) }
         synchronizeHover()
     }
     func resetHover(requiringExit: Bool) {
         requiresReentry = requiringExit && (hiddenInteractionFrame?.contains(NSEvent.mouseLocation) ?? false)
         pointerIsInside = false
+        lastMotion = nil
         onHover?(false)
     }
-    private func synchronizeHover() {
+    private func synchronizeHover(motion: NSEvent? = nil) {
+        let location = NSEvent.mouseLocation
+        var previous: CGPoint?
+        if let motion, motion.timestamp.isFinite,
+           lastMotion == nil || motion.timestamp > lastMotion!.time {
+            if let lastMotion, motion.timestamp - lastMotion.time <= 0.12 { previous = lastMotion.location }
+            lastMotion = (location, motion.timestamp)
+        }
         let inside: Bool
         if requiresReentry {
-            if hiddenInteractionFrame?.contains(NSEvent.mouseLocation) != true { requiresReentry = false }
+            if hiddenInteractionFrame?.contains(location) != true { requiresReentry = false }
             inside = false
         } else if let window, window.isVisible, let interactionFrame {
-            inside = HoverIntent.region(for: interactionFrame).contains(NSEvent.mouseLocation)
-        } else { inside = tracksHiddenHover && (hiddenInteractionFrame?.contains(NSEvent.mouseLocation) ?? false) }
-        guard inside != pointerIsInside else { return }
-        pointerIsInside = inside
-        onHover?(inside)
+            inside = HoverIntent.region(for: interactionFrame).contains(location)
+        } else { inside = tracksHiddenHover && (hiddenInteractionFrame?.contains(location) ?? false) }
+        if inside != pointerIsInside {
+            pointerIsInside = inside
+            onHover?(inside)
+        }
+        if inside, let previous { onPointerMove?(previous, location) }
     }
+    override func mouseMoved(with event: NSEvent) { synchronizeHover(motion: event) }
     override func mouseEntered(with event: NSEvent) { synchronizeHover() }
     override func mouseExited(with event: NSEvent) { synchronizeHover() }
 }

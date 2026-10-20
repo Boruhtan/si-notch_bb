@@ -4,6 +4,42 @@ import XCTest
 import SINotchCore
 
 final class CodexServiceSessionTests: XCTestCase {
+    @MainActor
+    func testMemoryJobsStayVisibleAndCarryAServiceLabel() throws {
+        let model = model()
+        defer { model.shutdown() }
+        let prompts = [
+            "## Memory Writing Agent: Phase 2 (Consolidation)\nYou are a Memory Writing Agent.",
+            "Consolidate the supplied rollout summaries into `memory_summary.md` so another agent understands them."
+        ]
+        for (index, prompt) in prompts.enumerated() {
+            let id = "memory-\(index)"
+            try send(AgentEvent(sessionID: id, provider: "codex", kind: .working,
+                title: String(prompt.prefix(100)), projectPath: "/tmp/memories", firstPrompt: prompt), to: model)
+            try send(AgentEvent(sessionID: id, provider: "codex", kind: .completed, message: "Memory updated"), to: model)
+            let session = try XCTUnwrap(model.store.sessions[id])
+            let content = SessionCardContent(session: session)
+            XCTAssertTrue(content.isMemoryService)
+            XCTAssertEqual(content.message, "Memory updated")
+            XCTAssertEqual(session.status, .completed)
+        }
+        XCTAssertEqual(model.sessions.count, 2)
+    }
+
+    func testMemoryLabelRequiresAnObservedPromptSignature() {
+        let prompt = "## Memory Writing Agent: Phase 2 (Consolidation) You are a Memory Writing Agent."
+        var session = AgentSession(id: "ordinary", provider: "codex", title: "Fix memory parser", projectPath: "/tmp/memories_v2")
+        XCTAssertFalse(SessionCardContent(session: session).isMemoryService)
+        session.firstPrompt = "Explain this: " + prompt
+        XCTAssertFalse(SessionCardContent(session: session).isMemoryService)
+        session.title = prompt
+        XCTAssertFalse(SessionCardContent(session: session).isMemoryService, "An explicit user prompt takes precedence over a stale title")
+        session.firstPrompt = nil
+        XCTAssertTrue(SessionCardContent(session: session).isMemoryService, "A complete signature in the supplied title is sufficient")
+        session.provider = "custom"
+        XCTAssertFalse(SessionCardContent(session: session).isMemoryService)
+    }
+
     private let servicePrompt = "This is an app-generated request for a suggested next user message. The user did not write this message."
 
     @MainActor

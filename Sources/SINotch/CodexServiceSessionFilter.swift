@@ -50,9 +50,19 @@ struct CodexServiceSessionFilter {
     }
 
     static func isSuggestionRequest(_ value: String?) -> Bool {
-        guard let value else { return false }
-        let prefix = value.prefix(512).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        normalizedPrefix(value).hasPrefix("this is an app-generated request for a suggested next user message. the user did not write this")
+    }
+
+    /// Observed memory-job signatures. Folder names and model names do not
+    /// establish provenance; quoted instructions in a user task do not match.
+    static func isMemoryRequest(_ value: String?) -> Bool {
+        let prefix = normalizedPrefix(value)
+        return prefix.hasPrefix("## memory writing agent: phase 2 (consolidation)") ||
+            prefix.hasPrefix("consolidate the supplied rollout summaries into `memory_summary.md`")
+    }
+
+    private static func normalizedPrefix(_ value: String?) -> String {
+        (value ?? "").prefix(512).split(whereSeparator: \.isWhitespace).joined(separator: " ")
             .replacingOccurrences(of: "‑", with: "-").lowercased()
-        return prefix.hasPrefix("this is an app-generated request for a suggested next user message. the user did not write this")
     }
 }
