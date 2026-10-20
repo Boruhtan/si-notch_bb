@@ -7,6 +7,14 @@ struct IslandSilhouette: Shape {
     var bottomRadius: CGFloat
     var droplet: CGFloat = 0
 
+    /// Use the drawn contour for hover too. AppKit's screen Y axis is opposite
+    /// to SwiftUI's local path; transparent shoulders/corners are not targets.
+    func contains(_ point: CGPoint, inScreenFrame frame: CGRect) -> Bool {
+        guard frame.contains(point) else { return false }
+        let local = CGPoint(x: point.x - frame.minX, y: frame.maxY - point.y)
+        return path(in: CGRect(origin: .zero, size: frame.size)).contains(local)
+    }
+
     var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
         get { AnimatablePair(AnimatablePair(shoulder, bottomRadius), droplet) }
         set { shoulder = newValue.first.first; bottomRadius = newValue.first.second; droplet = newValue.second }

@@ -142,7 +142,7 @@ final class PresentationModelTests: XCTestCase {
     }
 
     @MainActor
-    func testApproachOpensSynchronouslyAndCancelsDwellButRespectsCustomDelay() {
+    func testUpwardEntryNeverBypassesDwellIncludingLegacyDelay() {
         for delay in [0.06, 0.5] {
             let model = makeModel()
             defer { model.shutdown() }
@@ -150,13 +150,45 @@ final class PresentationModelTests: XCTestCase {
             model.compactHoverRegion = CGRect(x: 100, y: 100, width: 200, height: 53)
             model.hoverLocation = { CGPoint(x: 200, y: 110) }
             model.hover(true)
-            model.hoverMovement(from: CGPoint(x: 200, y: 90), to: CGPoint(x: 200, y: 110))
-            XCTAssertEqual(model.expanded, delay == 0.06)
-            if delay == 0.06 {
-                XCTAssertNil(model.expansionTimer)
-                XCTAssertEqual(model.expansionHistory.last?["reason"] as? String, "pointer-approach")
-            }
+            model.hoverMovement(to: CGPoint(x: 200, y: 110))
+            XCTAssertFalse(model.expanded)
+            XCTAssertNotNil(model.expansionTimer)
         }
+    }
+
+    @MainActor
+    func testEntryOutsideContourDoesNotStartDwell() {
+        let model = makeModel()
+        defer { model.shutdown() }
+        model.hoverRegion = CGRect(x: 0, y: 0, width: 200, height: 33)
+        model.hoverHitTest = { IslandSilhouette(shoulder: 3, bottomRadius: 13).contains($0, inScreenFrame: model.hoverRegion!) }
+        for point in [CGPoint(x: 100, y: -0.5), CGPoint(x: 1, y: 16), CGPoint(x: 5, y: 0.5)] {
+            model.hoverLocation = { point }
+            model.hover(true)
+            XCTAssertFalse(model.pointerInside)
+            XCTAssertNil(model.expansionTimer)
+        }
+        model.hoverHitTest = nil
+    }
+
+    @MainActor
+    func testMotionBetweenTimerSamplesRestartsDwell() async throws {
+        let model = makeModel()
+        defer { model.shutdown() }
+        model.defaults.set(0.5, forKey: "hoverDelay")
+        model.hover(true)
+        // Exercise real event sampling while the timer cannot run. Even a fast
+        // excursion back to the same point must discard the previous dwell.
+        model.expansionTimer?.fireDate = .distantFuture
+        try await Task.sleep(for: .milliseconds(350))
+        model.hoverMovement(to: CGPoint(x: 30, y: 0))
+        model.hoverMovement(to: .zero)
+        model.expansionTimer?.fireDate = Date()
+        try await Task.sleep(for: .milliseconds(220))
+        XCTAssertFalse(model.expanded, "The original dwell elapsed, but motion started a fresh pause")
+        let opened = expectation(description: "opens after the fresh pause")
+        model.onLayout = { if model.expanded { opened.fulfill() } }
+        await fulfillment(of: [opened], timeout: 2)
     }
 
     @MainActor

@@ -52,11 +52,11 @@ public struct NotchGeometry: Equatable, Sendable {
         return (auxiliaryTopLeftArea!.maxX + auxiliaryTopRightArea!.minX) / 2
     }
 
-    /// A small, click-through hover target retained while fullscreen hides the
-    /// island. The strip below a physical cutout keeps the cursor reachable.
+    /// Hidden fullscreen reveal stays within the physical cutout, or the top
+    /// three points on a display without one. Never extend over player content.
     public var fullScreenRevealFrame: CGRect {
-        let width = min(screenFrame.width, max(80, min(200, notchWidth + 24)))
-        let height = max(HoverIntent.approachMargin, topInset + HoverIntent.approachMargin)
+        let width = min(screenFrame.width, hasNotch ? notchWidth : 80)
+        let height = max(3, topInset)
         return CGRect(x: centerX - width / 2, y: screenFrame.maxY - height, width: width, height: height)
     }
 

@@ -288,13 +288,17 @@ enum QAExporter {
 
         func verifyInteractions() async throws {
             let model = delegate.model
-            let host = delegate.panel.contentView as? TrackingHost<IslandView>
-            let onHover = host?.onHover
-            let onPointerMove = host?.onPointerMove
-            host?.onHover = nil
-            host?.onPointerMove = nil
+            guard let host = delegate.panel.contentView as? TrackingHost<IslandView> else { throw ExportError.unavailableView }
             let location = model.hoverLocation
-            defer { model.hover(false); model.hoverLocation = location; host?.onHover = onHover; host?.onPointerMove = onPointerMove }
+            let hostLocation = host.pointerLocation
+            let hostButtons = host.pointerButtons
+            defer {
+                model.hover(false)
+                model.hoverLocation = location
+                host.pointerLocation = hostLocation
+                host.pointerButtons = hostButtons
+                host.resetHover(requiringExit: false)
+            }
             overrides["hoverExpand"] = true
             overrides["hoverDelay"] = 0.06 // The previous saved default must also be protected.
             overrides["keepOpen"] = false
@@ -303,15 +307,47 @@ enum QAExporter {
             model.setExpanded(false, origin: .automatic)
             delegate.layout(allowAnimation: false)
             let region = model.compactHoverRegion!
-            var point = CGPoint(x: region.minX + 5, y: region.midY)
+            var point = CGPoint(x: region.midX, y: region.minY - 30)
+            var buttons = 0
             model.hoverLocation = { point }
-            model.hover(true)
+            host.pointerLocation = { point }
+            host.pointerButtons = { buttons }
+            host.resetHover(requiringExit: false)
+            var eventTime = ProcessInfo.processInfo.systemUptime
+            func move(_ destination: CGPoint) throws {
+                point = destination
+                eventTime = max(eventTime + 0.001, ProcessInfo.processInfo.systemUptime)
+                guard let event = NSEvent.mouseEvent(with: buttons == 0 ? .mouseMoved : .leftMouseDragged,
+                    location: .zero, modifierFlags: [], timestamp: eventTime,
+                    windowNumber: delegate.panel.windowNumber, context: nil,
+                    eventNumber: 1, clickCount: 0, pressure: 0) else { throw ExportError.invalidBootState }
+                host.mouseMoved(with: event)
+            }
+            var stayedOutside = true
+            for gap in [20.0, 11, 1, 0.5] {
+                try move(CGPoint(x: region.midX, y: region.minY - gap))
+                try await pause(0.22)
+                stayedOutside = stayedOutside && !model.expanded && !model.pointerInside && model.expansionTimer == nil
+            }
+            check("hover-below-visible-edge-stays-compact", stayedOutside,
+                  "Native tracking ignores sustained pauses 20, 11, 1 and 0.5 points below the visible bottom.")
+            try move(CGPoint(x: region.minX + 1, y: region.midY))
+            try await pause(0.22)
+            check("hover-transparent-shoulder-stays-compact", !model.pointerInside && !model.expanded,
+                  "The transparent part of the native window is outside the drawn silhouette.")
+            buttons = 1
+            try move(CGPoint(x: region.midX, y: region.midY))
+            try await pause(0.22)
+            check("hover-drag-stays-compact", !model.pointerInside && !model.expanded,
+                  "Dragging another window across the notch cannot arm hover.")
+            buttons = 0
+            try move(CGPoint(x: region.minX + 20, y: region.midY))
             try await pause(0.09)
             check("hover-brief-entry-stays-compact", !model.expanded,
                   "The legacy 60 ms setting does not open the panel on a brief accidental entry.")
             var crossedWithoutOpening = true
             for step in 1...12 {
-                point.x = region.minX + 5 + CGFloat(step) * (region.width - 10) / 12
+                try move(CGPoint(x: region.minX + 20 + CGFloat(step) * (region.width - 40) / 12, y: region.midY))
                 try await pause(0.025)
                 crossedWithoutOpening = crossedWithoutOpening && !model.expanded
             }
@@ -320,18 +356,18 @@ enum QAExporter {
             try await pause(0.3)
             check("hover-pause-opens-native-panel", model.expanded && delegate.panel.frame.height > region.height,
                   "Stopping within the region opens the real NSWindow after the protected pause.")
-            point = CGPoint(x: region.midX, y: region.minY - 60)
-            model.hover(false)
+            try move(CGPoint(x: region.midX, y: model.hoverRegion!.minY - 60))
             try await pause(0.6)
             check("hover-leave-collapses-native-panel", !model.expanded,
                   "Leaving still collapses the native panel and cancels intent sampling.")
-            point = CGPoint(x: region.midX, y: region.minY + 9)
-            model.hover(true)
-            model.hoverMovement(from: CGPoint(x: region.midX, y: region.minY - 4), to: point)
-            check("hover-approach-opens-with-visible-pointer", model.expanded &&
-                  point.y < region.minY + HoverIntent.approachMargin && model.expansionTimer == nil,
-                  "An upward approach opens synchronously with the pointer below the visible edge, without waiting for dwell.")
-            model.hover(false)
+            try move(CGPoint(x: region.midX, y: region.minY + 0.5))
+            try await pause(0.09)
+            check("hover-contact-requires-pause", model.pointerInside && !model.expanded,
+                  "Touching the actual contour from below arms dwell without an immediate opening.")
+            try await pause(0.3)
+            check("hover-contact-pause-opens", model.expanded && delegate.panel.frame.height > region.height,
+                  "A stationary pointer half a point inside the contour opens the native panel after dwell.")
+            try move(CGPoint(x: region.midX, y: region.minY - 600))
             model.setExpanded(false, origin: .automatic)
 
             let suite = "si-notch.qa-settings-sound." + UUID().uuidString
