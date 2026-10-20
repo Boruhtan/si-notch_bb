@@ -86,6 +86,8 @@ final class AppModel: ObservableObject {
     var transientMessage: String?
     let defaults: UserDefaults
     let soundPlayer: EventSoundPlayer
+    let history: HistoryController
+    private var historySubscription: AnyCancellable?
     private var sessionSounds = SessionSoundPolicy()
     private var presenceObservers: [NSObjectProtocol] = []
 
@@ -143,7 +145,8 @@ final class AppModel: ObservableObject {
                 }
             return headerHeight + agentsSectionHeight + 52 + (rows == 0 ? 56 : CGFloat(rows) * 32)
         }
-        if sessions.isEmpty { return headerHeight + (quiet ? 166 : 142) + agentsSectionHeight }
+        if showingHistory { return headerHeight + agentsSectionHeight + 420 }
+        if sessions.isEmpty { return headerHeight + (quiet ? 204 : 180) + agentsSectionHeight }
         let filters: CGFloat = 38
         let searchHeight: CGFloat = sessions.count > 3 || !search.isEmpty ? 44 : 0
         let footer: CGFloat = quiet || sessions.contains(where: { $0.status == .completed || $0.status == .failed }) ? 32 : 0
@@ -180,8 +183,10 @@ final class AppModel: ObservableObject {
         // resizes. Do not wait for a card measurement or the next agent event.
         cancelExpansionTimer()
         cancelRevealTimer()
+        if showingHistory { history.back() }
         onLayout?()
     }
+    var showingHistory: Bool { activeFilter == "history.title" }
 
     func measureSessionCards(_ values: [String: CGFloat]) {
         let valid = values.filter { store.sessions[$0.key] != nil && $0.value.isFinite && (30...10000).contains($0.value) }
@@ -205,6 +210,8 @@ final class AppModel: ObservableObject {
         self.defaults = defaults
         self.remoteConnections = RemoteConnectionManager(defaults: defaults)
         self.soundPlayer = soundPlayer ?? EventSoundPlayer(defaults: defaults)
+        self.history = HistoryController(policy: HistoryPolicy(defaults: defaults))
+        historySubscription = history.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         remoteSubscription = remoteConnections.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.revision += 1; self?.onLayout?() }
         }
@@ -215,6 +222,7 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
+        history.start()
         detectedHarnesses = HarnessDiscoveryService().scan().detected
         refreshAgentPresence()
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
@@ -250,13 +258,23 @@ final class AppModel: ObservableObject {
     func refreshCodexObserver() {
         guard defaults.bool(forKey: "codexAutoDetect") else { codexObserver?.stop(); return }
         if codexObserver == nil {
-            codexObserver = CodexSessionObserver { [weak self] event, bootstrap in
+            codexObserver = CodexSessionObserver(onHistory: { [weak self] event in
+                Task { @MainActor in self?.recordHistoryContent(event) }
+            }) { [weak self] event, bootstrap in
                 Task { @MainActor in
                     self?.receiveCodexObservation(event, bootstrap: bootstrap)
                 }
             }
         }
         codexObserver?.start()
+    }
+
+    func recordHistoryContent(_ event: AgentEvent) {
+        guard !paused, event.historyItems?.isEmpty == false,
+              let session = store.sessions[event.sessionID], AgentConnection.isTask(session),
+              !codexServiceSessions.hides(event),
+              !sessionFilter.hides(path: event.projectPath ?? session.projectPath, firstPrompt: event.firstPrompt ?? session.firstPrompt) else { return }
+        history.record(event, session: session)
     }
 
     func receiveCodexObservation(_ event: AgentEvent, bootstrap: Bool) {
@@ -381,6 +399,10 @@ final class AppModel: ObservableObject {
             }
             store = nextStore
             if disposition == .applied {
+                if !suppressPresentation, !waitingForReply, !preservesPending,
+                   let session = store.sessions[event.sessionID] {
+                    history.record(event, session: session)
+                }
                 if !suppressPresentation {
                     presenceNow = Date()
                     providerReceipts[event.provider.lowercased()] = presenceNow
@@ -404,6 +426,7 @@ final class AppModel: ObservableObject {
                 let requestedTimeout = raw["response_timeout"] as? Double ?? 60
                 guard requestedTimeout.isFinite, (0.1...110).contains(requestedTimeout) else { reply(json(["ok": false, "decision": "invalid_timeout", "request_id": rid])); return }
                 pending[event.sessionID] = PendingRequest(expiresAt: ProcessInfo.processInfo.systemUptime + requestedTimeout, sessionID: event.sessionID, requestID: rid, message: raw["message"] as? String ?? raw["prompt"] as? String ?? "Агент ожидает ответа", messageIsAppOwned: raw["message"] == nil && raw["prompt"] == nil, question: raw["question"] as? Bool == true, receivedAt: Date(), reply: reply)
+                if showingHistory { activeFilter = "Внимание" }
             } else { reply(json(["ok": true, "disposition": String(describing: disposition)])) }
             if disposition == .applied, let status = store.sessions[event.sessionID]?.status, ![.approval, .waiting].contains(status) { cancelRequest(event.sessionID) }
             if disposition == .applied { presentationPolicy?.noteActivity() }
@@ -690,12 +713,14 @@ final class AppModel: ObservableObject {
         onLayout?()
     }
     func moveSelection(_ delta: Int) {
+        guard !showingHistory else { return }
         let items = filtered
         guard !items.isEmpty else { return }
         let index = selectedID.flatMap { id in items.firstIndex { $0.id == id } } ?? (delta > 0 ? -1 : items.count)
         selectSession(items[min(items.count - 1, max(0, index + delta))].id)
     }
     func shutdown() {
+        history.shutdown()
         remoteConnections.disconnectAll(); codexObserver?.stop(); piObserver?.stop(); timer?.invalidate()
         for observer in presenceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         presenceObservers.removeAll()

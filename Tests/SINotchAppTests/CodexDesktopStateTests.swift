@@ -27,7 +27,7 @@ final class CodexDesktopStateTests: XCTestCase {
                     ["type": "userMessage", "content": [["type": "text", "text": "Show session context"]]],
                     ["type": "reasoning", "content": "PRIVATE REASONING", "summary": "PRIVATE SUMMARY"],
                     ["type": "agentMessage", "phase": "commentary", "text": "Checking the event stream"],
-                    ["type": "commandExecution", "status": "inProgress", "command": "PRIVATE COMMAND", "aggregatedOutput": "PRIVATE OUTPUT"]
+                    ["type": "commandExecution", "status": "inProgress", "command": "swift test", "aggregatedOutput": "PRIVATE OUTPUT"]
                 ]
             ]]]], "currentPermissions": ["secret": "PRIVATE PERMISSIONS"]
         ]]
@@ -46,6 +46,8 @@ final class CodexDesktopStateTests: XCTestCase {
         XCTAssertEqual(event.turnID, "01a1496d-a1d8-7629-abb4-f8a799d63039")
         let retained = String(data: try JSONSerialization.data(withJSONObject: state.root), encoding: .utf8)!
         XCTAssertFalse(retained.contains("PRIVATE"))
+        XCTAssertEqual(event.historyItems?.map(\.role), [.user, .assistant, .command])
+        XCTAssertEqual(event.historyItems?.last?.text, "swift test")
         XCTAssertNil(state.event(sessionID: UUID().uuidString))
     }
 

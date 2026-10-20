@@ -368,7 +368,7 @@
 "usage.error.protocolError" = "Codex app-server 返回了无效响应。";
 "usage.error.serverError" = "Codex app-server 无法读取账户限额。";
 "usage.error.limitsUnavailable" = "Codex 账户限额不可用。";
-"settings.privacySessionAndCLI" = "会话历史保存在内存中，重启后清除。智能体报告的用量仅来自事件。只有点击“刷新”时才会通过已安装的 CLI 查询 Codex 账户限额。";
+"settings.privacySessionAndCLI" = "当前会话卡片会在重启后重置。历史会在设定的存储上限内将选定文本保存在本地。智能体用量来自事件；账户限额仅在刷新时通过已安装的 CLI 查询。";
 "settings.usageScope" = "以下仅显示这台 Mac 上智能体事件报告的使用量。这些按会话记录的值保存在内存中，重启后清除。";
 "usage.error.invalidBundle" = "所选应用包不包含受支持的 Codex CLI。";
 "discovery.title" = "连接你的智能体";
@@ -581,3 +581,32 @@
 "agents.activity.working" = "运行中";
 "agents.activity.attention" = "需要处理";
 "remote.sshState" = "SSH：%@";
+
+// Local text history
+"history.title" = "历史";
+"history.subtitle" = "本地请求、回复与命令";
+"history.back" = "返回";
+"history.copy" = "复制文本";
+"history.search" = "按请求或项目搜索";
+"history.empty" = "暂无历史";
+"history.emptyHelp" = "新请求会显示在这里。清除已完成会话不会删除历史。";
+"history.noMatches" = "未找到记录";
+"history.more" = "显示更多";
+"history.recordCount" = "记录：%d";
+"history.truncated" = "此长记录已缩短，以限制存档大小。";
+"history.enabled" = "在此 Mac 上保存历史";
+"history.description" = "保存用户请求、助手回复及可用命令。不保存命令输出、推理和附件。历史从新活动开始，不导入旧对话。";
+"history.maximumCount" = "记录上限";
+"history.maximumMB" = "存储上限（MB）";
+"history.apply" = "应用上限";
+"history.defaults" = "恢复默认值";
+"history.invalidLimits" = "请输入 1–10,000 条记录和 1–2,048 MB。";
+"history.retention" = "达到任一上限时删除最旧记录。长记录可能会缩短。关闭记录功能会保留现有历史。";
+"history.clear" = "清除历史";
+"history.clearQuestion" = "清除所有历史？";
+"history.clearHelp" = "将删除已保存的请求、回复和命令。当前会话保持打开。";
+"history.privacy" = "历史仅保存在当前用户的 Application Support 文件夹中。常见令牌和密码会被隐藏，但文本仍可能包含私人信息。";
+"history.error" = "无法读取或保存历史。请检查磁盘空间和文件夹权限。";
+"history.role.user" = "请求";
+"history.role.assistant" = "回复";
+"history.role.command" = "命令";

@@ -63,3 +63,5 @@ scripts/build-dmg.sh
 Open the DMG and check the app and Applications shortcut. Verify downloaded assets against the release's `SHA256SUMS`.
 
 For integration coverage and known limitations, see [feature status](parity.md). For signed release packaging, see [updates](updates.md#publish-a-release).
+
+Add `--qa-history-only` to render History list, detail and settings in three languages. It uses an exclusive temporary archive before agent services start, verifies persistence after Done clearing and store reopening, and clears only that fixture archive. It never reads or clears the user’s production History folder.

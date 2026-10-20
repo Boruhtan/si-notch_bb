@@ -178,7 +178,9 @@ enum QAExporter {
                     report.screenFrame = Frame(screen.frame)
                     report.screenMaximumFramesPerSecond = screen.maximumFramesPerSecond
                 }
-                if CommandLine.arguments.contains("--qa-service-only") {
+                if CommandLine.arguments.contains("--qa-history-only") {
+                    try await exportHistory()
+                } else if CommandLine.arguments.contains("--qa-service-only") {
                     try await exportMemoryServices()
                 } else if CommandLine.arguments.contains("--qa-interaction-only") {
                     try await verifyInteractions()
@@ -378,6 +380,50 @@ enum QAExporter {
                 try await settle(expanded: true)
                 try capturePanel(name: "island-memory-services-\(language)", language: language)
             }
+        }
+
+        func exportHistory() async throws {
+            let model = delegate.model
+            // QA returns before AppModel.start(), so this exclusive fixture
+            // directory can never touch the user's real archive.
+            model.history.start(directory: directory.appendingPathComponent("history-fixture"))
+            overrides["panelWidth"] = 680.0
+            applyOverrides()
+            for (index, request) in ["Fix panel navigation", "Review session permissions", "Polish the settings layout"].enumerated() {
+                let items = [AgentHistoryItem(id: "request", role: .user, text: request),
+                    AgentHistoryItem(id: "command", role: .command, text: "swift test --filter PanelTests"),
+                    AgentHistoryItem(id: "reply", role: .assistant, text: "Updated the panel and verified the result.\nThe history remains available after completed sessions are cleared.")]
+                let event = AgentEvent(sessionID: "qa-history-\(index)", provider: "codex", kind: .completed,
+                    title: request, projectPath: "/work/si-notch", firstPrompt: request, turnID: "turn-\(index)", historyItems: items)
+                model.receive(try JSONEncoder().encode(event), reply: { _ in })
+            }
+            model.history.shutdown()
+            try await pause(0.1)
+            model.clearFinished()
+            check("history-survives-done", model.sessions.isEmpty && model.history.records.count == 3,
+                  "Clearing live completed cards retains the three local text records.")
+            let reopened = try HistoryStore(directory: directory.appendingPathComponent("history-fixture"), policy: .init())
+            let saved = try reopened.ordered.first.flatMap { try reopened.entry($0.id) }
+            check("history-reopens", reopened.ordered.count == 3 && saved?.items.count == 3,
+                  "The private fixture archive reopens with request, reply and command; no command output is supplied or stored.")
+            for language in ["en", "ru", "zh-Hans"] {
+                overrides["appLanguage"] = language; applyOverrides()
+                model.activeFilter = "history.title"
+                model.history.back()
+                try await settle(expanded: true)
+                try capturePanel(name: "island-history-list-\(language)", language: language)
+                if let id = model.history.records.first?.id {
+                    model.history.open(id); try await pause(0.15)
+                    try capturePanel(name: "island-history-detail-\(language)", language: language)
+                }
+                try await captureHosted(HistorySettingsView(history: model.history, defaults: model.defaults)
+                    .padding(24).frame(maxHeight: .infinity, alignment: .top).background(SettingsPalette.background)
+                    .preferredColorScheme(.dark).toggleStyle(SettingsSwitchStyle()),
+                    name: "settings-history-\(language)", language: language, size: NSSize(width: 580, height: 620))
+            }
+            model.history.clear(); model.history.shutdown(); try await pause(0.1)
+            check("history-clear", model.history.records.isEmpty && model.sessions.isEmpty,
+                  "Clear removes only the isolated QA archive and leaves the live session store alone.")
         }
 
         func clearFixtures() {

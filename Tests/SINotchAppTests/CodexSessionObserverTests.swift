@@ -57,6 +57,23 @@ final class CodexSessionObserverTests: XCTestCase {
         XCTAssertEqual(event?.message, "Checking window geometry")
     }
 
+    func testNewRolloutHistorySelectsCommandsAndPublicRepliesWithoutOutputOrAnalysis() throws {
+        let (root, file) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try append(metadata(), to: file)
+        try append(record("event_msg", ["type": "task_started", "turn_id": turnID]), to: file)
+        var scanner = CodexRolloutScanner(sessionsRoot: root, includeContent: true)
+        _ = scanner.poll()
+        try append(record("response_item", ["type": "message", "id": "user", "role": "user", "content": [["type": "input_text", "text": "Check the panel"]]]), to: file)
+        try append(record("response_item", ["type": "function_call", "name": "exec_command", "call_id": "call_1", "arguments": "{\"cmd\":\"swift test\",\"output\":\"PRIVATE_ARGUMENT\"}"]), to: file)
+        try append(record("response_item", ["type": "function_call_output", "call_id": "call_1", "output": "PRIVATE_OUTPUT"]), to: file)
+        try append(record("response_item", ["type": "message", "id": "analysis", "role": "assistant", "phase": "analysis", "content": [["type": "output_text", "text": "PRIVATE_REASONING"]]]), to: file)
+        try append(record("response_item", ["type": "message", "id": "reply", "role": "assistant", "phase": "final_answer", "content": [["type": "output_text", "text": "Panel checked"]]]), to: file)
+        let events = scanner.poll().map(\.event)
+        XCTAssertEqual(events.flatMap { $0.historyItems ?? [] }.map(\.text), ["Check the panel", "swift test", "Panel checked"])
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(events), as: UTF8.self).contains("PRIVATE"))
+    }
+
     func testActiveBootstrapAndCompletionContainNoConversationText() throws {
         let (root, file) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }

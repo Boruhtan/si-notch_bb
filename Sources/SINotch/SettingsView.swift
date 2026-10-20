@@ -80,6 +80,7 @@ struct SettingsView: View {
                             sidebarItem(L10n.tr("settings.usage"), icon: "chart.pie.fill", color: .pink, tag: 8)
                         }
                         sidebarGroup(L10n.tr("settings.sectionAdvanced")) {
+                            sidebarItem(L10n.tr("history.title"), icon: "clock.arrow.circlepath", color: .blue, tag: 11)
                             sidebarItem(L10n.tr("settings.shortcuts"), icon: "keyboard.fill", color: .purple, tag: 7)
                             sidebarItem(L10n.tr("remote.settingsTab"), icon: "network", color: .teal, tag: 10)
                             sidebarItem(L10n.tr("companion.title"), icon: "pawprint.fill", color: .mint, tag: 4)
@@ -133,6 +134,7 @@ struct SettingsView: View {
                         else if tab == 3 { SoundSettingsView() }
                         else if tab == 4 { companionSettings }
                         else if tab == 10 { RemoteSettingsView(manager: model.remoteConnections, localSocketPath: model.socketPath) }
+                        else if tab == 11 { HistorySettingsView(history: model.history, defaults: model.defaults) }
                         else if tab == 9 { SettingsAboutView(model: model) }
                         else { diagnostics }
                     }
@@ -179,6 +181,7 @@ struct SettingsView: View {
     }
     var tabTitle: String {
         switch tab {
+        case 11: return L10n.tr("history.title")
         case 0: return L10n.tr("settings.general")
         case 5: return L10n.tr("settings.display")
         case 6: return L10n.tr("settings.notifications")
@@ -194,6 +197,7 @@ struct SettingsView: View {
     }
     var tabSubtitle: String {
         switch tab {
+        case 11: return L10n.tr("history.subtitle")
         case 0: return L10n.tr("settings.subtitleGeneral")
         case 1: return L10n.tr("settings.subtitleIntegrations")
         case 6: return L10n.tr("settings.subtitleNotifications")
@@ -209,6 +213,7 @@ struct SettingsView: View {
     }
     var tabIcon: String {
         switch tab {
+        case 11: return "clock.arrow.circlepath"
         case 0: return "gearshape.fill"
         case 1: return "point.3.connected.trianglepath.dotted"
         case 6: return "bell.fill"
@@ -224,6 +229,7 @@ struct SettingsView: View {
     }
     var tabColor: Color {
         switch tab {
+        case 11: return .blue
         case 0: return .gray
         case 1: return .cyan
         case 6: return .red

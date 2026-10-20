@@ -41,7 +41,7 @@ Requires Xcode 26+, Python 3 and Node.js. Output: `build/si-notch-macos-arm64-0.
 
 ## Data and license
 
-Session data is processed locally and kept in memory. Short task and response excerpts appear in the island.
+Session data is processed locally. History stores requests, replies and available command text on this Mac, without command output. Defaults are 1,000 records and 200 MB; adjust either limit, disable recording or clear the archive in Settings → History. Older conversations are not imported.
 
 [si-notch Source License 1.0](LICENSE) allows study, installation, building, modification and free redistribution. Selling the app or modified versions is prohibited. It is based on MIT with an added no-sale condition.
 

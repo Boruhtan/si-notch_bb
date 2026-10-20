@@ -1,0 +1,122 @@
+import XCTest
+import SINotchCore
+@testable import SINotch
+
+final class HistoryIntegrationTests: XCTestCase {
+    @MainActor
+    func testStreamingSnapshotsKeepLatestTextAndClearFencesTheBufferedTurn() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("si-notch-history-stream-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: path) }
+        let history = HistoryController(policy: .init())
+        history.start(directory: path)
+        let session = AgentSession(id: "stream", provider: "codex", title: "Review", status: .working)
+        var latest = AgentEvent(sessionID: "stream", provider: "codex", kind: .working, firstPrompt: "Review", turnID: "turn-1")
+        for n in 0..<100 {
+            latest.id = "desktop-stream:stream:\(n)"
+            latest.historyItems = [.init(id: "reply", role: .assistant, text: "Reply version \(n)")]
+            history.record(latest, session: session)
+        }
+        history.shutdown()
+        let saved = try HistoryStore(directory: path, policy: .init())
+        let entry = try XCTUnwrap(saved.ordered.first.flatMap { try saved.entry($0.id) })
+        XCTAssertEqual(saved.ordered.count, 1)
+        XCTAssertEqual(entry.items.filter { $0.role == .assistant }.map(\.text), ["Reply version 99"])
+        history.record(latest, session: session)
+        history.clear()
+        history.record(latest, session: session)
+        history.shutdown()
+        let cleared = try HistoryStore(directory: path, policy: .init())
+        XCTAssertTrue(cleared.ordered.isEmpty)
+    }
+    @MainActor
+    func testParallelTextSourceDoesNotReplayLifecycleOverNativeStatus() throws {
+        let suite = "si-notch-history-parallel-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: path) }
+        let model = AppModel(defaults: defaults)
+        defer { model.shutdown() }
+        model.history.start(directory: path)
+        _ = model.store.apply(.init(sessionID: "native", provider: "codex", kind: .completed, message: "Current reply"))
+        let before = model.store
+        let old = AgentEvent(sessionID: "native", provider: "codex", kind: .toolStarted,
+            timestamp: Date().addingTimeInterval(-1), firstPrompt: "Fix panel", turnID: "turn-1",
+            historyItems: [.init(id: "call", role: .command, text: "swift test")])
+        model.recordHistoryContent(old)
+        model.history.shutdown()
+        XCTAssertEqual(model.store.sessions, before.sessions)
+        let archive = try HistoryStore(directory: path, policy: .init())
+        let entry = try XCTUnwrap(archive.ordered.first.flatMap { try archive.entry($0.id) })
+        XCTAssertEqual(entry.items.last?.text, "swift test")
+    }
+    @MainActor
+    func testAcceptedNewEventsSurviveDoneButBootstrapFiltersAndApprovalPayloadDoNotEnterHistory() async throws {
+        let suite = "si-notch-history-model-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { try? FileManager.default.removeItem(at: path) }
+        let model = AppModel(defaults: defaults)
+        defer { model.shutdown() }
+        model.history.start(directory: path)
+        func receive(_ event: AgentEvent, bootstrap: Bool = false) throws {
+            model.receive(try JSONEncoder().encode(event), suppressPresentation: bootstrap, reply: { _ in })
+        }
+        try receive(.init(sessionID: "old", kind: .completed, firstPrompt: "Old conversation"), bootstrap: true)
+        defaults.set("/private-project", forKey: "blockedDirectories")
+        try receive(.init(sessionID: "filtered", kind: .completed, projectPath: "/private-project", firstPrompt: "Excluded"))
+        try receive(.init(sessionID: "new", provider: "codex", kind: .completed, message: "Fixed", firstPrompt: "Fix panel", turnID: "turn-1"))
+        model.clearFinished()
+        model.history.shutdown()
+        await Task.yield()
+        let store = try HistoryStore(directory: path, policy: .init())
+        XCTAssertEqual(store.ordered.count, 1)
+        let saved = try XCTUnwrap(store.entry(store.ordered[0].id))
+        XCTAssertEqual(saved.items.map(\.text), ["Fix panel", "Fixed"])
+        model.activeFilter = "history.title"
+        XCTAssertTrue(model.showingHistory)
+        XCTAssertGreaterThan(model.desiredPanelHeight, 400)
+        let permission: [String: Any] = ["event": "approval.requested", "session_id": "approval", "provider": "codex",
+            "await_response": true, "request_id": "request-1", "response_timeout": 60, "message": "PRIVATE_PERMISSION_ARGUMENTS"]
+        model.receive(try JSONSerialization.data(withJSONObject: permission), reply: { _ in })
+        XCTAssertEqual(model.activeFilter, "Внимание")
+        XCTAssertNotNil(model.pending["approval"])
+        model.history.shutdown()
+        let after = try HistoryStore(directory: path, policy: .init())
+        XCTAssertEqual(after.ordered.count, 1)
+        XCTAssertNotNil(model.pending["approval"])
+    }
+    func testCommandSelectionExcludesUnknownInputsAndRedactsQuotedSecrets() throws {
+        XCTAssertNil(HistoryContent.command(id: "x", name: "unknown_mcp", arguments: ["command": "PRIVATE"]))
+        XCTAssertEqual(HistoryContent.command(id: "x", name: "functions.exec_command", arguments: "{\"cmd\":\"swift test\",\"output\":\"PRIVATE_OUTPUT\"}")?.text, "swift test")
+        let item = try XCTUnwrap(HistoryContent.command(id: "x", name: "bash", arguments: ["command": "login --password 'a private phrase' API_TOKEN=\"another secret\""]))
+        XCTAssertFalse(item.text.contains("private phrase"))
+        XCTAssertFalse(item.text.contains("another secret"))
+        XCTAssertEqual(item.text, "login --password [redacted] API_TOKEN=[redacted]")
+    }
+    func testDesktopCommandPatchesRetainOnlyCommandTextAndExcludePermissionArguments() throws {
+        let id = UUID().uuidString, turn = UUID().uuidString
+        var state = CodexDesktopState()
+        XCTAssertTrue(state.apply(["type": "snapshot", "revision": 1, "conversationState": ["id": id, "turns": [[
+            "id": turn, "status": "inProgress", "items": [["id": "cmd", "type": "commandExecution", "command": "swift test", "aggregatedOutput": "PRIVATE_OUTPUT"]]]],
+            "requests": [["method": "item/commandExecution/requestApproval", "params": ["command": "PRIVATE_PERMISSION", "arguments": "PRIVATE_ARGS"]]]]]))
+        XCTAssertTrue(state.apply(["type": "patches", "baseRevision": 1, "revision": 2, "patches": [
+            ["op": "replace", "path": ["turns", 0, "items", 0, "command"], "value": "swift build"],
+            ["op": "add", "path": ["requests", 0, "params", "command"], "value": "PRIVATE_PERMISSION"]]]))
+        let event = try XCTUnwrap(state.event(sessionID: id))
+        XCTAssertEqual(event.historyItems?.last?.text, "swift build")
+        let data = try JSONSerialization.data(withJSONObject: state.root)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("PRIVATE"))
+        XCTAssertNoThrow(try AgentEvent.parse(data: JSONEncoder().encode(event)))
+    }
+    func testHistoryEnvelopeHasIndependentCountTextAndByteBounds() throws {
+        var event = AgentEvent(sessionID: "test", kind: .working, historyItems: [.init(id: "cmd", role: .command, text: "swift test")])
+        XCTAssertEqual(try AgentEvent.parse(data: JSONEncoder().encode(event)).historyItems, event.historyItems)
+        event.historyItems = Array(repeating: .init(id: "cmd", role: .command, text: "x"), count: 65)
+        XCTAssertThrowsError(try event.validate())
+        event.historyItems = [.init(id: "cmd", role: .command, text: String(repeating: "x", count: 16385))]
+        XCTAssertThrowsError(try event.validate())
+        event.historyItems = (0..<10).map { .init(id: "cmd-\($0)", role: .command, text: String(repeating: "я", count: 10000)) }
+        XCTAssertThrowsError(try event.validate())
+    }
+}

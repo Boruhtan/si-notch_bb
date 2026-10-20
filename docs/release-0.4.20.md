@@ -1,0 +1,3 @@
+- Adds local history for requests, replies and available command text.
+- Adds adjustable history storage limits and archive clearing in Settings.
+- Preserves history after completed sessions are cleared and the app restarts.

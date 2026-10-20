@@ -3,7 +3,7 @@ import CryptoKit
 import SINotchCore
 
 /// A small, public-content projection of Desktop's local follower stream.
-/// Command output, arguments, reasoning, permissions and attachments are discarded.
+/// Command output, generic arguments, reasoning, permissions and attachments are discarded.
 struct CodexDesktopState {
     private(set) var root: [String: Any] = [:]
     private(set) var revision: Int?
@@ -24,8 +24,17 @@ struct CodexDesktopState {
                   let operation = patch["op"] as? String, ["add", "replace", "remove"].contains(operation) else { return false }
             // Ignored properties never enter the retained state, even through a delta.
             if path.contains(where: { ($0 as? String).map { !Self.fields.contains($0) && !Self.isDynamicKey($0) } ?? false }) { continue }
+            if path.last as? String == "command" {
+                var parent: Any = root
+                for key in path.dropLast() {
+                    if let key = key as? String { parent = (parent as? [String: Any])?[key] ?? NSNull() }
+                    else if let index = key as? Int, let array = parent as? [Any], array.indices.contains(index) { parent = array[index] }
+                    else { parent = NSNull(); break }
+                }
+                guard (parent as? [String: Any])?["type"] as? String == "commandExecution" else { continue }
+            }
             Self.edit(&value, path: ArraySlice(path), operation: operation,
-                      replacement: Self.project(patch["value"] ?? NSNull()))
+                      replacement: Self.project(patch["value"] ?? NSNull(), field: path.last as? String))
         }
         // Every inserted/replaced value was projected above. Re-projecting the
         // entire retained history for each streaming delta repeats the same work.
@@ -40,6 +49,24 @@ struct CodexDesktopState {
         let turns = (history?.values.compactMap { $0 as? [String: Any] } ?? []) + (root["turns"] as? [[String: Any]] ?? [])
         let turn = turns.max { ($0["turnStartedAtMs"] as? Double ?? 0) < ($1["turnStartedAtMs"] as? Double ?? 0) } ?? [:]
         let items = turn["items"] as? [[String: Any]] ?? []
+        let historyItems = HistoryContent.bounded(items.enumerated().suffix(64).compactMap { index, item -> AgentHistoryItem? in
+            let id = item["id"] as? String ?? "item-\(index)"
+            switch item["type"] as? String {
+            case "userMessage":
+                // Projection already sanitized every retained text block. Do
+                // not run all redaction regexes over the turn on each delta.
+                let content = item["content"]
+                let text = content as? String ?? (content as? [[String: Any]])?.prefix(16).compactMap {
+                    ["text", "input_text", "output_text"].contains($0["type"] as? String ?? "") ? $0["text"] as? String : nil
+                }.joined(separator: "\n")
+                return text.flatMap { $0.isEmpty ? nil : .init(id: id, role: .user, text: String($0.prefix(HistoryStore.maximumTextCharacters))) }
+            case "agentMessage" where item["phase"] as? String != "analysis":
+                return (item["text"] as? String).flatMap { $0.isEmpty ? nil : .init(id: id, role: .assistant, text: $0) }
+            case "commandExecution":
+                return (item["command"] as? String).flatMap { $0.isEmpty ? nil : .init(id: id, role: .command, text: $0) }
+            default: return nil
+            }
+        })
         let runtime = root["threadRuntimeStatus"] as? [String: Any] ?? [:]
         let flags = runtime["activeFlags"] as? [String] ?? []
         let active = runtime["type"] as? String == "active" || turn["status"] as? String == "inProgress"
@@ -72,7 +99,8 @@ struct CodexDesktopState {
             turnID: (turn["turnId"] as? String ?? turn["id"] as? String).flatMap { UUID(uuidString: $0)?.uuidString.lowercased() },
             isInternalSession: CodexServiceSessionFilter.nativeClassification(source: root["source"], threadSource: root["threadSource"]),
             attentionRequestID: attention,
-            isWorkSession: CodexSessionOrigin.isWork(originator: root["originator"], serviceName: root["serviceName"]))
+            isWorkSession: CodexSessionOrigin.isWork(originator: root["originator"], serviceName: root["serviceName"]),
+            historyItems: historyItems.isEmpty ? nil : historyItems)
     }
 
     private static func attentionRequest(in root: [String: Any], turn: [String: Any]) -> String? {
@@ -144,14 +172,15 @@ struct CodexDesktopState {
     private static let fields: Set<String> = ["id", "title", "cwd", "latestModel", "latestReasoningEffort", "source", "threadSource", "originator", "serviceName",
         "threadRuntimeStatus", "activeFlags", "type", "turnHistory", "kind", "history", "entitiesByKey", "turns",
         "turnId", "turnStartedAtMs", "status", "params", "model", "effort", "requestedReasoningEffort", "collaborationMode", "settings", "reasoning_effort", "items", "phase", "text", "content", "input", "questions",
-        "tool", "requests", "method", "completed", "threadId", "latestTokenUsageInfo", "total", "last", "inputTokens", "outputTokens", "totalTokens", "modelContextWindow"]
+        "tool", "command", "requests", "method", "completed", "threadId", "latestTokenUsageInfo", "total", "last", "inputTokens", "outputTokens", "totalTokens", "modelContextWindow"]
 
-    private static func project(_ value: Any, depth: Int = 0) -> Any {
+    private static func project(_ value: Any, depth: Int = 0, field: String? = nil) -> Any {
         guard depth < 40 else { return NSNull() }
         if let object = value as? [String: Any] {
             if object["type"] as? String == "reasoning" { return ["type": "reasoning"] }
             var result: [String: Any] = [:]
             for (key, child) in object where fields.contains(key) || isDynamicKey(key) {
+                if key == "command", object["type"] as? String != "commandExecution" { continue }
                 if key == "questions", let questions = child as? [Any] {
                     result[key] = questions.prefix(256).map { _ in [String: String]() }
                 } else if key == "source", let source = child as? [String: Any] {
@@ -159,7 +188,7 @@ struct CodexDesktopState {
                     // arbitrary custom-source text.
                     result[key] = source.filter { ["internal", "subagent", "custom"].contains($0.key) }
                         .mapValues { _ in true }
-                } else { result[key] = project(child, depth: depth + 1) }
+                } else { result[key] = project(child, depth: depth + 1, field: key) }
             }
             return result
         }
@@ -172,7 +201,7 @@ struct CodexDesktopState {
                let marker = String(data: data, encoding: .utf8) {
                 return "<send_user_message_question_reply>\(marker)</send_user_message_question_reply>"
             }
-            return SessionSnippet.text(string, limit: 1600) ?? ""
+            return SessionSnippet.text(string, limit: ["text", "content", "command"].contains(field ?? "") ? HistoryStore.maximumTextCharacters : 1600) ?? ""
         }
         return value
     }

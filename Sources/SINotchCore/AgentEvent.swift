@@ -56,6 +56,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
     public var isWorkSession: Bool?
     /// Identity of an observed, unresolved human-input request; not a runtime wait flag.
     public var attentionRequestID: String?
+    public var historyItems: [AgentHistoryItem]?
 
     public init(sessionID: String, provider: String = "custom", kind: AgentEventKind,
                 timestamp: Date = Date(), id: String? = nil, sequence: Int? = nil,
@@ -65,7 +66,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
                 targetURL: String? = nil, approvalID: String? = nil,
                 modelName: String? = nil, reasoningEffort: String? = nil, firstPrompt: String? = nil,
                 turnID: String? = nil, isInternalSession: Bool? = nil, attentionRequestID: String? = nil,
-                connectionID: String? = nil, connectionName: String? = nil, isWorkSession: Bool? = nil) {
+                connectionID: String? = nil, connectionName: String? = nil, isWorkSession: Bool? = nil,
+                historyItems: [AgentHistoryItem]? = nil) {
         self.sessionID = sessionID
         self.provider = provider
         self.connectionID = connectionID
@@ -91,6 +93,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         self.isInternalSession = isInternalSession
         self.isWorkSession = isWorkSession
         self.attentionRequestID = attentionRequestID
+        self.historyItems = historyItems
     }
 
     public static func parse(data: Data, receivedAt: Date = Date()) throws -> AgentEvent {
@@ -120,6 +123,15 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         if let approvalID { try Self.validateID(approvalID, field: "approval_id") }
         if let turnID { try Self.validateID(turnID, field: "turn_id") }
         if let attentionRequestID { try Self.validateID(attentionRequestID, field: "attention_request_id", maximum: 512) }
+        if let historyItems {
+            guard historyItems.count <= 64, historyItems.reduce(0, { $0 + $1.text.utf8.count }) <= 128 * 1024 else {
+                throw AgentEventError.invalidField("history_items")
+            }
+            for item in historyItems {
+                try Self.validateID(item.id, field: "history_items.id", maximum: 512)
+                try Self.validateText(item.text, field: "history_items.text", maximum: 16384)
+            }
+        }
         for (value, name, maximum) in [(connectionName, "connection_name", 512), (title, "title", 512), (projectPath, "cwd", 4096),
                                        (message, "message", 16384), (toolName, "tool_name", 512),
                                        (terminalBundleID, "terminal_bundle_id", 256), (targetURL, "target_url", 4096),
@@ -170,6 +182,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         isInternalSession = try raw.decode(Bool.self, key: "is_internal_session")
         isWorkSession = try raw.decode(Bool.self, key: "is_work_session")
         attentionRequestID = try raw.string("attention_request_id")
+        historyItems = try raw.decode([AgentHistoryItem].self, key: "history_items")
         task = try raw.decode(AgentTask.self, key: "task")
         subagent = try raw.decode(AgentSubagent.self, key: "subagent")
         usage = try raw.decode(AgentUsage.self, key: "usage")
@@ -204,6 +217,7 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         if let isInternalSession { raw["is_internal_session"] = .bool(isInternalSession) }
         if let isWorkSession { raw["is_work_session"] = .bool(isWorkSession) }
         if let attentionRequestID { raw["attention_request_id"] = .string(attentionRequestID) }
+        if let historyItems { raw["history_items"] = try JSONValue.wrapping(historyItems) }
         if let task { raw["task"] = try JSONValue.wrapping(task) }
         if let subagent { raw["subagent"] = try JSONValue.wrapping(subagent) }
         if let usage { raw["usage"] = try JSONValue.wrapping(usage) }

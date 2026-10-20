@@ -228,9 +228,11 @@ struct CodexRolloutScanner {
             if role == "assistant", payload["phase"] as? String != "analysis" {
                 state.message = SessionSnippet.message(payload["content"]) ?? state.message
             }
-            if state.visible && !bootstrap && (role == "user" || role == "assistant") {
+            if state.visible && !bootstrap && (role == "user" || (role == "assistant" && payload["phase"] as? String != "analysis")) {
                 observations.append(CodexSessionObservation(event: event(.usageUpdated, state: state,
-                    now: stamp, id: "rollout:message:\(state.offset)"), isBootstrap: false))
+                    now: stamp, id: "rollout:message:\(state.offset)", historyItems:
+                        HistoryContent.message(id: payload["id"] as? String ?? "message-\(state.offset)",
+                            role: role == "user" ? .user : .assistant, content: payload["content"]).map { [$0] }), isBootstrap: false))
             }
         }
         if kind == "event_msg" {
@@ -238,6 +240,11 @@ struct CodexRolloutScanner {
             case "user_message" where includeContent:
                 state.prompt = SessionSnippet.text(payload["message"])
                 state.message = nil
+                if state.visible && !bootstrap,
+                   let item = HistoryContent.message(id: "user-\(state.offset)", role: .user, content: payload["message"]) {
+                    observations.append(CodexSessionObservation(event: event(.usageUpdated, state: state,
+                        now: stamp, id: "rollout:user:\(state.offset)", historyItems: [item]), isBootstrap: false))
+                }
             case "task_started":
                 guard let turn = payload["turn_id"] as? String, UUID(uuidString: turn) != nil else { return }
                 state.activeTurnID = turn
@@ -262,7 +269,8 @@ struct CodexRolloutScanner {
                 state.tools.removeAll()
                 if state.visible && !bootstrap {
                     observations.append(CodexSessionObservation(event: event(.completed, state: state,
-                        now: stamp, id: "rollout:\(turn):complete", turnID: turn), isBootstrap: false))
+                        now: stamp, id: "rollout:\(turn):complete", turnID: turn, historyItems: includeContent ?
+                            HistoryContent.message(id: "final-\(turn)", role: .assistant, content: payload["last_agent_message"]).map { [$0] } : nil), isBootstrap: false))
                 }
                 state.visible = false
             case "turn_aborted", "turn_cancelled":
@@ -313,7 +321,8 @@ struct CodexRolloutScanner {
                 state.visible = true
                 state.idleAfterSilence = false
                 observations.append(CodexSessionObservation(event: event(.toolStarted, state: state,
-                    now: stamp, id: "rollout:\(callID):tool-start", toolName: name), isBootstrap: false))
+                    now: stamp, id: "rollout:\(callID):tool-start", toolName: name, historyItems: includeContent ?
+                        HistoryContent.command(id: callID, name: name, arguments: payload["arguments"] ?? payload["input"]).map { [$0] } : nil), isBootstrap: false))
             case "function_call_output", "custom_tool_call_output":
                 guard let name = state.tools.removeValue(forKey: callID) else { return }
                 state.activityAt = stamp
@@ -327,12 +336,12 @@ struct CodexRolloutScanner {
     }
 
     private func event(_ kind: AgentEventKind, state: FileState, now: Date,
-                       id: String, toolName: String? = nil, turnID: String? = nil) -> AgentEvent {
+                       id: String, toolName: String? = nil, turnID: String? = nil, historyItems: [AgentHistoryItem]? = nil) -> AgentEvent {
         AgentEvent(sessionID: state.sessionID, provider: "codex", kind: kind,
                    timestamp: now, id: id, title: state.prompt.map { String($0.prefix(100)) }, projectPath: state.cwd,
                    message: state.message, toolName: toolName, modelName: state.model, reasoningEffort: state.effort, firstPrompt: state.prompt,
                    turnID: turnID ?? state.activeTurnID, isInternalSession: state.isInternalSession,
-                   isWorkSession: state.isWorkSession)
+                   isWorkSession: state.isWorkSession, historyItems: historyItems)
     }
 
     private static func safeText(_ value: Any?, maximum: Int) -> String? {
@@ -362,6 +371,7 @@ final class CodexSessionObserver {
     private var generation: UInt64 = 0
     private let interval: TimeInterval
     private let onEvent: (AgentEvent, Bool) -> Void
+    private let onHistory: (AgentEvent) -> Void
     private var scanner: CodexRolloutScanner
     private var desktopScanner = CodexDesktopScanner()
     private var desktopStream: CodexDesktopStream?
@@ -371,10 +381,12 @@ final class CodexSessionObserver {
     init(sessionsRoot: URL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/sessions", isDirectory: true),
          pollInterval: TimeInterval = 1,
+         onHistory: @escaping (AgentEvent) -> Void = { _ in },
          onEvent: @escaping (AgentEvent, Bool) -> Void) {
         scanner = CodexRolloutScanner(sessionsRoot: sessionsRoot, includeContent: true)
         interval = max(0.25, pollInterval)
         self.onEvent = onEvent
+        self.onHistory = onHistory
     }
 
     func start() {
@@ -405,6 +417,13 @@ final class CodexSessionObserver {
                 // A fresh Desktop stream owns the lifecycle. File snapshots and
                 // log lines must not replay older states over its current turn.
                 let observations = (rollouts + desktop).filter { self.desktopStream?.contains($0.event.sessionID) != true }
+                for observation in rollouts where !observation.isBootstrap &&
+                    observation.event.historyItems?.isEmpty == false && self.desktopStream?.contains(observation.event.sessionID) == true {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.isCurrent(currentGeneration) else { return }
+                        self.onHistory(observation.event)
+                    }
+                }
                 for observation in observations.sorted(by: { $0.event.timestamp < $1.event.timestamp }) {
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.isCurrent(currentGeneration) else { return }

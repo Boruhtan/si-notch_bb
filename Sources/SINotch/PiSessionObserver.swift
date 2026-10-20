@@ -35,6 +35,7 @@ struct PiSessionScanner {
         var activityAt: Date
         var lastEventAt: Date
         var lastRecordID: String?
+        var turnID: String?
         var prompt: String?
         var message: String?
         var tool: String?
@@ -213,6 +214,7 @@ struct PiSessionScanner {
         }
         guard type == "message", let message = record["message"] as? [String: Any],
               let role = message["role"] as? String else { return }
+        if role == "user" { state.turnID = safeID(record["id"]) ?? "turn-\(state.ordinal)-\(state.offset)" }
         if includeContent {
             if role == "user" { state.prompt = SessionSnippet.message(message["content"]); state.message = nil }
             if role == "assistant" {
@@ -248,14 +250,24 @@ struct PiSessionScanner {
         let kind: AgentEventKind = activity == .completed ? .completed :
             activity == .working ? .working : .sessionStarted
         let token = state.lastRecordID ?? "entry-\(state.ordinal)-\(state.offset)"
+        var historyItems: [AgentHistoryItem] = []
+        if includeContent, ["user", "assistant"].contains(role) {
+            if let item = HistoryContent.message(id: token, role: role == "user" ? .user : .assistant, content: message["content"]) { historyItems.append(item) }
+            if role == "assistant", let blocks = message["content"] as? [[String: Any]] {
+                for (index, block) in blocks.enumerated() where block["type"] as? String == "toolCall" {
+                    if let name = block["name"] as? String,
+                       let item = HistoryContent.command(id: block["id"] as? String ?? "\(token)-\(index)", name: name, arguments: block["arguments"]) { historyItems.append(item) }
+                }
+            }
+        }
         observations.append(PiSessionObservation(event: event(kind, state: state,
-            stamp: stamp, id: "pi-file:\(state.sessionID):\(token)"), isBootstrap: false))
+            stamp: stamp, id: "pi-file:\(state.sessionID):\(token)", historyItems: HistoryContent.bounded(historyItems)), isBootstrap: false))
     }
 
-    private func event(_ kind: AgentEventKind, state: FileState, stamp: Date, id: String) -> AgentEvent {
+    private func event(_ kind: AgentEventKind, state: FileState, stamp: Date, id: String, historyItems: [AgentHistoryItem]? = nil) -> AgentEvent {
         AgentEvent(sessionID: state.sessionID, provider: "pi", kind: kind, timestamp: stamp,
                    id: id, title: state.prompt.map { String($0.prefix(100)) }, projectPath: state.cwd,
-                   message: state.message, toolName: state.tool, modelName: state.model, reasoningEffort: state.effort, firstPrompt: state.prompt)
+                   message: state.message, toolName: state.tool, modelName: state.model, reasoningEffort: state.effort, firstPrompt: state.prompt, turnID: state.turnID, historyItems: historyItems)
     }
 
     private func json(_ data: Data) -> [String: Any]? {

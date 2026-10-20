@@ -368,7 +368,7 @@
 "usage.error.protocolError" = "Codex app-server returned an invalid response.";
 "usage.error.serverError" = "Codex app-server could not read account limits.";
 "usage.error.limitsUnavailable" = "Codex account limits are unavailable.";
-"settings.privacySessionAndCLI" = "Session history stays in memory and clears on restart. Agent-reported usage comes only from events. Codex account limits are requested through the installed CLI when you refresh.";
+"settings.privacySessionAndCLI" = "Live session cards reset on restart. History keeps selected text locally within your storage limits. Agent usage comes from events; account limits are requested through the installed CLI when you refresh.";
 "settings.usageScope" = "Agent-reported usage from events on this Mac is shown below. These per-session values stay in memory and clear on restart.";
 "usage.error.invalidBundle" = "The selected app bundle has no supported Codex CLI.";
 "discovery.title" = "Connect your agents";
@@ -581,3 +581,32 @@
 "agents.activity.working" = "Working";
 "agents.activity.attention" = "Needs attention";
 "remote.sshState" = "SSH: %@";
+
+// Local text history
+"history.title" = "History";
+"history.subtitle" = "Local requests, replies and commands";
+"history.back" = "Back";
+"history.copy" = "Copy text";
+"history.search" = "Search by request or project";
+"history.empty" = "No history yet";
+"history.emptyHelp" = "New requests will appear here. Clearing Done sessions keeps their history.";
+"history.noMatches" = "No matching records";
+"history.more" = "Show more";
+"history.recordCount" = "Records: %d";
+"history.truncated" = "This long record was shortened to keep the archive small.";
+"history.enabled" = "Save history on this Mac";
+"history.description" = "Keep user requests, assistant replies and available commands. Command output, reasoning and attachments are excluded. History starts with new activity; older conversations are not imported.";
+"history.maximumCount" = "Maximum records";
+"history.maximumMB" = "Storage limit, MB";
+"history.apply" = "Apply limits";
+"history.defaults" = "Restore defaults";
+"history.invalidLimits" = "Enter 1–10,000 records and 1–2,048 MB.";
+"history.retention" = "The oldest records are removed when either limit is reached. Long records may be shortened. Disabling history stops new recording and keeps existing records.";
+"history.clear" = "Clear History";
+"history.clearQuestion" = "Clear all history?";
+"history.clearHelp" = "Saved requests, replies and commands will be deleted. Current sessions will stay open.";
+"history.privacy" = "History is stored only in this user’s Application Support folder. Common token and password patterns are redacted, but text may still contain private information.";
+"history.error" = "History could not be read or saved. Check available disk space and folder permissions.";
+"history.role.user" = "Request";
+"history.role.assistant" = "Reply";
+"history.role.command" = "Command";

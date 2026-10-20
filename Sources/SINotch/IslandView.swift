@@ -147,20 +147,21 @@ struct IslandView: View {
             }
             VStack(spacing: 0) {
                 if model.showAgents { agentsList } else {
-                    if model.sessions.count > 3 || !model.search.isEmpty {
+                    if !model.showingHistory && (model.sessions.count > 3 || !model.search.isEmpty) {
                         TextField(L10n.tr("Поиск сессий"), text: $model.search).textFieldStyle(.plain).font(.system(size: 12)).padding(10).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 20).padding(.bottom, 10)
                     }
-                    if !model.sessions.isEmpty { HStack(spacing: 5) {
-                        ForEach(["Все", "В работе", "Внимание", "Готово"], id: \.self) { filter in
+                    HStack(spacing: 5) {
+                        ForEach(["Все", "В работе", "Внимание", "Готово", "history.title"], id: \.self) { filter in
                             Button { model.activeFilter = filter } label: {
                                 Text(L10n.tr(filter)).font(.system(size: 10, weight: .medium)).padding(.horizontal, 11).padding(.vertical, 7)
                                     .background(model.activeFilter == filter ? .white.opacity(0.14) : .clear, in: Capsule())
                                     .foregroundStyle(model.activeFilter == filter ? .white : NotchDesign.secondary)
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).accessibilityAddTraits(model.activeFilter == filter ? .isSelected : [])
                         }
                         Spacer(minLength: 0)
-                    }.padding(.horizontal, 20).padding(.bottom, 10) }
-                    if model.sessions.isEmpty { emptyState }
+                    }.padding(.horizontal, 20).padding(.bottom, 10)
+                    if model.showingHistory { HistoryView(history: model.history) }
+                    else if model.sessions.isEmpty { emptyState }
                     else {
                         ScrollView {
                             LazyVStack(spacing: 2) {
@@ -177,7 +178,7 @@ struct IslandView: View {
                         .id(model.activeFilter + "\0" + model.search)
                         .onPreferenceChange(SessionHeightPreferenceKey.self) { model.measureSessionCards($0) }
                     }
-                    if model.quiet || model.sessions.contains(where: { $0.status == .completed || $0.status == .failed }) {
+                    if !model.showingHistory && (model.quiet || model.sessions.contains(where: { $0.status == .completed || $0.status == .failed })) {
                         HStack(spacing: 6) {
                             if model.quiet { Label(L10n.tr("Тихий режим"), systemImage: "moon.fill").font(.system(size: 10)) }
                             Spacer()
