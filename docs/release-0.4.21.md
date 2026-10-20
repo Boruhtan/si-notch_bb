@@ -1,0 +1,2 @@
+- Restores remote agent connections after repeated interruptions and longer outages.
+- Shows clearer SSH authentication and host verification errors.
