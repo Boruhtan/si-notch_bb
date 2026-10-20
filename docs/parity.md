@@ -30,6 +30,8 @@ Available features and verification scope for 0.4.16 on Apple Silicon. Automated
 | Codex account limits | Read-only CLI requests and manual refresh are tested. |
 | Updates | Stable/beta selection, Ed25519 verification, replacement, launch and rollback are tested. Builds are ad hoc signed and not notarized. |
 
+The current SSH reconnect policy keeps retrying transient outages with a delay capped at 30 seconds and resets the delay after a confirmed forward. Long outages, repeated disconnects, cancellation, transient recovery failures, authentication failures and host-key failures have automated coverage. The installed local build recovered from four consecutive owned tunnel interruptions on Lane in 3.0–3.8 seconds each; all eight saved Hermes profiles resumed presence. A real trainer session was visible and updated after reconnecting the previous build. Long physical network outages and sleep/wake recovery with the new build remain unverified on hardware.
+
 ## Manual validation
 
 Physical audio output, hover feel, Mission Control, all multi-monitor/no-notch/fullscreen combinations and macOS 14–15 rendering require manual validation. Static screenshots do not measure compositor frame rate.

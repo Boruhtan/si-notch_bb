@@ -48,12 +48,13 @@ final class RemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testProcessFailureRetriesBoundedlyAndCanDisconnect() async throws {
+    func testLongOutageKeepsRetryingAndDisconnectCancelsPendingRetry() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("si-notch-ssh-test-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let fakeSSH = directory.appendingPathComponent("ssh")
-        try "#!/bin/sh\nexit 17\n".write(to: fakeSSH, atomically: true, encoding: .utf8)
+        let launches = directory.appendingPathComponent("launches")
+        try "#!/bin/sh\necho attempt >> '\(launches.path)'\nexit 255\n".write(to: fakeSSH, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
         let defaults = UserDefaults(suiteName: "si-notch.remote-tests." + UUID().uuidString)!
         let controller = RemoteConnectionController(defaults: defaults, sshExecutable: fakeSSH,
@@ -63,12 +64,50 @@ final class RemoteConnectionTests: XCTestCase {
         controller.connect(localSocketPath: "/Users/fixture/.si-notch/run/events.sock")
         let deadline = ProcessInfo.processInfo.systemUptime + 2
         while ProcessInfo.processInfo.systemUptime < deadline {
-            if controller.state == .failed(.connectionFailed(17)) { break }
+            if (try? String(contentsOf: launches, encoding: .utf8).split(separator: "\n").count) ?? 0 >= 6 { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertEqual(controller.state, .failed(.connectionFailed(17)))
+        XCTAssertEqual(controller.state, .retrying)
+        let count = (try? String(contentsOf: launches, encoding: .utf8).split(separator: "\n").count) ?? 0
+        XCTAssertGreaterThanOrEqual(count, 6, "Transient outages must outlive the initial retry schedule")
         controller.disconnect()
         XCTAssertEqual(controller.state, .disconnected)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual((try? String(contentsOf: launches, encoding: .utf8).split(separator: "\n").count) ?? 0, count)
+    }
+
+    @MainActor
+    func testSuccessfulForwardResetsBackoffAcrossRepeatedOutages() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("si-notch-ssh-flap-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ssh = directory.appendingPathComponent("ssh"), count = directory.appendingPathComponent("count")
+        try """
+        #!/bin/sh
+        n=0
+        if [ -f '\(count.path)' ]; then read n < '\(count.path)'; fi
+        n=$((n + 1))
+        echo "$n" > '\(count.path)'
+        if [ "$n" = 1 ]; then exit 255; fi
+        printf '%s\\n' 'debug1: remote forward success for: listen /home/test/e.sock:-2, connect /Users/test/e.sock:-2' >&2
+        if [ "$n" -lt 5 ]; then sleep 0.1; exit 255; fi
+        exec /bin/cat >/dev/null
+        """.write(to: ssh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ssh.path)
+        let controller = RemoteConnectionController(defaults: nil, sshExecutable: ssh,
+            retryDelays: [0.01, 2], socketAvailable: { _ in true })
+        defer { controller.disconnect() }
+        controller.host = "fixture"
+        controller.remoteSocketPath = "/home/test/e.sock"
+        controller.connect(localSocketPath: "/Users/test/e.sock")
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if controller.state == .connected,
+               (try? String(contentsOf: count, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)) == "5" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(controller.state, .connected)
+        XCTAssertEqual(try String(contentsOf: count, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), "5")
     }
 
     @MainActor
@@ -109,8 +148,45 @@ final class RemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testAuthenticationAndHostKeyFailuresStopAutomaticRetries() async throws {
+        for (diagnostic, failure) in [
+            ("fixture: Permission denied (publickey).", RemoteConnectionFailure.authenticationFailed),
+            ("Host key verification failed.", .hostKeyVerificationFailed),
+            ("WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!", .hostKeyVerificationFailed)
+        ] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let ssh = directory.appendingPathComponent("ssh"), launches = directory.appendingPathComponent("launches")
+            try "#!/bin/sh\necho attempt >> '\(launches.path)'\nprintf '%s\\n' '\(diagnostic)' >&2\nexit 255\n"
+                .write(to: ssh, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ssh.path)
+            let controller = RemoteConnectionController(defaults: nil, sshExecutable: ssh,
+                retryDelays: [0.01], socketAvailable: { _ in true })
+            defer { controller.disconnect() }
+            controller.host = "fixture"
+            controller.remoteSocketPath = "/home/test/e.sock"
+            controller.connect(localSocketPath: "/Users/test/e.sock")
+            let deadline = ProcessInfo.processInfo.systemUptime + 3
+            while ProcessInfo.processInfo.systemUptime < deadline, controller.state != .failed(failure) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(controller.state, .failed(failure))
+            try await Task.sleep(for: .milliseconds(80))
+            XCTAssertEqual(try String(contentsOf: launches, encoding: .utf8).split(separator: "\n").count, 1)
+        }
+    }
+
+    @MainActor
     func testRejectedForwardRecoversOnceAndReconnects() async throws {
         try await assertForwardRecovery(recoveryFails: false)
+    }
+
+    @MainActor
+    func testSocketRecoveryRetriesAfterTransientSSHFailures() async throws {
+        for failure in [RemoteSetupError.timedOut, .remote("ssh: connect to host fixture: Operation timed out")] {
+            try await assertForwardRecovery(recoveryFails: false, transientRecoveryFailure: failure)
+        }
     }
 
     @MainActor
@@ -153,7 +229,7 @@ final class RemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    private func assertForwardRecovery(recoveryFails: Bool) async throws {
+    private func assertForwardRecovery(recoveryFails: Bool, transientRecoveryFailure: RemoteSetupError? = nil) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -177,6 +253,7 @@ final class RemoteConnectionTests: XCTestCase {
                 XCTAssertEqual(python, "/custom/python")
                 recoveries += 1
                 if recoveryFails { throw RemoteSetupError.invalidResponse }
+                if recoveries == 1, let transientRecoveryFailure { throw transientRecoveryFailure }
                 try Data().write(to: marker)
             })
         defer { controller.disconnect() }
@@ -190,7 +267,8 @@ final class RemoteConnectionTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertEqual(controller.state, expected)
-        XCTAssertEqual(recoveries, 1)
+        let expectedRecoveries = transientRecoveryFailure == nil ? 1 : 2
+        XCTAssertEqual(recoveries, expectedRecoveries)
         if !recoveryFails {
             controller.disconnect()
             try FileManager.default.removeItem(at: marker)
@@ -200,7 +278,7 @@ final class RemoteConnectionTests: XCTestCase {
                 try await Task.sleep(for: .milliseconds(10))
             }
             XCTAssertEqual(controller.state, .connected)
-            XCTAssertEqual(recoveries, 2)
+            XCTAssertEqual(recoveries, expectedRecoveries + 1)
         }
     }
 

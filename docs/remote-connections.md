@@ -8,6 +8,8 @@
 
 Connections appear as collapsible groups in **Agents**, with their configured profiles inside. The group shows the SSH transport state. Each profile separately shows presence and task activity; the navigation count is the number of profiles online, not the number of SSH connections or tasks. A connected tunnel alone does not mark saved profiles online. Rename a connection at any time or uncheck **Show in Agents**. Removing a connection closes its tunnel and removes its local settings; it does not uninstall the remote plugin. To disable remote reporting, deselect profiles and apply those changes before removing the connection.
 
+Transient SSH failures retry automatically with increasing delays of 1, 2, 4, 8, 15 and then 30 seconds until the host returns or you click **Disconnect**. A confirmed connection resets the delay. Authentication, host-key verification and unsafe socket recovery failures stop automatic retries and require attention in Settings.
+
 ## Set up Hermes profiles
 
 1. Establish trusted key-based SSH access first. Password prompts and unknown host-key acceptance are not handled by the app.

@@ -6,6 +6,8 @@ enum RemoteConnectionFailure: Equatable {
     case invalidPath
     case localSocketUnavailable
     case sshUnavailable
+    case authenticationFailed
+    case hostKeyVerificationFailed
     case socketRecoveryFailed
     case connectionFailed(Int32)
 }
@@ -88,6 +90,23 @@ struct RemoteSSHCommand {
 extension RemoteConnectionFailure: Error {}
 
 enum RemoteSSHForwardConfirmation {
+    static func terminalFailure(_ diagnostic: String) -> RemoteConnectionFailure? {
+        if diagnostic.contains("Host key verification failed") ||
+           diagnostic.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
+            return .hostKeyVerificationFailed
+        }
+        if diagnostic.contains("Permission denied (") || diagnostic.contains("No more authentication methods to try.") {
+            return .authenticationFailed
+        }
+        return nil
+    }
+
+    static func isTransientFailure(_ diagnostic: String) -> Bool {
+        ["Connection timed out", "Operation timed out", "Connection refused", "Connection reset",
+         "Connection closed", "Broken pipe", "Network is unreachable", "No route to host",
+         "Could not resolve hostname", "not responding"].contains { diagnostic.contains($0) }
+    }
+
     static func matches(_ line: String, remoteSocketPath: String, localSocketPath: String) -> Bool {
         // OpenSSH -v prints this only after sshd acknowledges the -R request.
         // Its stream-local sentinel is -2 for both paths. Match both endpoints.
@@ -120,6 +139,7 @@ final class RemoteConnectionController: ObservableObject {
     private var diagnosticTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
     private var forwardRejected = false
+    private var terminalFailure: RemoteConnectionFailure?
     private var recoveryAttempted = false
     private var errorPipe: Pipe?
     private var lifetimePipe: Pipe?
@@ -127,7 +147,7 @@ final class RemoteConnectionController: ObservableObject {
     private var discardingLongLine = false
 
     init(defaults: UserDefaults? = .standard, sshExecutable: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
-         retryDelays: [TimeInterval] = [1, 2, 4], socketAvailable: @escaping (String) -> Bool = RemoteConnectionController.isSocketAvailable,
+         retryDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30], socketAvailable: @escaping (String) -> Bool = RemoteConnectionController.isSocketAvailable,
          recoverSocket: @escaping (RemoteSSHCommand, String) async throws -> Void = {
              try await RemoteHermesSetupClient(timeout: 15).recoverSocket($0, pythonPath: $1)
          }) {
@@ -188,6 +208,7 @@ final class RemoteConnectionController: ObservableObject {
         generation &+= 1
         let token = generation
         forwardRejected = false
+        terminalFailure = nil
         let child = Process()
         child.executableURL = sshExecutable
         child.arguments = ["-v"] + command.arguments
@@ -232,7 +253,7 @@ final class RemoteConnectionController: ObservableObject {
             pipe.fileHandleForReading.readabilityHandler = nil
             try? lifetime.fileHandleForWriting.close()
             lifetimePipe = nil
-            scheduleRetry(status: -1, token: token)
+            state = .failed(.sshUnavailable)
         }
     }
 
@@ -247,11 +268,13 @@ final class RemoteConnectionController: ObservableObject {
                                                             localSocketPath: command.localSocketPath) {
                         readyTask?.cancel(); readyTask = nil
                         state = .connected
+                        attempt = 0
                         recoveryAttempted = false
                     } else if RemoteSSHForwardConfirmation.rejects(line, remoteSocketPath: command.remoteSocketPath,
                                                                   localSocketPath: command.localSocketPath) {
                         forwardRejected = true
                     }
+                    if let failure = RemoteSSHForwardConfirmation.terminalFailure(line) { terminalFailure = failure }
                 }
                 diagnosticLine.removeAll(keepingCapacity: true)
                 discardingLongLine = false
@@ -276,6 +299,10 @@ final class RemoteConnectionController: ObservableObject {
         diagnosticLine.removeAll()
         discardingLongLine = false
         readyTask?.cancel(); readyTask = nil
+        if let terminalFailure {
+            state = .failed(terminalFailure)
+            return
+        }
         if child.terminationStatus == 255, forwardRejected, !recoveryAttempted, let command {
             recoveryAttempted = true
             state = .retrying
@@ -288,6 +315,27 @@ final class RemoteConnectionController: ObservableObject {
                     self.launch()
                 } catch {
                     guard !Task.isCancelled, self.generation == token else { return }
+                    // The recovery SSH call can lose the network too. Only a
+                    // completed safety check may stop socket recovery permanently.
+                    if let failure = error as? RemoteSetupError {
+                        switch failure {
+                        case .timedOut:
+                            self.recoveryAttempted = false
+                            self.scheduleRetry(status: child.terminationStatus, token: token)
+                            return
+                        case .remote(let diagnostic):
+                            if let terminal = RemoteSSHForwardConfirmation.terminalFailure(diagnostic) {
+                                self.state = .failed(terminal)
+                            } else if RemoteSSHForwardConfirmation.isTransientFailure(diagnostic) {
+                                self.recoveryAttempted = false
+                                self.scheduleRetry(status: child.terminationStatus, token: token)
+                            } else {
+                                self.state = .failed(.socketRecoveryFailed)
+                            }
+                            return
+                        default: break
+                        }
+                    }
                     self.state = .failed(.socketRecoveryFailed)
                 }
             }
@@ -298,9 +346,11 @@ final class RemoteConnectionController: ObservableObject {
 
     private func scheduleRetry(status: Int32, token: UInt64) {
         guard generation == token, command != nil else { return }
-        guard attempt < retryDelays.count else { state = .failed(.connectionFailed(status)); return }
-        let delay = retryDelays[attempt]
-        attempt += 1
+        guard !retryDelays.isEmpty else { state = .failed(.connectionFailed(status)); return }
+        // Keep the user's connection intent through sleep and network outages.
+        // Saturate the backoff rather than exhausting a lifetime retry budget.
+        let delay = retryDelays[min(attempt, retryDelays.count - 1)]
+        attempt = min(attempt + 1, retryDelays.count)
         state = .retrying
         retryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(max(0, delay)))

@@ -337,6 +337,8 @@
 "remote.error.localSocketUnavailable" = "本地事件套接字不可用。";
 "remote.error.sshUnavailable" = "此 Mac 上无法使用 SSH 客户端。";
 "remote.error.connectionFailed" = "SSH 连接失败（退出状态 %d）。";
+"remote.error.authenticationFailed" = "SSH 身份验证失败。请检查现有 SSH 密钥对此主机的访问权限，然后重新连接。";
+"remote.error.hostKeyVerificationFailed" = "SSH 主机验证失败。请在 known_hosts 中验证此主机，然后重新连接。";
 "about.report.version" = "si-notch %@（构建 %@）";
 "about.report.channel" = "本地通道：%@";
 "about.report.events" = "已接收事件：%d";

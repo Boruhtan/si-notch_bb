@@ -337,6 +337,8 @@
 "remote.error.localSocketUnavailable" = "The local event socket is unavailable.";
 "remote.error.sshUnavailable" = "The SSH client is unavailable on this Mac.";
 "remote.error.connectionFailed" = "SSH connection failed (exit status %d).";
+"remote.error.authenticationFailed" = "SSH authentication failed. Check this host's existing SSH key access, then reconnect.";
+"remote.error.hostKeyVerificationFailed" = "SSH host verification failed. Verify this host in known_hosts, then reconnect.";
 "about.report.version" = "si-notch %@ (build %@)";
 "about.report.channel" = "Local channel: %@";
 "about.report.events" = "Events received: %d";

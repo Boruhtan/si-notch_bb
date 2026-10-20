@@ -44,6 +44,8 @@ Static captures do not measure animation smoothness or compositor frame rate. Ch
 
 Add `--qa-interaction-only` to check the approach, dwell, native panel geometry and Settings audio sink without posting input to the desktop. Add `--qa-service-only` to render the two observed memory-job signatures beside an ordinary task in all three languages. These controlled fixtures do not establish subjective hover feel on physical hardware.
 
+For SSH reconnection, keep a saved remote connection enabled and interrupt only the SSH child owned by the installed app. Verify that Settings returns to Connected without clicking Connect, a replacement tunnel has the same app parent, and profile presence resumes within a heartbeat interval. Repeat more than three times. Separately exercise a prolonged network outage and sleep/wake on hardware; local fake-SSH regressions cover retry exhaustion and backoff reset but do not establish those physical-network results. Explicit Disconnect must cancel pending retries. Authentication, host-key and unsafe socket errors must stop rather than modifying SSH trust or socket ownership.
+
 ## Update installation
 
 Using the extracted app above, run:

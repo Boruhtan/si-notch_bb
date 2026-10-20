@@ -337,6 +337,8 @@
 "remote.error.localSocketUnavailable" = "Локальный сокет событий недоступен.";
 "remote.error.sshUnavailable" = "На этом Mac недоступен клиент SSH.";
 "remote.error.connectionFailed" = "Сбой подключения SSH (код выхода %d).";
+"remote.error.authenticationFailed" = "Ошибка аутентификации SSH. Проверьте доступ к хосту с существующим SSH-ключом и подключитесь снова.";
+"remote.error.hostKeyVerificationFailed" = "Ошибка проверки SSH-хоста. Проверьте хост в known_hosts и подключитесь снова.";
 "about.report.version" = "si-notch %@ (сборка %@)";
 "about.report.channel" = "Локальный канал: %@";
 "about.report.events" = "Получено событий: %d";
