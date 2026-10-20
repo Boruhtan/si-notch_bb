@@ -358,8 +358,11 @@ final class PresentationModelTests: XCTestCase {
         XCTAssertNil(model.expansionTimer)
         model.hover(false)
         try await Task.sleep(for: .milliseconds(450))
+        let opened = expectation(description: "hover opens after cooldown and a new entry")
+        model.onLayout = { if model.expanded { opened.fulfill() } }
         model.hover(true)
-        try await Task.sleep(for: .milliseconds(220))
+        XCTAssertEqual(try XCTUnwrap(model.expansionTimer).timeInterval, HoverIntent.sampleInterval)
+        await fulfillment(of: [opened], timeout: 2)
         XCTAssertTrue(model.expanded)
     }
     @MainActor

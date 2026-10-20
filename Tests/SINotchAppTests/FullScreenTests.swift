@@ -50,8 +50,10 @@ final class FullScreenTests: XCTestCase {
         XCTAssertFalse(visible)
         XCTAssertFalse(adapter.canAutomaticallyReveal(for: nil))
         model.hoverLocation = { .zero }
+        let opened = expectation(description: "hover reveals the panel in fullscreen")
+        model.onLayout = { adapter.refresh(); if model.expanded { opened.fulfill() } }
         model.hover(true)
-        try await Task.sleep(for: .milliseconds(260))
+        await fulfillment(of: [opened], timeout: 2)
         XCTAssertTrue(model.expanded)
         XCTAssertTrue(visible)
         model.defaults.set(true, forKey: "keepOpen")
