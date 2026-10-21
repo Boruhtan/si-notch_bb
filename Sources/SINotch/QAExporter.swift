@@ -863,19 +863,23 @@ enum QAExporter {
             }
             overrides["companionStyle"] = "cat"
             applyOverrides()
-            try await captureHosted(VStack(spacing: 0) {
+            let iconGallery = VStack(spacing: 0) {
                 ForEach(CompanionStyle.allCases) { style in
                     HStack(spacing: 0) {
                         ForEach([false, true], id: \.self) { dark in
                             HStack(spacing: 20) {
                                 Image(nsImage: StatusBarIcon.make(style: style))
-                                Image(nsImage: StatusBarIcon.make(style: style)).resizable().interpolation(.none).frame(width: 80, height: 72)
+                                Image(nsImage: StatusBarIcon.make(style: style)).resizable().frame(width: 80, height: 72)
                             }.foregroundStyle(dark ? Color.white : Color.black)
                                 .frame(width: 160, height: 100).background(dark ? Color(white: 0.12) : Color(white: 0.93))
                         }
                     }
                 }
-            }, name: "menu-companions-light-dark", language: "en", size: NSSize(width: 320, height: 400))
+            }
+            for screen in NSScreen.screens {
+                try await captureHosted(iconGallery, name: "menu-companions-\(delegate.screenID(screen))-light-dark",
+                                        language: "en", size: NSSize(width: 320, height: 400), screen: screen)
+            }
             overrides["screenID"] = "auto"
             applyOverrides()
             try await settle(expanded: false)
@@ -1132,10 +1136,11 @@ enum QAExporter {
                   "\(samples) exterior pixels sampled; maximum alpha=\(maximumAlpha).")
         }
 
-        func captureHosted<Content: View>(_ content: Content, name: String, language: String, size: NSSize) async throws {
+        func captureHosted<Content: View>(_ content: Content, name: String, language: String, size: NSSize,
+                                        screen: NSScreen? = nil) async throws {
             let host = NSHostingView(rootView: content.environment(\.locale, Locale(identifier: language)))
             host.sizingOptions = []
-            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
+            let window = NSWindow(contentRect: NSRect(origin: screen?.visibleFrame.origin ?? .zero, size: size), styleMask: [.borderless],
                                   backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = host
