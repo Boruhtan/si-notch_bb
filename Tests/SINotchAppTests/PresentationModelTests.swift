@@ -5,6 +5,30 @@ import SINotchCore
 
 final class PresentationModelTests: XCTestCase {
     @MainActor
+    func testClearBatchesFinishedSessionsWithoutRemovingActiveWorkOrOpeningPanel() {
+        let model = makeModel()
+        defer { model.shutdown() }
+        for id in ["done-one", "done-two", "done-three"] {
+            model.store.apply(AgentEvent(sessionID: id, provider: "custom", kind: .completed))
+            model.measuredSessionHeights[id] = 140
+        }
+        model.store.apply(AgentEvent(sessionID: "active", provider: "custom", kind: .working))
+        model.selectedID = "done-one"
+        var layouts = 0
+        model.onLayout = { layouts += 1 }
+        let revision = model.revision
+        model.clearFinished()
+        XCTAssertEqual(model.sessions.map(\.id), ["active"])
+        XCTAssertNil(model.selectedID)
+        XCTAssertTrue(model.measuredSessionHeights.isEmpty)
+        XCTAssertEqual(layouts, 1, "Clear must have one final layout, not one retarget per card")
+        XCTAssertEqual(model.revision, revision + 1)
+        XCTAssertFalse(model.expanded, "Clearing through the menu cannot open a closed panel")
+        model.clearFinished()
+        XCTAssertEqual(layouts, 1, "An empty Clear is a no-op")
+    }
+
+    @MainActor
     func testRemoteGroupExpansionGrowsAndCollapsesPanelWithoutAgentEvents() throws {
         let model = makeModel()
         defer { model.shutdown() }

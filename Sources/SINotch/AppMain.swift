@@ -564,13 +564,35 @@ final class AppModel: ObservableObject {
               pending.isEmpty, !sessions.contains(where: { attentionIdentity($0.id) != nil }) else { return }
         reveal()
     }
-    func dismiss(_ id: String) { reminders.cancel(id); cancelRequest(id); observedAttention[id] = nil; store.removeSession(id: id); appOwnedTitles[id] = nil; appOwnedMessages[id] = nil; if selectedID == id { selectedID = nil }; revision += 1; onLayout?() }
+    func dismiss(_ id: String) { dismissSessions([id]) }
+    private func dismissSessions(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            reminders.cancel(id)
+            cancelRequest(id)
+            observedAttention[id] = nil
+            store.removeSession(id: id)
+            appOwnedTitles[id] = nil
+            appOwnedMessages[id] = nil
+            measuredSessionHeights[id] = nil
+            if selectedID == id { selectedID = nil }
+        }
+        revision += 1
+        onLayout?()
+    }
     func reconcileFilters() {
         for session in store.orderedSessions where sessionFilter.hides(path: session.projectPath, firstPrompt: session.firstPrompt) {
             dismiss(session.id)
         }
     }
-    func clearFinished() { for s in sessions where [.completed, .failed, .ended].contains(s.status) { dismiss(s.id) } }
+    func clearFinished() {
+        let ids = sessions.filter { [.completed, .failed, .ended].contains($0.status) }.map(\.id)
+        guard !ids.isEmpty else { return }
+        // Clear is a deliberate interaction with an open panel. Preserve that
+        // ownership even when the last session disappears in session-only mode.
+        if expanded { setExpanded(true, origin: .manual) }
+        dismissSessions(ids)
+    }
     func inject(_ object: [String: Any], appOwnedTitleKey: String? = nil, appOwnedMessageKey: String? = nil) {
         receive(json(object), reply: { _ in })
         if let id = object["session_id"] as? String {
@@ -890,16 +912,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ? geometry.expandedFrame(width: width, height: height, topOffset: offset)
             : compactFrame
         let rect = menuMode ? contentFrame : geometry.coveringTopEdge(contentFrame)
-        // Interaction follows the logical destination immediately. During a
-        // collapse the departing large panel must not become a hover target.
+        // Compact activation always follows the destination immediately. An
+        // already open panel may retain an ongoing interaction across a resize.
         model.hoverRegion = rect
         model.compactHoverRegion = menuMode ? compactFrame : geometry.coveringTopEdge(compactFrame)
         if let host = panel.contentView as? TrackingHost<IslandView> {
             host.hiddenInteractionFrame = geometry.fullScreenRevealFrame
-            host.interactionShape = IslandSilhouette(shoulder: model.expanded ? 14 : model.compactShoulderWidth,
-                                                     bottomRadius: model.expanded ? 24 : 13)
             host.allowsHoverDuringDrag = model.expanded
-            host.interactionFrame = rect
+            host.updateInteraction(frame: rect,
+                shape: IslandSilhouette(shoulder: model.expanded ? 14 : model.compactShoulderWidth,
+                                        bottomRadius: model.expanded ? 24 : 13),
+                preservingHover: model.expanded && targetExpanded && targetScreenID == screenID(screen) &&
+                    targetBelowMenu == menuMode)
         }
         let currentScreenID = screenID(screen)
         let animate = allowAnimation && targetPanelFrame != nil && panel.isVisible &&
@@ -909,7 +933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // visible window is still travelling. Do not restart that animation.
         if targetPanelFrame == rect && animate && (panel.frame == rect || frameAnimation?.isRunning == true) { return }
         let velocity = frameAnimation?.isRunning == true ? frameAnimation!.velocity : .init()
-        let opening = model.expanded && !targetExpanded
+        let transition: IslandFrameMotion.Transition
+        if model.expanded != targetExpanded { transition = model.expanded ? .expand : .collapse }
+        else if let animation = frameAnimation, animation.isRunning { transition = animation.transition }
+        else { transition = .resize }
         frameAnimation?.stop()
         frameAnimation = nil
         targetPanelFrame = rect
@@ -926,7 +953,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Retain an explicitly cancellable animation so reversal, display changes,
         // and Reduce Motion start from the real current frame without a late snap.
         let animation = IslandWindowAnimator(window: panel, destination: rect,
-            expanding: opening, framesPerSecond: screen.maximumFramesPerSecond,
+            transition: transition, framesPerSecond: screen.maximumFramesPerSecond,
             initialVelocity: velocity, onFrame: onAnimationFrame)
         frameAnimation = animation
         animation.start()
@@ -1087,6 +1114,7 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
     var pointerButtons: () -> Int = { NSEvent.pressedMouseButtons }
     var allowsHoverDuringDrag = false
     var interactionShape: IslandSilhouette?
+    private var retainedHoverRegion: (frame: CGRect, shape: IslandSilhouette?)?
     private var lastMotionTime: TimeInterval?
     var interactionFrame: CGRect? {
         didSet { if oldValue != interactionFrame { synchronizeHover() } }
@@ -1097,6 +1125,21 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
     private var requiresReentry = false
     private var localMotionMonitor: Any?
     private var globalMotionMonitor: Any?
+
+    func updateInteraction(frame: CGRect, shape: IslandSilhouette, preservingHover: Bool) {
+        if !preservingHover {
+            retainedHoverRegion = nil
+        } else if pointerIsInside, retainedHoverRegion == nil, let previous = interactionFrame,
+                  !shape.contains(pointerLocation(), inScreenFrame: frame) {
+            // Content can shrink away from the Clear button or a collapsed card.
+            // Keep a bridge through the previously occupied surface until the
+            // pointer reaches the new surface or actually leaves the old one.
+            retainedHoverRegion = (previous, interactionShape)
+        }
+        interactionShape = shape
+        interactionFrame = frame
+        synchronizeHover()
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -1132,6 +1175,7 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
         synchronizeHover()
     }
     func resetHover(requiringExit: Bool) {
+        retainedHoverRegion = nil
         requiresReentry = requiringExit && (hiddenInteractionFrame?.contains(pointerLocation()) ?? false)
         pointerIsInside = false
         lastMotionTime = nil
@@ -1140,9 +1184,13 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
     func containsHoverPoint(_ location: CGPoint) -> Bool {
         guard !requiresReentry, allowsHoverDuringDrag || pointerButtons() == 0 else { return false }
         if let window, window.isVisible, let interactionFrame {
-            return interactionShape?.contains(location, inScreenFrame: interactionFrame) ?? interactionFrame.contains(location)
+            return contains(location, frame: interactionFrame, shape: interactionShape) ||
+                retainedHoverRegion.map { contains(location, frame: $0.frame, shape: $0.shape) } == true
         }
         return tracksHiddenHover && (hiddenInteractionFrame?.contains(location) ?? false)
+    }
+    private func contains(_ point: CGPoint, frame: CGRect, shape: IslandSilhouette?) -> Bool {
+        shape?.contains(point, inScreenFrame: frame) ?? frame.contains(point)
     }
     private func synchronizeHover(motion: NSEvent? = nil) {
         let location = pointerLocation()
@@ -1152,16 +1200,23 @@ final class TrackingHost<Content: View>: NSHostingView<Content> {
             moved = true
             lastMotionTime = motion.timestamp
         }
+        if moved, let retained = retainedHoverRegion {
+            let reachedNewSurface = interactionFrame.map { contains(location, frame: $0, shape: interactionShape) } == true
+            if reachedNewSurface || !contains(location, frame: retained.frame, shape: retained.shape) {
+                retainedHoverRegion = nil
+            }
+        }
         let inside: Bool
         if requiresReentry {
             if hiddenInteractionFrame?.contains(location) != true { requiresReentry = false }
             inside = false
         } else { inside = containsHoverPoint(location) }
         // Resizing/showing a window under a parked pointer is not an entry.
-        // Exits still take effect immediately when the logical target shrinks.
+        // A compact target never retains the old expanded interaction region.
         if inside && !pointerIsInside && !moved { return }
         if inside != pointerIsInside {
             pointerIsInside = inside
+            if !inside { retainedHoverRegion = nil }
             onHover?(inside)
         }
         if inside, moved { onPointerMove?(location) }

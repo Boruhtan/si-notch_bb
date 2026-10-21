@@ -4,6 +4,17 @@ import SwiftUI
 /// Both axes share one response so the outline grows as one surface. Every
 /// component carries its velocity into an interrupted or reversed transition.
 struct IslandFrameMotion {
+    enum Transition {
+        case expand, collapse, resize
+
+        var duration: TimeInterval {
+            switch self {
+            case .expand: return 0.30
+            case .collapse: return 0.26
+            case .resize: return 0.28
+            }
+        }
+    }
     struct Velocity {
         var center: Double = 0
         var width: Double = 0
@@ -17,11 +28,11 @@ struct IslandFrameMotion {
     private let heightSpring: Spring
     private let centerSpring: Spring
 
-    init(origin: CGRect, destination: CGRect, expanding: Bool, initialVelocity: Velocity = .init()) {
+    init(origin: CGRect, destination: CGRect, transition: Transition, initialVelocity: Velocity = .init()) {
         self.origin = origin
         self.destination = destination
         self.initialVelocity = initialVelocity
-        let response = Spring(duration: expanding ? 0.28 : 0.24, bounce: 0)
+        let response = Spring(duration: transition.duration, bounce: 0)
         widthSpring = response
         heightSpring = response
         centerSpring = response

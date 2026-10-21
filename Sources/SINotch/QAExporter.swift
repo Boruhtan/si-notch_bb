@@ -370,6 +370,38 @@ enum QAExporter {
             try move(CGPoint(x: region.midX, y: region.minY - 600))
             model.setExpanded(false, origin: .automatic)
 
+            clearFixtures()
+            for index in 0..<4 {
+                model.inject(["event": "agent.completed", "session_id": "qa-clear-\(index)", "provider": "custom",
+                    "title": "Completed task \(index + 1)", "message": "Finished reviewing the change."])
+            }
+            model.setExpanded(true, origin: .hover)
+            try await pause(0.7)
+            let beforeClear = delegate.panel.frame
+            let footer = CGPoint(x: beforeClear.maxX - 80, y: beforeClear.minY + 18)
+            try move(footer)
+            try capturePanel(name: "clear-before", language: "en")
+            model.clearFinished()
+            try await pause(0.6)
+            let afterClear = delegate.panel.frame
+            check("clear-resizes-without-collapsing", model.sessions.isEmpty && model.expanded && model.pointerInside &&
+                  afterClear.height < beforeClear.height && abs(afterClear.width - beforeClear.width) < 1,
+                  "Clearing the real panel shrinks its content while preserving interaction at the stationary footer pointer.")
+            try capturePanel(name: "clear-after", language: "en")
+            try move(CGPoint(x: beforeClear.midX, y: beforeClear.minY + 35))
+            try await pause(0.35)
+            check("clear-allows-return-through-old-surface", model.expanded && model.pointerInside,
+                  "The user can move back toward the shorter panel without racing its collapse timer.")
+            try move(CGPoint(x: afterClear.midX, y: afterClear.midY))
+            try move(footer)
+            try await pause(0.6)
+            check("clear-return-releases-old-surface", !model.expanded && !model.pointerInside,
+                  "After entering the resized surface, leaving it collapses normally; the old footprint is no longer retained.")
+            try move(footer)
+            try await pause(0.25)
+            check("clear-never-enlarges-compact-activation", !model.expanded && model.expansionTimer == nil,
+                  "The collapsed notch cannot reopen from the previous Clear button location.")
+
             let suite = "si-notch.qa-settings-sound." + UUID().uuidString
             let preferences = UserDefaults(suiteName: suite)!
             var arguments = overrides

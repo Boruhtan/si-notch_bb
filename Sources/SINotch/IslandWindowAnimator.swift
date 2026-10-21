@@ -13,6 +13,7 @@ final class IslandWindowAnimator: NSObject {
     private weak var window: NSWindow?
     private let destination: NSRect
     private let motion: IslandFrameMotion
+    let transition: IslandFrameMotion.Transition
     private let framesPerSecond: Double
     private var displayLink: CADisplayLink?
     private var began: TimeInterval = 0
@@ -23,12 +24,13 @@ final class IslandWindowAnimator: NSObject {
         motion.velocity(at: ProcessInfo.processInfo.systemUptime - began)
     }
 
-    init(window: NSWindow, destination: NSRect, expanding: Bool, framesPerSecond: Int,
+    init(window: NSWindow, destination: NSRect, transition: IslandFrameMotion.Transition, framesPerSecond: Int,
          initialVelocity: IslandFrameMotion.Velocity = .init(), onFrame: ((FrameTiming) -> Void)? = nil) {
         self.window = window
         self.destination = destination
+        self.transition = transition
         motion = IslandFrameMotion(origin: window.frame, destination: destination,
-                                   expanding: expanding, initialVelocity: initialVelocity)
+                                   transition: transition, initialVelocity: initialVelocity)
         self.framesPerSecond = Double(max(30, min(120, framesPerSecond)))
         self.onFrame = onFrame
         super.init()

@@ -22,7 +22,7 @@ final class IslandFrameMotionTests: XCTestCase {
     }
 
     func testDropOpensAsOneSurfaceWithoutReboundAndWithFixedTop() {
-        let motion = IslandFrameMotion(origin: compact, destination: expanded, expanding: true)
+        let motion = IslandFrameMotion(origin: compact, destination: expanded, transition: .expand)
         XCTAssertEqual(motion.frame(at: 0), compact)
         XCTAssertGreaterThan(motion.frame(at: 0.14).height, expanded.height * 0.75)
         XCTAssertLessThan(motion.frame(at: 0.05).height, expanded.height * 0.65)
@@ -41,11 +41,11 @@ final class IslandFrameMotionTests: XCTestCase {
     }
 
     func testReversalPreservesPositionAndVelocityAndSettles() {
-        let open = IslandFrameMotion(origin: compact, destination: expanded, expanding: true)
+        let open = IslandFrameMotion(origin: compact, destination: expanded, transition: .expand)
         let time = 0.09
         let frame = open.frame(at: time)
         let velocity = open.velocity(at: time)
-        let close = IslandFrameMotion(origin: frame, destination: compact, expanding: false, initialVelocity: velocity)
+        let close = IslandFrameMotion(origin: frame, destination: compact, transition: .collapse, initialVelocity: velocity)
         XCTAssertEqual(close.frame(at: 0), frame)
         XCTAssertEqual(close.velocity(at: 0).height, velocity.height, accuracy: 0.001)
         XCTAssertEqual(close.velocity(at: 0).width, velocity.width, accuracy: 0.001)
@@ -56,7 +56,7 @@ final class IslandFrameMotionTests: XCTestCase {
     }
 
     func testCollapseDoesNotExposeThePhysicalCutout() {
-        let close = IslandFrameMotion(origin: expanded, destination: compact, expanding: false)
+        let close = IslandFrameMotion(origin: expanded, destination: compact, transition: .collapse)
         var last = expanded.height
         for step in 0...120 {
             let frame = close.frame(at: Double(step) / 120)
@@ -65,5 +65,24 @@ final class IslandFrameMotionTests: XCTestCase {
             last = frame.height
         }
         XCTAssertTrue(close.isSettled(at: 0.6))
+    }
+
+    func testResizingContentPreservesWidthAndTopAndCanReverseWithoutStopping() {
+        let smaller = CGRect(x: expanded.minX, y: 790, width: expanded.width, height: 210)
+        let shrink = IslandFrameMotion(origin: expanded, destination: smaller, transition: .resize)
+        let time = 0.08
+        let frame = shrink.frame(at: time)
+        let velocity = shrink.velocity(at: time)
+        let grow = IslandFrameMotion(origin: frame, destination: expanded, transition: .resize,
+                                     initialVelocity: velocity)
+        XCTAssertEqual(grow.frame(at: 0), frame)
+        XCTAssertEqual(grow.velocity(at: 0).height, velocity.height, accuracy: 0.001)
+        for step in 0...84 {
+            let frame = grow.frame(at: Double(step) / 120)
+            XCTAssertEqual(frame.width, expanded.width, accuracy: 0.001)
+            XCTAssertEqual(frame.maxY, expanded.maxY, accuracy: 0.001)
+            XCTAssertGreaterThanOrEqual(frame.height, smaller.height)
+        }
+        XCTAssertTrue(grow.isSettled(at: 0.7))
     }
 }
