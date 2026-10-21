@@ -1,0 +1,2 @@
+- Improves external-display support with a compact capsule below the menu bar and smooth panel expansion.
+- Matches the menu bar icon to the selected companion and updates it immediately.
