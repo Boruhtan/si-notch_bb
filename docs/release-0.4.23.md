@@ -1,0 +1,2 @@
+- Keeps the notch open when clearing completed tasks.
+- Makes panel opening, closing, and resizing smoother.
