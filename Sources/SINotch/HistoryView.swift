@@ -21,16 +21,23 @@ struct HistoryView: View {
                     .padding(.horizontal, 22).padding(.bottom, 12)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
-                        Text(entry.summary.title).font(.system(size: 13, weight: .semibold)).textSelection(.enabled)
-                        if entry.summary.memoryService {
-                            Label(L10n.tr("session.serviceMemory"), systemImage: "gearshape.2").font(.system(size: 10)).foregroundStyle(.secondary)
-                        }
+                        Text(entry.summary.historyTitle).font(.system(size: 13, weight: .semibold)).textSelection(.enabled)
+                        HStack(spacing: 10) {
+                            Label(entry.summary.status.historyLabel, systemImage: entry.summary.status.historySymbol)
+                                .foregroundStyle(entry.summary.status.tint)
+                            if entry.summary.memoryService {
+                                Label(entry.summary.historyProviderName, systemImage: "brain")
+                                    .foregroundStyle(NotchDesign.secondary).help(L10n.tr("session.serviceMemoryHelp"))
+                            } else {
+                                Text(entry.summary.historyProviderName).foregroundStyle(NotchDesign.secondary)
+                            }
+                        }.font(.system(size: 10, weight: .medium))
                         Text(entry.summary.startedAt, format: .dateTime.day().month().hour().minute())
                             .font(.system(size: 10)).foregroundStyle(NotchDesign.muted)
                         ForEach(Array(entry.items.enumerated()), id: \.offset) { _, item in
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
-                                    Text(item.role.historyLabel)
+                                    Label(item.role.historyLabel, systemImage: item.role.historySymbol)
                                         .font(.system(size: 10, weight: .semibold)).foregroundStyle(item.role == .command ? .cyan : NotchDesign.secondary)
                                     Spacer()
                                     Button { copy(item.text) } label: { Image(systemName: "doc.on.doc") }
@@ -64,22 +71,7 @@ struct HistoryView: View {
                         LazyVStack(spacing: 3) {
                             ForEach(Array(matches.prefix(history.visibleCount))) { item in
                                 Button { history.open(item.id) } label: {
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        HStack(alignment: .top, spacing: 8) {
-                                            Image(systemName: item.memoryService ? "gearshape.2" : item.status.symbol)
-                                                .foregroundStyle(item.status.tint).frame(width: 16)
-                                            Text(item.title).font(.system(size: 12, weight: .medium)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                                            Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(NotchDesign.muted)
-                                        }
-                                        HStack(spacing: 8) {
-                                            Text(item.provider.capitalized)
-                                            if item.memoryService { Text(L10n.tr("session.serviceMemory")) }
-                                            if let project = item.project { Text(URL(fileURLWithPath: project).lastPathComponent).lineLimit(1) }
-                                            Spacer(minLength: 4)
-                                            Text(item.updatedAt, format: .dateTime.day().month().hour().minute())
-                                        }.font(.system(size: 10)).foregroundStyle(NotchDesign.secondary)
-                                    }.padding(12).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
-                                        .contentShape(Rectangle())
+                                    HistoryRow(summary: item)
                                 }.buttonStyle(.plain)
                             }
                             if matches.isEmpty { Text(L10n.tr("history.noMatches")).font(.system(size: 12)).foregroundStyle(.secondary).padding(24) }
@@ -98,6 +90,72 @@ struct HistoryView: View {
         }.frame(maxHeight: .infinity, alignment: .top)
     }
     private func copy(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
+}
+
+private struct HistoryRow: View {
+    let summary: HistorySummary
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: summary.status.historySymbol)
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(summary.status.tint)
+                .frame(width: 24, height: 24)
+                .background(summary.status.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(summary.historyTitle).font(.system(size: 12, weight: .medium))
+                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(NotchDesign.muted).padding(.top, 3).accessibilityHidden(true)
+                }
+                HStack(spacing: 6) {
+                    Text(summary.status.historyLabel).foregroundStyle(summary.status.tint).fixedSize()
+                    Text("·").foregroundStyle(NotchDesign.muted)
+                    if summary.memoryService {
+                        Label(summary.historyProviderName, systemImage: "brain")
+                            .help(L10n.tr("session.serviceMemoryHelp")).fixedSize()
+                    } else {
+                        Text(summary.historyProviderName).lineLimit(1)
+                    }
+                    if let project = summary.project {
+                        Text(URL(fileURLWithPath: project).lastPathComponent)
+                            .lineLimit(1).truncationMode(.middle).layoutPriority(-1)
+                    }
+                    Spacer(minLength: 0)
+                    Text(summary.updatedAt, format: .dateTime.day().month().hour().minute()).fixedSize()
+                }.font(.system(size: 10)).foregroundStyle(NotchDesign.secondary)
+            }
+        }.padding(.horizontal, 11).padding(.vertical, 10)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
+            .help(L10n.tr("history.statusHelp", summary.status.historyLabel))
+    }
+}
+
+extension HistorySummary {
+    var historyTitle: String { memoryService ? L10n.tr("history.memoryTitle") : title }
+    var historyProviderName: String { SessionCardContent.providerName(provider) }
+}
+
+extension AgentStatus {
+    var historySymbol: String {
+        switch self {
+        case .idle: return "minus"
+        case .working: return "ellipsis"
+        case .waiting: return "questionmark.bubble"
+        case .approval: return "hand.raised"
+        case .completed: return "checkmark"
+        case .failed: return "xmark"
+        case .ended: return "stop.fill"
+        }
+    }
+    var historyLabel: String {
+        switch self {
+        case .idle: return L10n.tr("history.idle")
+        case .ended: return L10n.tr("history.ended")
+        default: return label
+        }
+    }
 }
 
 struct HistorySettingsView: View {
@@ -162,6 +220,13 @@ struct HistorySettingsView: View {
 }
 
 extension AgentHistoryItem.Role {
+    var historySymbol: String {
+        switch self {
+        case .user: return "person"
+        case .assistant: return "text.bubble"
+        case .command: return "terminal"
+        }
+    }
     var historyLabel: String {
         switch self {
         case .user: return L10n.tr("history.role.user")

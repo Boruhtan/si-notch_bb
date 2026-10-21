@@ -612,3 +612,7 @@
 "history.role.user" = "Запрос";
 "history.role.assistant" = "Ответ";
 "history.role.command" = "Команда";
+"history.memoryTitle" = "Обновление памяти";
+"history.idle" = "Неактивно";
+"history.ended" = "Закрыто";
+"history.statusHelp" = "Последний сохранённый статус: %@";

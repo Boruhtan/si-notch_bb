@@ -6,6 +6,11 @@ import SINotchCore
 struct CodexSessionObservation {
     let event: AgentEvent
     let isBootstrap: Bool
+    let isHistoryOnly: Bool
+
+    init(event: AgentEvent, isBootstrap: Bool, isHistoryOnly: Bool = false) {
+        self.event = event; self.isBootstrap = isBootstrap; self.isHistoryOnly = isHistoryOnly
+    }
 }
 
 /// Polls recent local rollouts. Optional public snippets exclude reasoning,
@@ -41,6 +46,7 @@ struct CodexRolloutScanner {
 
     let sessionsRoot: URL
     let includeContent: Bool
+    private let historySessionKeys: Set<String>
     var silenceInterval: TimeInterval = 15 * 60
     private var files: [String: FileState] = [:]
     private var directories = SessionDirectoryCache()
@@ -50,9 +56,11 @@ struct CodexRolloutScanner {
     private let maximumIncrementBytes = 512 * 1_024
 
     init(sessionsRoot: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".codex/sessions", isDirectory: true), includeContent: Bool = false) {
+        .appendingPathComponent(".codex/sessions", isDirectory: true), includeContent: Bool = false,
+         historySessionKeys: Set<String> = []) {
         self.sessionsRoot = sessionsRoot.standardizedFileURL.resolvingSymlinksInPath()
         self.includeContent = includeContent
+        self.historySessionKeys = historySessionKeys
     }
 
     mutating func poll(now: Date = Date(), changedPaths: [URL]? = nil) -> [CodexSessionObservation] {
@@ -103,6 +111,12 @@ struct CodexRolloutScanner {
         var found: [Candidate] = []
         var parents: [URL: Bool] = [:]
         for candidateURL in urls where candidateURL.lastPathComponent.hasPrefix("rollout-") && candidateURL.pathExtension == "jsonl" {
+            if !historySessionKeys.isEmpty {
+                let id = String(candidateURL.deletingPathExtension().lastPathComponent.suffix(36))
+                guard UUID(uuidString: id) != nil,
+                      let key = try? HistoryStore.sessionKey(AgentEvent(sessionID: id, provider: "codex", kind: .completed)),
+                      historySessionKeys.contains(key) else { continue }
+            }
             // Directory listings may use /private/var while the same root URL
             // uses /var. Normalize aliases before validating path components.
             let url = candidateURL.standardizedFileURL
@@ -125,7 +139,7 @@ struct CodexRolloutScanner {
             guard let metadata = SessionFileMetadata(url), metadata.isRegularFile,
                   metadata.owner == getuid(),
                   now.timeIntervalSince(metadata.modified) >= -60,
-                  now.timeIntervalSince(metadata.modified) <= 30 * 60 else { continue }
+                  !historySessionKeys.isEmpty || now.timeIntervalSince(metadata.modified) <= 30 * 60 else { continue }
             found.append(Candidate(url: url, inode: metadata.inode,
                                    size: metadata.size, modified: metadata.modified))
         }
@@ -149,11 +163,12 @@ struct CodexRolloutScanner {
             isInternalSession: CodexServiceSessionFilter.nativeClassification(source: payload["source"]),
             isWorkSession: CodexSessionOrigin.isWork(originator: payload["originator"], serviceName: payload["service_name"]))
         let firstLineEnd = UInt64(newline + 1)
-        let start = max(firstLineEnd, candidate.size > UInt64(maximumBootstrapBytes)
-                        ? candidate.size - UInt64(maximumBootstrapBytes) : firstLineEnd)
+        let bootstrapBytes = historySessionKeys.isEmpty ? maximumBootstrapBytes : 16 * 1024 * 1024
+        let start = max(firstLineEnd, candidate.size > UInt64(bootstrapBytes)
+                        ? candidate.size - UInt64(bootstrapBytes) : firstLineEnd)
         guard (try? handle.seek(toOffset: start)) != nil else { return nil }
         let bytes: Data
-        do { bytes = try handle.read(upToCount: maximumBootstrapBytes) ?? Data() }
+        do { bytes = try handle.read(upToCount: bootstrapBytes) ?? Data() }
         catch { return nil }
         state.offset = start + UInt64(bytes.count)
         var data = bytes
@@ -259,6 +274,14 @@ struct CodexRolloutScanner {
                         now: stamp, id: "rollout:\(turn):start"), isBootstrap: false))
                 }
             case "task_complete":
+                if bootstrap, includeContent, let turn = payload["turn_id"] as? String, UUID(uuidString: turn) != nil {
+                    // The bounded tail already read at startup contains reliable
+                    // completion markers for archived turns. Reconcile status
+                    // without replaying text, notifications or live lifecycle.
+                    let completed = AgentEvent(sessionID: state.sessionID, provider: "codex", kind: .completed,
+                        timestamp: stamp, id: "rollout:\(turn):archived-complete", turnID: turn)
+                    observations.append(CodexSessionObservation(event: completed, isBootstrap: true, isHistoryOnly: true))
+                }
                 guard let turn = state.activeTurnID,
                       payload["turn_id"] as? String == turn else { return }
                 state.message = includeContent ? SessionSnippet.text(payload["last_agent_message"]) ?? state.message : nil
@@ -274,11 +297,21 @@ struct CodexRolloutScanner {
                 }
                 state.visible = false
             case "turn_aborted", "turn_cancelled":
+                if bootstrap, includeContent, let turn = payload["turn_id"] as? String, UUID(uuidString: turn) != nil {
+                    let ended = AgentEvent(sessionID: state.sessionID, provider: "codex", kind: .sessionEnded,
+                        timestamp: stamp, id: "rollout:\(turn):archived-end", turnID: turn)
+                    observations.append(CodexSessionObservation(event: ended, isBootstrap: true, isHistoryOnly: true))
+                }
                 guard let turn = state.activeTurnID,
                       let startedAt = state.activeTurnStartedAt,
                       stamp >= startedAt else { return }
                 if let value = payload["turn_id"], !(value is NSNull) {
                     guard let reportedTurn = value as? String, reportedTurn == turn else { return }
+                }
+                if !bootstrap, includeContent {
+                    let ended = AgentEvent(sessionID: state.sessionID, provider: "codex", kind: .sessionEnded,
+                        timestamp: stamp, id: "rollout:\(turn):archived-end", turnID: turn)
+                    observations.append(CodexSessionObservation(event: ended, isBootstrap: false, isHistoryOnly: true))
                 }
                 state.activeTurnID = nil
                 state.activeTurnStartedAt = nil
@@ -416,9 +449,12 @@ final class CodexSessionObserver {
                 self.desktopStream?.observe((rollouts + desktop).map { $0.event.sessionID })
                 // A fresh Desktop stream owns the lifecycle. File snapshots and
                 // log lines must not replay older states over its current turn.
-                let observations = (rollouts + desktop).filter { self.desktopStream?.contains($0.event.sessionID) != true }
-                for observation in rollouts where !observation.isBootstrap &&
-                    observation.event.historyItems?.isEmpty == false && self.desktopStream?.contains(observation.event.sessionID) == true {
+                let observations = (rollouts + desktop).filter {
+                    !$0.isHistoryOnly && self.desktopStream?.contains($0.event.sessionID) != true
+                }
+                for observation in rollouts + desktop where observation.isHistoryOnly ||
+                    (!observation.isBootstrap && self.desktopStream?.contains(observation.event.sessionID) == true &&
+                     (observation.event.historyItems?.isEmpty == false || observation.event.kind.historyTerminalStatus != nil)) {
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.isCurrent(currentGeneration) else { return }
                         self.onHistory(observation.event)

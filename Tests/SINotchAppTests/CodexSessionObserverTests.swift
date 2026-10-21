@@ -3,6 +3,41 @@ import XCTest
 @testable import SINotch
 
 final class CodexSessionObserverTests: XCTestCase {
+    func testBootstrapCancellationClosesHistoryWithoutReportingSuccess() throws {
+        let (root, file) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try append(metadata(), to: file)
+        try append(record("event_msg", ["type": "turn_aborted", "turn_id": turnID]), to: file)
+        var scanner = CodexRolloutScanner(sessionsRoot: root, includeContent: true)
+        let observation = try XCTUnwrap(scanner.poll().first)
+        XCTAssertTrue(observation.isHistoryOnly)
+        XCTAssertEqual(observation.event.kind, .sessionEnded)
+        XCTAssertEqual(observation.event.turnID, turnID)
+        XCTAssertNil(observation.event.historyItems)
+    }
+
+    func testBootstrapCompletionIsHistoryOnlyAndContainsNoConversationText() throws {
+        let (root, file) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try append(metadata(), to: file)
+        // The start may be outside the bounded tail; the explicit turn ID is
+        // sufficient to reconcile an existing archive record, never live state.
+        try append(record("event_msg", ["type": "task_complete", "turn_id": turnID,
+            "last_agent_message": "PRIVATE_OLD_REPLY"]), to: file)
+        var scanner = CodexRolloutScanner(sessionsRoot: root, includeContent: true)
+        let observations = scanner.poll()
+        XCTAssertEqual(observations.count, 1)
+        let observation = try XCTUnwrap(observations.first)
+        XCTAssertTrue(observation.isBootstrap)
+        XCTAssertTrue(observation.isHistoryOnly)
+        XCTAssertEqual(observation.event.kind, .completed)
+        XCTAssertEqual(observation.event.turnID, turnID)
+        XCTAssertNil(observation.event.historyItems)
+        XCTAssertNil(observation.event.message)
+        XCTAssertNil(observation.event.firstPrompt)
+        XCTAssertTrue(scanner.poll().isEmpty)
+    }
+
     private let sessionID = "11111111-1111-4111-8111-111111111111"
     private let turnID = "22222222-2222-4222-8222-222222222222"
 
@@ -332,6 +367,24 @@ final class CodexSessionObserverTests: XCTestCase {
             XCTAssertFalse(result.contains { $0.event.kind == .completed })
             XCTAssertTrue(scanner.poll().isEmpty)
         }
+    }
+
+    func testLiveCancellationClosesTheExactArchivedTurnWithoutEndingTheConversation() throws {
+        let (root, file) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try append(metadata(), to: file)
+        var scanner = CodexRolloutScanner(sessionsRoot: root, includeContent: true)
+        XCTAssertTrue(scanner.poll().isEmpty)
+        try append(record("event_msg", ["type": "task_started", "turn_id": turnID]), to: file)
+        XCTAssertEqual(scanner.poll().map(\.event.kind), [.working])
+        try append(record("event_msg", ["type": "turn_cancelled", "turn_id": turnID]), to: file)
+        let result = scanner.poll()
+        let terminal = try XCTUnwrap(result.first(where: \.isHistoryOnly))
+        XCTAssertEqual(terminal.event.kind, .sessionEnded)
+        XCTAssertEqual(terminal.event.turnID, turnID)
+        XCTAssertNil(terminal.event.historyItems)
+        XCTAssertEqual(result.filter { !$0.isHistoryOnly }.map(\.event.kind), [.sessionStarted])
+        XCTAssertTrue(scanner.poll().isEmpty)
     }
 
     func testFreshToolMakesOldTurnVisibleSoCompletionCanClearIt() throws {

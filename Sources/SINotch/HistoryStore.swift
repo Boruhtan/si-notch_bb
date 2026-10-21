@@ -3,6 +3,17 @@ import CryptoKit
 import Darwin
 import SINotchCore
 
+extension AgentEventKind {
+    var historyTerminalStatus: AgentStatus? {
+        switch self {
+        case .completed: return .completed
+        case .failed: return .failed
+        case .sessionEnded: return .ended
+        default: return nil
+        }
+    }
+}
+
 struct HistoryPolicy: Equatable {
     var enabled = true
     var maximumCount = 1000
@@ -109,8 +120,7 @@ final class HistoryStore {
 
     func accept(_ event: AgentEvent, session: AgentSession) throws -> Bool {
         guard policy.enabled, event.kind != .agentPresence else { return false }
-        let keyData = try JSONEncoder().encode([event.provider.lowercased(), event.connectionID ?? "", event.sessionID])
-        let key = SHA256.hash(data: keyData).map { String(format: "%02x", $0) }.joined()
+        let key = try Self.sessionKey(event)
         let turn = event.turnID
         let turnKey = key + ":" + (turn ?? "")
         if turn != nil, blockedTurns.contains(turnKey) { return false }
@@ -165,7 +175,7 @@ final class HistoryStore {
             record.summary.memoryService = session.provider.lowercased() == "codex" && CodexServiceSessionFilter.isMemoryRequest(prompt.text)
         }
         if let turn { record.summary.turnID = turn }
-        record.summary.status = session.status
+        record.summary.status = status(for: event, previous: summaries[record.id]?.status, fallback: session.status)
         for item in content {
             if item.text.count == Self.maximumTextCharacters && item.text.hasSuffix("…") { record.truncated = true }
             if let index = record.items.firstIndex(where: { $0.id == item.id && $0.role == item.role }) {
@@ -194,6 +204,38 @@ final class HistoryStore {
         indexDirty = true
         if cache.count > 8 { try flush() }
         return true
+    }
+
+    /// Repair only an existing identified turn from an explicit terminal event.
+    /// Bootstrap must never import old conversations or alter the live session.
+    func finish(_ event: AgentEvent) throws -> Bool {
+        guard policy.enabled, let terminal = event.kind.historyTerminalStatus, let turn = event.turnID else { return false }
+        let key = try Self.sessionKey(event)
+        guard let summary = summaries.values.first(where: { $0.sessionKey == key && $0.turnID == turn }),
+              !isTerminal(summary.status), var record = try entry(summary.id) else { return false }
+        record.summary.status = terminal
+        cache[record.id] = record
+        summaries[record.id] = record.summary
+        dirty.insert(record.id)
+        indexDirty = true
+        return true
+    }
+
+    static func sessionKey(_ event: AgentEvent) throws -> String {
+        let data = try JSONEncoder().encode([event.provider.lowercased(), event.connectionID ?? "", event.sessionID])
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func status(for event: AgentEvent, previous: AgentStatus?, fallback: AgentStatus) -> AgentStatus {
+        if let previous, isTerminal(previous) { return previous }
+        if let terminal = event.kind.historyTerminalStatus { return terminal }
+        switch event.kind {
+        case .working, .toolStarted: return .working
+        case .waiting: return .waiting
+        case .approvalRequested: return .approval
+        case .sessionStarted: return .idle
+        default: return previous ?? fallback
+        }
     }
 
     func entry(_ id: UUID) throws -> HistoryEntry? {

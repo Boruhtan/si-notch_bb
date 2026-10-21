@@ -21,7 +21,10 @@ final class HistoryController: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.records = records; self.bytes = bytes; self.error = error; self.loading = false
-                if let id = self.selected?.id, !records.contains(where: { $0.id == id }) { self.back() }
+                if let id = self.selected?.id {
+                    if let summary = records.first(where: { $0.id == id }) { self.selected?.summary = summary }
+                    else { self.back() }
+                }
             }
         }
     }
@@ -30,14 +33,17 @@ final class HistoryController: ObservableObject {
             .appendingPathComponent("si-notch/History", isDirectory: true)
     }
     var matching: [HistorySummary] {
-        records.filter { search.isEmpty || "\($0.title) \($0.project ?? "") \($0.provider)".localizedCaseInsensitiveContains(search) }
+        records.filter { search.isEmpty || "\($0.title) \($0.historyTitle) \($0.project ?? "") \($0.provider)".localizedCaseInsensitiveContains(search) }
     }
-    func start(directory: URL = HistoryController.defaultDirectory) {
+    func start(directory: URL = HistoryController.defaultDirectory, codexSessionsRoot: URL? = nil) {
         guard !started else { return }; started = true; loading = true
-        worker.start(directory: directory, policy: policy)
+        worker.start(directory: directory, policy: policy, codexSessionsRoot: codexSessionsRoot)
     }
     func record(_ event: AgentEvent, session: AgentSession) {
         guard started, policy.enabled else { return }; worker.record(event, session: session)
+    }
+    func finish(_ event: AgentEvent) {
+        guard started, policy.enabled else { return }; worker.finish(event)
     }
     func open(_ id: UUID) {
         selectionGeneration += 1; let generation = selectionGeneration
@@ -63,9 +69,30 @@ private final class HistoryWorker {
     private var store: HistoryStore?
     private var scheduled: DispatchWorkItem?
     private var snapshots: [String: (AgentEvent, AgentSession)] = [:]
-    func start(directory: URL, policy: HistoryPolicy) {
+    func start(directory: URL, policy: HistoryPolicy, codexSessionsRoot: URL?) {
         queue.async { [self] in
-            do { store = try HistoryStore(directory: directory, policy: policy); publish() }
+            do {
+                let archive = try HistoryStore(directory: directory, policy: policy)
+                store = archive
+                publish()
+                if policy.enabled, let codexSessionsRoot {
+                    let keys = Set(archive.ordered.filter {
+                        $0.provider.lowercased() == "codex" && $0.turnID != nil &&
+                            ![.completed, .failed, .ended].contains($0.status)
+                    }.map(\.sessionKey))
+                    if !keys.isEmpty {
+                        // One utility-queue pass over only the affected sessions,
+                        // reusing the scanner's bounded tails and file checks.
+                        var scanner = CodexRolloutScanner(sessionsRoot: codexSessionsRoot,
+                            includeContent: true, historySessionKeys: keys)
+                        var changed = false
+                        for observation in scanner.poll() where observation.isHistoryOnly {
+                            if try archive.finish(observation.event) { changed = true }
+                        }
+                        if changed { try archive.flush(); publish() }
+                    }
+                }
+            }
             catch { publish(error: true) }
         }
     }
@@ -94,6 +121,15 @@ private final class HistoryWorker {
     func read(_ id: UUID, completion: @escaping (HistoryEntry?, Bool) -> Void) {
         queue.async { [self] in
             do { completion(try store?.entry(id), false) } catch { completion(nil, true) }
+        }
+    }
+    func finish(_ event: AgentEvent) {
+        queue.async { [self] in
+            do {
+                try drainSnapshots()
+                guard try store?.finish(event) == true else { return }
+                try flush()
+            } catch { publish(error: true) }
         }
     }
     func configure(_ value: HistoryPolicy) {

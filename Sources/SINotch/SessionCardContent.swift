@@ -63,7 +63,7 @@ struct SessionCardContent: Equatable {
         return 108 + (metadata ? messageLine + 7 : 0) + (showActivity && summary != nil ? messageLine * 2 + 7 : 0)
     }
 
-    private static func providerName(_ rawValue: String) -> String {
+    static func providerName(_ rawValue: String) -> String {
         switch rawValue.lowercased() {
         case "codex": "Codex"
         case "pi": "Pi"

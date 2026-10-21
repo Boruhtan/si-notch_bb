@@ -4,6 +4,69 @@ import SINotchCore
 
 final class HistoryIntegrationTests: XCTestCase {
     @MainActor
+    func testStartupRepairsAnOldRecordedTurnWithoutImportingOtherTurns() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("si-notch.history-old." + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: path) }
+        let archivePath = path.appendingPathComponent("archive")
+        let sources = path.appendingPathComponent("sessions")
+        let folder = sources.appendingPathComponent("2026/10/21")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let sessionID = UUID().uuidString.lowercased(), turn = UUID().uuidString.lowercased()
+        let original = try HistoryStore(directory: archivePath, policy: .init())
+        _ = try original.accept(AgentEvent(sessionID: sessionID, provider: "codex", kind: .working,
+            firstPrompt: "Already finished", turnID: turn),
+            session: AgentSession(id: sessionID, provider: "codex", title: "Already finished", status: .working))
+        try original.flush()
+        let before = try XCTUnwrap(original.entry(original.ordered[0].id))
+        let stamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-7200))
+        let records: [[String: Any]] = [
+            ["timestamp": stamp, "type": "session_meta", "payload": ["id": sessionID, "source": "cli"]],
+            ["timestamp": stamp, "type": "event_msg", "payload": ["type": "task_complete", "turn_id": turn]],
+            ["timestamp": stamp, "type": "event_msg", "payload": ["type": "task_complete", "turn_id": UUID().uuidString.lowercased()]]
+        ]
+        let file = folder.appendingPathComponent("rollout-test-\(sessionID).jsonl")
+        var data = Data()
+        for record in records { data.append(try JSONSerialization.data(withJSONObject: record)); data.append(10) }
+        // The old completion has scrolled beyond the normal live scanner tail.
+        for _ in 0..<5 { data.append(Data(repeating: 120, count: 1024 * 1024)); data.append(10) }
+        try data.write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-7200)], ofItemAtPath: file.path)
+        var ordinaryScanner = CodexRolloutScanner(sessionsRoot: sources, includeContent: true)
+        XCTAssertTrue(ordinaryScanner.poll().isEmpty, "Old history must not become a live session")
+        let history = HistoryController(policy: .init())
+        history.start(directory: archivePath, codexSessionsRoot: sources)
+        history.shutdown()
+        let reopened = try HistoryStore(directory: archivePath, policy: .init())
+        let after = try XCTUnwrap(reopened.entry(before.id))
+        XCTAssertEqual(reopened.ordered.count, 1)
+        XCTAssertEqual(after.summary.status, .completed)
+        XCTAssertEqual(after.items, before.items)
+        XCTAssertEqual(after.summary.updatedAt, before.summary.updatedAt)
+    }
+
+    @MainActor
+    func testStatusOnlyHistoryCompletionWorksWithoutALiveSessionAndCannotCreateOne() throws {
+        let suite = "si-notch.history-reconciliation." + UUID().uuidString
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let model = AppModel(defaults: defaults)
+        defer { model.shutdown(); defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: path) }
+        model.history.start(directory: path)
+        let session = AgentSession(id: "saved", provider: "codex", title: "Review", status: .working)
+        model.history.record(AgentEvent(sessionID: "saved", provider: "codex", kind: .working,
+            firstPrompt: "Review", turnID: "saved-turn"), session: session)
+        model.history.shutdown()
+        model.recordHistoryContent(AgentEvent(sessionID: "saved", provider: "codex", kind: .completed, turnID: "saved-turn"))
+        model.recordHistoryContent(AgentEvent(sessionID: "unrecorded", provider: "codex", kind: .completed, turnID: "unrecorded-turn"))
+        model.history.shutdown()
+        let archive = try HistoryStore(directory: path, policy: .init())
+        XCTAssertEqual(archive.ordered.count, 1)
+        XCTAssertEqual(archive.ordered.first?.status, .completed)
+        XCTAssertTrue(model.store.sessions.isEmpty)
+        XCTAssertFalse(model.expanded)
+    }
+
+    @MainActor
     func testStreamingSnapshotsKeepLatestTextAndClearFencesTheBufferedTurn() throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("si-notch-history-stream-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: path) }

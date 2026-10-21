@@ -223,7 +223,8 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
-        history.start()
+        history.start(codexSessionsRoot: defaults.bool(forKey: "codexAutoDetect") ?
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions", isDirectory: true) : nil)
         detectedHarnesses = HarnessDiscoveryService().scan().detected
         refreshAgentPresence()
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
@@ -271,7 +272,9 @@ final class AppModel: ObservableObject {
     }
 
     func recordHistoryContent(_ event: AgentEvent) {
-        guard !paused, event.historyItems?.isEmpty == false,
+        guard !paused else { return }
+        if event.kind.historyTerminalStatus != nil { history.finish(event) }
+        guard event.historyItems?.isEmpty == false,
               let session = store.sessions[event.sessionID], AgentConnection.isTask(session),
               !codexServiceSessions.hides(event),
               !sessionFilter.hides(path: event.projectPath ?? session.projectPath, firstPrompt: event.firstPrompt ?? session.firstPrompt) else { return }

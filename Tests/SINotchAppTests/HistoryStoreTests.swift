@@ -3,6 +3,63 @@ import SINotchCore
 @testable import SINotch
 
 final class HistoryStoreTests: XCTestCase {
+    func testTurnCompletionDoesNotInheritTheNextTurnsWorkingStatus() throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let store = try HistoryStore(directory: path, policy: .init())
+        _ = try store.accept(event("old", kind: .working), session: session(.working))
+        _ = try store.accept(event("old", kind: .completed), session: session(.working))
+        _ = try store.accept(event("new", kind: .working), session: session(.working))
+        try store.flush()
+        let reopened = try HistoryStore(directory: path, policy: .init())
+        XCTAssertEqual(reopened.ordered.first { $0.turnID == "old" }?.status, .completed)
+        XCTAssertEqual(reopened.ordered.first { $0.turnID == "new" }?.status, .working)
+    }
+
+    func testLateTextAndToolEventsCannotReopenCompletedHistory() throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let store = try HistoryStore(directory: path, policy: .init())
+        _ = try store.accept(event(), session: session())
+        for kind: AgentEventKind in [.usageUpdated, .toolStarted, .toolFinished, .working] {
+            var late = event(kind: kind, items: [.init(id: kind.rawValue, role: .command, text: "swift test")])
+            late.timestamp = Date().addingTimeInterval(1)
+            _ = try store.accept(late, session: session(.working))
+            XCTAssertEqual(store.ordered.first?.status, .completed, "\(kind) is not a new turn")
+        }
+    }
+
+    func testPassiveTextKeepsTheArchivedTurnsStatusInsteadOfTheLiveSessionStatus() throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let store = try HistoryStore(directory: path, policy: .init())
+        _ = try store.accept(event(kind: .waiting), session: session(.waiting))
+        _ = try store.accept(event(kind: .usageUpdated), session: session(.working))
+        XCTAssertEqual(store.ordered.first?.status, .waiting)
+    }
+
+    func testTerminalReconciliationOnlyUpdatesAnExistingMatchingTurnAndPreservesContent() throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let store = try HistoryStore(directory: path, policy: .init())
+        _ = try store.accept(event(kind: .working), session: session(.working))
+        try store.flush()
+        let before = try XCTUnwrap(store.entry(store.ordered[0].id))
+        var completion = event(kind: .completed, items: [])
+        completion.firstPrompt = nil
+        completion.sessionID = "other-session"
+        XCTAssertFalse(try store.finish(completion))
+        completion.sessionID = "session"
+        completion.turnID = "other-turn"
+        XCTAssertFalse(try store.finish(completion))
+        completion.turnID = "turn-1"
+        XCTAssertTrue(try store.finish(completion))
+        XCTAssertFalse(try store.finish(completion))
+        try store.flush()
+        let reopened = try HistoryStore(directory: path, policy: .init())
+        let after = try XCTUnwrap(reopened.entry(before.id))
+        XCTAssertEqual(after.summary.status, .completed)
+        XCTAssertEqual(after.items, before.items)
+        XCTAssertEqual(after.summary.updatedAt, before.summary.updatedAt)
+        XCTAssertEqual(reopened.ordered.count, 1)
+    }
+
     private func directory() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("si-notch-history-test-" + UUID().uuidString) }
     private func event(_ turn: String? = "turn-1", kind: AgentEventKind = .completed, items: [AgentHistoryItem]? = nil) -> AgentEvent {
         AgentEvent(sessionID: "session", provider: "codex", kind: kind, firstPrompt: "Fix the panel", turnID: turn,

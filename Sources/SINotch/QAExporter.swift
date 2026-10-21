@@ -474,12 +474,35 @@ enum QAExporter {
             let saved = try reopened.ordered.first.flatMap { try reopened.entry($0.id) }
             check("history-reopens", reopened.ordered.count == 3 && saved?.items.count == 3,
                   "The private fixture archive reopens with request, reply and command; no command output is supplied or stored.")
+            for (id, status, kind, prompt) in [
+                ("working", AgentStatus.working, AgentEventKind.working, "Review the next change"),
+                ("waiting", .waiting, .waiting, "Choose the update channel"),
+                ("failed", .failed, .failed, "Verify the release archive"),
+                ("memory", .completed, .completed, "Consolidate the supplied rollout summaries into `memory_summary.md` so another agent understands them.")
+            ] {
+                let session = AgentSession(id: "qa-history-" + id, provider: "codex", title: prompt,
+                    projectPath: "/work/si-notch", status: status)
+                let event = AgentEvent(sessionID: session.id, provider: "codex", kind: kind,
+                    firstPrompt: prompt, turnID: "turn-" + id,
+                    historyItems: [.init(id: "request", role: .user, text: prompt)])
+                model.history.record(event, session: session)
+            }
+            model.history.shutdown()
+            try await pause(0.1)
             for language in ["en", "ru", "zh-Hans"] {
                 overrides["appLanguage"] = language; applyOverrides()
                 model.activeFilter = "history.title"
                 model.history.back()
                 try await settle(expanded: true)
                 try capturePanel(name: "island-history-list-\(language)", language: language)
+                try await captureHosted(HistoryView(history: model.history).preferredColorScheme(.dark).background(.black),
+                    name: "history-narrow-\(language)", language: language, size: NSSize(width: 360, height: 480))
+                model.history.search = L10n.tr("history.memoryTitle")
+                check("history-memory-title-search-\(language)", model.history.matching.count == 1 && model.history.matching.first?.memoryService == true,
+                      "The compact localized memory title is searchable without knowing the original technical prompt.")
+                check("history-memory-source-\(language)", model.history.matching.first?.historyProviderName == "Codex",
+                      "Background memory records retain the originating agent name alongside their status.")
+                model.history.search = ""
                 if let id = model.history.records.first?.id {
                     model.history.open(id); try await pause(0.15)
                     try capturePanel(name: "island-history-detail-\(language)", language: language)

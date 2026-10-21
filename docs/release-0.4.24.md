@@ -1,0 +1,2 @@
+- Fixes completed requests remaining marked as working in History.
+- Clarifies history status icons and identifies the source of background memory updates.
