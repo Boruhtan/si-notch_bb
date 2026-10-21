@@ -6,6 +6,7 @@ struct IslandSilhouette: Shape {
     var shoulder: CGFloat
     var bottomRadius: CGFloat
     var droplet: CGFloat = 0
+    var floating = false
 
     /// Use the drawn contour for hover too. AppKit's screen Y axis is opposite
     /// to SwiftUI's local path; transparent shoulders/corners are not targets.
@@ -21,6 +22,10 @@ struct IslandSilhouette: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
+        if floating {
+            let radius = max(0, min(bottomRadius, min(rect.width, rect.height) / 2))
+            return Path(roundedRect: rect, cornerRadius: radius)
+        }
         let s = max(0, min(shoulder, min(rect.width / 4, rect.height / 3)))
         let r = max(0, min(bottomRadius, min((rect.width - 2 * s) / 2, rect.height - s)))
         let lift = min(8, rect.height * 0.04) * max(0, min(1, droplet))

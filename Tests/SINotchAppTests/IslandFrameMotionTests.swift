@@ -5,6 +5,30 @@ final class IslandFrameMotionTests: XCTestCase {
     let compact = CGRect(x: 600, y: 967, width: 230, height: 33)
     let expanded = CGRect(x: 375, y: 650, width: 680, height: 350)
 
+    func testExternalCapsuleKeepsRightAnchorDuringExpansionAndReversal() {
+        let compact = CGRect(x: 1844, y: 1018, width: 64, height: 30)
+        let expanded = CGRect(x: 1228, y: 488, width: 680, height: 560)
+        let open = IslandFrameMotion(origin: compact, destination: expanded, transition: .expand)
+        let reverse = IslandFrameMotion(origin: open.frame(at: 0.09), destination: compact,
+            transition: .collapse, initialVelocity: open.velocity(at: 0.09))
+        for motion in [open, reverse] {
+            for step in 0...90 {
+                let frame = motion.frame(at: Double(step) / 120)
+                XCTAssertEqual(frame.maxX, compact.maxX, accuracy: 0.001)
+                XCTAssertEqual(frame.maxY, compact.maxY, accuracy: 0.001)
+            }
+        }
+    }
+
+    func testFloatingHoverContourExcludesTransparentCorners() {
+        let shape = IslandSilhouette(shoulder: 10, bottomRadius: 15, floating: true)
+        let frame = CGRect(x: 100, y: 100, width: 64, height: 30)
+        XCTAssertFalse(shape.contains(CGPoint(x: 101, y: 129), inScreenFrame: frame))
+        XCTAssertFalse(shape.contains(CGPoint(x: 101, y: 101), inScreenFrame: frame))
+        XCTAssertTrue(shape.contains(CGPoint(x: 132, y: 129), inScreenFrame: frame))
+        XCTAssertTrue(shape.contains(CGPoint(x: 101, y: 115), inScreenFrame: frame))
+    }
+
     @MainActor
     func testOpenOutlineAndContentDoNotReenterWhenAgentGroupChangesHeight() {
         // The remote group changes only height (221 ↔ 477 pt). Its shoulders,

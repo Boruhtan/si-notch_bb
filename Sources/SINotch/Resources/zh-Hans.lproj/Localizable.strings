@@ -616,3 +616,5 @@
 "history.idle" = "空闲";
 "history.ended" = "已关闭";
 "history.statusHelp" = "最后记录的状态：%@";
+"settings.displayAutomatic" = "自动：刘海或胶囊";
+"settings.externalDisplayHelp" = "没有刘海的显示器会在菜单栏下方右侧显示一个小胶囊，打开同一个任务面板。合上 Mac 时，自动模式会使用当前可用的主显示器。";

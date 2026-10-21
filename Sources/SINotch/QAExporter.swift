@@ -178,7 +178,9 @@ enum QAExporter {
                     report.screenFrame = Frame(screen.frame)
                     report.screenMaximumFramesPerSecond = screen.maximumFramesPerSecond
                 }
-                if CommandLine.arguments.contains("--qa-history-only") {
+                if CommandLine.arguments.contains("--qa-screens-only") {
+                    try await exportScreenViews()
+                } else if CommandLine.arguments.contains("--qa-history-only") {
                     try await exportHistory()
                 } else if CommandLine.arguments.contains("--qa-service-only") {
                     try await exportMemoryServices()
@@ -203,16 +205,29 @@ enum QAExporter {
                 report.fatalError = error.localizedDescription
                 report.outcome = "failed"
             }
-            if let previousArguments {
-                defaults.setVolatileDomain(previousArguments, forName: UserDefaults.argumentDomain)
-                NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
-            }
             if ownsDirectory {
                 do { try writeJSON(report, relativePath: "report.json") }
                 catch { log("QA report write failed: \(error.localizedDescription)", error: true) }
             }
             log("QA export \(report.outcome): \(directory.path)" + (report.fatalError.map { " — \($0)" } ?? ""),
                 error: report.outcome == "failed")
+            if report.outcome == "passed", CommandLine.arguments.contains("--qa-screens-only"),
+               let index = CommandLine.arguments.firstIndex(of: "--qa-preview-screen"),
+               CommandLine.arguments.indices.contains(index + 1),
+               let screen = NSScreen.screens.first(where: { delegate.screenID($0) == CommandLine.arguments[index + 1] }) {
+                overrides["screenID"] = delegate.screenID(screen)
+                overrides["hoverExpand"] = true
+                overrides["keepOpen"] = false
+                applyOverrides()
+                try? await settle(expanded: false)
+                delegate.statusItem.button?.toolTip = "si-notch · Local preview (5 min)"
+                log("Local interactive preview on \(screen.localizedName); no IPC or agent services; closes after 5 minutes.")
+                try? await pause(300)
+            }
+            if let previousArguments {
+                defaults.setVolatileDomain(previousArguments, forName: UserDefaults.argumentDomain)
+                NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            }
             NSApp.terminate(nil)
         }
 
@@ -545,7 +560,7 @@ enum QAExporter {
             let compact = Frame(delegate.panel.frame)
             report.compactFrame = compact
             report.expandedFrame = expanded
-            if defaults.string(forKey: "displayMode") != "belowMenu", let screen = delegate.selectedScreen() {
+            if !delegate.model.floatingSurface, let screen = delegate.selectedScreen() {
                 let bleed = 1.0
                 check("top-edge-bleed", abs(compact.maxY - screen.frame.maxY - bleed) < 0.001 &&
                       abs(expanded.maxY - screen.frame.maxY - bleed) < 0.001,
@@ -793,6 +808,82 @@ enum QAExporter {
                 "Rendering saved profiles must not open SSH or create tasks.")
         }
 
+        func exportScreenViews() async throws {
+            let model = delegate.model
+            overrides["companionStyle"] = "cat"
+            overrides["quiet"] = false
+            applyOverrides()
+            model.inject(["event": "agent.working", "session_id": "qa-screen", "provider": "custom",
+                          "title": "External display preview"])
+            for screen in NSScreen.screens {
+                let id = delegate.screenID(screen)
+                overrides["screenID"] = id
+                applyOverrides()
+                var compact = CGRect.zero
+                var expandedFrame = CGRect.zero
+                for expanded in [false, true] {
+                    try await settle(expanded: expanded)
+                    let name = "screen-\(id)-\(expanded ? "expanded" : "compact")"
+                    try recordStatic(delegate.panel.contentView!, name: name, language: "en")
+                    let frame = delegate.panel.frame
+                    if expanded { expandedFrame = frame } else { compact = frame }
+                    check(name + "-bounds", frame.minX >= screen.frame.minX && frame.maxX <= screen.frame.maxX &&
+                          frame.minY >= screen.frame.minY && frame.maxY <= screen.frame.maxY + 1,
+                          "\(screen.localizedName): screen=\(screen.frame), panel=\(frame), scale=\(screen.backingScaleFactor).")
+                    if model.trailingSurface {
+                        check(name + "-right-anchor", abs(frame.maxX - screen.frame.maxX + 12) <= 0.5,
+                              "The external surface stays 12 pt from the right edge.")
+                        check(name + "-menu-clearance", screen.visibleFrame.maxY - frame.maxY >= 8,
+                              "The panel does not overlap the menu bar; its camera gap is \(model.cameraWidth) pt.")
+                    }
+                }
+                if model.trailingSurface {
+                    try await settle(expanded: false)
+                    for opening in [true, false] {
+                        let target = opening ? expandedFrame : compact
+                        let trace = try await trace(name: "screen-\(id)-\(opening ? "open" : "close")",
+                            duration: 0.75, expected: Frame(target), actions: [
+                                ScheduledAction(time: 0, name: "toggle", apply: { model.setExpanded(opening) })
+                            ])
+                        check(trace.name + "-fixed-corner", trace.samples.allSatisfy {
+                            abs($0.frame.x + $0.frame.width - target.maxX) <= 1 && abs($0.frame.maxY - target.maxY) <= 1
+                        }, "Every sampled native frame retains the top-right anchor.")
+                        check(trace.name + "-destination", trace.samples.last.map { $0.frame.distance(to: Frame(target)) <= 1 } == true,
+                              "The native transition reaches its intended frame.")
+                    }
+                }
+            }
+            for style in CompanionStyle.allCases {
+                overrides["companionStyle"] = style.rawValue
+                applyOverrides()
+                try await pause(0.1)
+                check("menu-icon-follows-" + style.rawValue, delegate.statusIconStyle == style &&
+                      delegate.statusItem.button?.image?.isTemplate == true,
+                      "Changing the companion preference refreshes the actual status item without restarting.")
+            }
+            overrides["companionStyle"] = "cat"
+            applyOverrides()
+            try await captureHosted(VStack(spacing: 0) {
+                ForEach(CompanionStyle.allCases) { style in
+                    HStack(spacing: 0) {
+                        ForEach([false, true], id: \.self) { dark in
+                            HStack(spacing: 20) {
+                                Image(nsImage: StatusBarIcon.make(style: style))
+                                Image(nsImage: StatusBarIcon.make(style: style)).resizable().interpolation(.none).frame(width: 80, height: 72)
+                            }.foregroundStyle(dark ? Color.white : Color.black)
+                                .frame(width: 160, height: 100).background(dark ? Color(white: 0.12) : Color(white: 0.93))
+                        }
+                    }
+                }
+            }, name: "menu-companions-light-dark", language: "en", size: NSSize(width: 320, height: 400))
+            overrides["screenID"] = "auto"
+            applyOverrides()
+            try await settle(expanded: false)
+            check("screen-auto-return", delegate.selectedScreen() ==
+                  (NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.screens.first),
+                  "Automatic selection returns to the available notched display, or the primary screen.")
+        }
+
         func exportDisplayViews() async throws {
             let model = delegate.model
             overrides["showOnlyWithSessions"] = true
@@ -820,8 +911,11 @@ enum QAExporter {
             check("display-result-visible", delegate.panel.isVisible, "The result stays visible until dismissed.")
             model.setExpanded(true, origin: .hover)
             model.clearFinished()
-            check("display-last-dismissal-hidden", !delegate.panel.isVisible && !model.expanded,
-                  "Removing the last task hides and collapses a hover-opened panel without polling.")
+            check("display-clear-preserves-open-panel", delegate.panel.isVisible && model.expanded && model.sessions.isEmpty,
+                  "Explicit Clear keeps the panel open even after its last task is removed.")
+            model.setExpanded(false)
+            check("display-close-after-clear-hidden", !delegate.panel.isVisible,
+                  "Closing the empty panel restores session-only hiding immediately.")
             model.setExpanded(true)
             check("display-manual-open", delegate.panel.isVisible, "Explicit menu or shortcut expansion remains available.")
             model.setExpanded(false)

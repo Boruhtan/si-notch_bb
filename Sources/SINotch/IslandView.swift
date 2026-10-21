@@ -32,14 +32,14 @@ struct IslandView: View {
     var body: some View {
         let _ = appLanguage
         GeometryReader { viewport in
-            let compactHeight = max(33, model.headerHeight)
+            let compactHeight = model.compactHeight
             let compactWidth = model.cameraWidth + model.compactWingWidth + model.compactStatusWidth + 2 * model.compactShoulderWidth
             let expansion = Self.revealProgress(viewport: viewport.size, compactWidth: compactWidth,
                                                 expandedWidth: model.expandedPanelWidth)
             let droplet = reduceMotion ? 0 : sin(expansion * .pi)
             let reveal = min(1, max(0, (expansion - 0.12) / 0.60))
             let contentOpacity = reveal * reveal * (3 - 2 * reveal)
-            ZStack(alignment: .top) {
+            ZStack(alignment: model.trailingSurface ? .topTrailing : .top) {
                 // The native frame includes one point of top bleed. Do not keep
                 // the expanded hierarchy alive for that compact-only pixel.
                 if model.expanded || viewport.size.height > compactHeight + 1.5 {
@@ -53,7 +53,7 @@ struct IslandView: View {
                         .accessibilityHidden(!model.expanded)
                 }
                 if !model.expanded || expansion < 0.72 {
-                    compactContent.frame(height: compactHeight)
+                    compactContent.frame(width: compactWidth, height: compactHeight)
                         .opacity(1 - contentOpacity)
                         .allowsHitTesting(!model.expanded)
                         .accessibilityHidden(model.expanded)
@@ -68,8 +68,8 @@ struct IslandView: View {
             // Switching these radii with the boolean state caused a corner pop
             // before the first animation frame and again on fast reversal.
             .clipShape(IslandSilhouette(shoulder: model.compactShoulderWidth + (14 - model.compactShoulderWidth) * expansion,
-                                       bottomRadius: 13 + 11 * expansion + 6 * droplet,
-                                       droplet: droplet * 0.5))
+                                       bottomRadius: model.floatingSurface ? 15 + 9 * expansion : 13 + 11 * expansion + 6 * droplet,
+                                       droplet: droplet * 0.5, floating: model.floatingSurface))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)

@@ -316,7 +316,10 @@ struct SettingsView: View {
             IslandPreviewSettingsView()
             GroupBox(L10n.tr("settings.display")) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Picker(L10n.tr("Расположение"), selection: $displayMode) { Text(L10n.tr("У чёлки / верхней границы")).tag("notch"); Text(L10n.tr("Под строкой меню")).tag("belowMenu") }
+                    Picker(L10n.tr("Расположение"), selection: $displayMode) { Text(L10n.tr("settings.displayAutomatic")).tag("notch"); Text(L10n.tr("Под строкой меню")).tag("belowMenu") }
+                    Text(L10n.tr("settings.externalDisplayHelp"))
+                        .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Picker(L10n.tr("Экран"), selection: $screenID) {
                         Text(L10n.tr("Автоматически (экран с чёлкой)")).tag("auto")
                         ForEach(NSScreen.screens, id: \.self) { screen in Text(screen.localizedName).tag(String(describing: screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] ?? "main")) }

@@ -53,6 +53,8 @@ final class AppModel: ObservableObject {
     @Published var revision = 0
     @Published var cameraWidth: CGFloat = 190
     @Published var headerHeight: CGFloat = 36
+    @Published var floatingSurface = false
+    @Published var trailingSurface = false
     @Published var expandedPanelWidth: CGFloat = 680
     @Published var expandedPanelHeight: CGFloat = 210
     var server: IPCServer?
@@ -136,7 +138,8 @@ final class AppModel: ObservableObject {
     }
     let compactWingWidth: CGFloat = 26
     let compactStatusWidth: CGFloat = 18
-    let compactShoulderWidth: CGFloat = 3
+    var compactShoulderWidth: CGFloat { floatingSurface ? 10 : 3 }
+    var compactHeight: CGFloat { floatingSurface ? 30 : max(33, headerHeight) }
     var desiredPanelHeight: CGFloat {
         if showAgents {
             let connections = remoteConnections.connections.filter(\.showInAgents)
@@ -765,6 +768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let model: AppModel
     var panel: IslandPanel!
     var statusItem: NSStatusItem!
+    private(set) var statusIconStyle: CompanionStyle?
     var settingsWindow: NSWindow?
     var settingsPresented = false
     private var settingsTab = 0
@@ -822,9 +826,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         installMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let b = statusItem.button {
-            b.image = StatusBarIcon.make()
             b.toolTip = "si-notch"
         }
+        refreshStatusIcon()
+        observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
+            object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.refreshStatusIcon() }
+            })
         rebuildMenu()
         layout()
         if let i = CommandLine.arguments.firstIndex(of: "--qa-export"), CommandLine.arguments.indices.contains(i + 1) {
@@ -898,33 +906,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                      auxiliaryTopLeftArea: screen.auxiliaryTopLeftArea,
                                      auxiliaryTopRightArea: screen.auxiliaryTopRightArea,
                                      backingScaleFactor: screen.backingScaleFactor)
-        if model.cameraWidth != geometry.notchWidth { model.cameraWidth = geometry.notchWidth }
-        let headerHeight = geometry.hasNotch ? geometry.topInset : 36
-        if model.headerHeight != headerHeight { model.headerHeight = headerHeight }
+        let placement = IslandPlacement(geometry: geometry,
+            belowMenu: model.defaults.string(forKey: "displayMode") == "belowMenu",
+            menuBarHeight: max(NSStatusBar.system.thickness, screen.frame.maxY - screen.visibleFrame.maxY))
+        if model.floatingSurface != placement.isFloating { model.floatingSurface = placement.isFloating }
+        if model.trailingSurface != placement.isTrailing { model.trailingSurface = placement.isTrailing }
+        if model.cameraWidth != placement.cameraWidth { model.cameraWidth = placement.cameraWidth }
+        if model.headerHeight != placement.headerHeight { model.headerHeight = placement.headerHeight }
+        panel.hasShadow = placement.isFloating
         let width = min(screen.frame.width - 24, max(360, model.defaults.double(forKey: "panelWidth")))
         if model.expandedPanelWidth != width { model.expandedPanelWidth = width }
         let maxHeight = max(345, model.defaults.double(forKey: "panelHeight"))
         let height = model.panelHeight(limitedTo: min(screen.frame.height - 80, maxHeight))
         if model.expandedPanelHeight != height { model.expandedPanelHeight = height }
-        let menuMode = model.defaults.string(forKey: "displayMode") == "belowMenu"
-        let offset = menuMode ? max(geometry.topInset, NSStatusBar.system.thickness) + 8 : 0
-        let compactFrame = geometry.compactFrame(leftWingWidth: model.compactWingWidth + model.compactShoulderWidth,
-                                    rightWingWidth: model.compactStatusWidth + model.compactShoulderWidth,
-                                    minimumHeight: 33, topOffset: offset)
-        let contentFrame = model.expanded
-            ? geometry.expandedFrame(width: width, height: height, topOffset: offset)
+        let menuMode = placement.isFloating
+        let compactFrame = placement.compactFrame(leftWidth: model.compactWingWidth, rightWidth: model.compactStatusWidth)
+        let rect = model.expanded
+            ? placement.expandedFrame(width: width, height: height)
             : compactFrame
-        let rect = menuMode ? contentFrame : geometry.coveringTopEdge(contentFrame)
         // Compact activation always follows the destination immediately. An
         // already open panel may retain an ongoing interaction across a resize.
         model.hoverRegion = rect
-        model.compactHoverRegion = menuMode ? compactFrame : geometry.coveringTopEdge(compactFrame)
+        model.compactHoverRegion = compactFrame
         if let host = panel.contentView as? TrackingHost<IslandView> {
-            host.hiddenInteractionFrame = geometry.fullScreenRevealFrame
+            host.hiddenInteractionFrame = placement.fullScreenRevealFrame(
+                leftWidth: model.compactWingWidth, rightWidth: model.compactStatusWidth)
             host.allowsHoverDuringDrag = model.expanded
             host.updateInteraction(frame: rect,
                 shape: IslandSilhouette(shoulder: model.expanded ? 14 : model.compactShoulderWidth,
-                                        bottomRadius: model.expanded ? 24 : 13),
+                                        bottomRadius: model.expanded ? 24 : (placement.isFloating ? 15 : 13),
+                                        floating: placement.isFloating),
                 preservingHover: model.expanded && targetExpanded && targetScreenID == screenID(screen) &&
                     targetBelowMenu == menuMode)
         }
@@ -992,6 +1003,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         (panel.contentView as? TrackingHost<IslandView>)?.resetHover(requiringExit: active)
     }
     func screenID(_ s: NSScreen) -> String { String(describing: s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] ?? "main") }
+    func refreshStatusIcon() {
+        let style = CompanionStyle(rawValue: model.defaults.string(forKey: "companionStyle") ?? "") ?? .robot
+        guard let button = statusItem?.button, statusIconStyle != style else { return }
+        button.image = StatusBarIcon.make(style: style)
+        statusIconStyle = style
+    }
     func windowDidMove(_ notification: Notification) {
         guard notification.object as? IslandPanel === panel, let targetPanelFrame,
               abs(panel.frame.maxY - targetPanelFrame.maxY) >= 0.5 else { return }

@@ -616,3 +616,5 @@
 "history.idle" = "Idle";
 "history.ended" = "Closed";
 "history.statusHelp" = "Last recorded status: %@";
+"settings.displayAutomatic" = "Automatic: notch or capsule";
+"settings.externalDisplayHelp" = "Displays without a notch use a small capsule at the top right, below the menu bar. It opens the same task panel. With your Mac closed, Automatic uses the main available display.";
