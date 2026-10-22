@@ -306,7 +306,6 @@ struct SessionCard: View {
     let session: AgentSession
     @ObservedObject var model: AppModel
     @AppStorage("appLanguage") var appLanguage = "auto"
-    @State var answer = ""
     @State private var promptExpanded = false
     @AppStorage("fontSize") var fontSize = 11.0
     @AppStorage("showModel") var showModel = true
@@ -317,6 +316,9 @@ struct SessionCard: View {
     @AppStorage("showActivity") var showActivity = true
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var selected: Bool { model.selectedID == session.id || model.pending[session.id] != nil }
+    var needsAgentResponse: Bool {
+        [.waiting, .approval].contains(session.status) && session.lastEventID?.hasPrefix("interaction-submitted:") != true
+    }
     var providerStyle: ProviderStyle { ProviderStyle(provider: session.provider.lowercased() == "codex" && session.isWorkSession == true ? "work" : session.provider) }
     var content: SessionCardContent {
         SessionCardContent(session: session, displayTitle: model.displayTitle(session),
@@ -404,6 +406,26 @@ struct SessionCard: View {
                 Label(L10n.tr("session.openFailed"), systemImage: "exclamationmark.circle")
                     .font(.system(size: 10)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
+            if !model.interactions(for: session.id).isEmpty {
+                let requests = model.interactions(for: session.id)
+                ForEach(requests) { request in
+                    AgentInteractionView(model: model, request: request, providerName: info.providerName,
+                        canOpenAgent: !model.defaults.bool(forKey: "disableClickJump") && SessionDestination.resolve(session) != nil, openAgent: { model.jump(session) })
+                }
+            } else if model.pending[session.id] == nil && needsAgentResponse {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(L10n.tr(session.status == .approval ? "interaction.approvalInAgent" : "interaction.answerInAgent", info.providerName))
+                        .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    if !model.defaults.bool(forKey: "disableClickJump"), SessionDestination.resolve(session) != nil {
+                        Button(L10n.tr("interaction.openAgent", info.providerName)) { model.jump(session) }
+                            .buttonStyle(NotchActionButtonStyle(prominent: true))
+                            .accessibilityIdentifier("respond-in-agent-" + session.id)
+                    } else {
+                        Text(L10n.tr("interaction.openManually", info.providerName)).font(.system(size: 11))
+                            .foregroundStyle(NotchDesign.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
             if selected {
                 let tokenRow = model.usage.task(session: UsageSession.key(provider: session.provider, connection: session.connectionID, session: session.id), turn: session.turnID)
                 Button { model.openUsage?(tokenRow?.id ?? UsageSession.key(provider: session.provider, connection: session.connectionID, session: session.id)) } label: {
@@ -473,23 +495,7 @@ struct SessionCard: View {
                         }
                     }
                 }
-                if let request = model.pending[session.id] {
-                    Divider().overlay(.white.opacity(0.08))
-                    if model.pending.count > 1 { Text(L10n.count("queued", model.pending.count)).font(.system(size: 10)).foregroundStyle(NotchDesign.muted) }
-                    ScrollView {
-                        Text(request.messageIsAppOwned ? L10n.tr(request.message) : request.message)
-                            .font(.system(size: 11, design: request.question ? .default : .monospaced))
-                            .foregroundStyle(NotchDesign.secondary).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }.frame(height: request.message.count > 300 ? 160 : 100)
-                    if request.question { TextField(L10n.tr("Ваш ответ"), text: $answer).textFieldStyle(.roundedBorder).font(.system(size: 12)) }
-                    HStack {
-                        Button(L10n.tr("Отклонить")) { model.respond(session.id, expectedToken: request.token, decision: "deny") }.buttonStyle(NotchActionButtonStyle(destructive: true)).accessibilityIdentifier("deny-" + session.id)
-                        Spacer()
-                        Button(request.question ? L10n.tr("Ответить") : L10n.tr("Разрешить один раз")) { model.respond(session.id, expectedToken: request.token, decision: request.question ? "answer" : "allow", answer: request.question ? answer : nil) }.buttonStyle(NotchActionButtonStyle(prominent: true)).accessibilityIdentifier("allow-" + session.id).disabled(request.question && answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                } else {
+                if model.pending[session.id] == nil {
                     HStack {
                         Button { model.jump(session) } label: { Label(session.status == .approval || session.status == .waiting ? L10n.tr("Ответить в агенте") : L10n.tr("Открыть"), systemImage: "arrow.up.forward") }.buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundStyle(session.status == .approval || session.status == .waiting ? session.status.tint : providerStyle.color)
                         Spacer()
@@ -497,7 +503,7 @@ struct SessionCard: View {
                     }.padding(.top, 2)
                 }
             }
-        }.onChange(of: model.pending[session.id]?.token) { _, _ in answer = "" }
+        }
         .padding(13)
         .background(RoundedRectangle(cornerRadius: 11).fill(providerStyle.color.opacity(selected ? 0.07 : 0.025)))
         .overlay {

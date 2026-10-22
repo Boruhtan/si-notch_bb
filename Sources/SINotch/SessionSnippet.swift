@@ -16,6 +16,7 @@ enum SessionSnippet {
 
     static func text(_ value: Any?, limit: Int = 1200) -> String? {
         guard let raw = value as? String else { return nil }
+        if raw.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<send_user_message_question_reply>") { return nil }
         var text = String(raw.prefix(max(8192, min(65536, limit * 2))))
         for (expression, replacement) in redactions {
             text = expression.stringByReplacingMatches(in: text,

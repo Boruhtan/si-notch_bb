@@ -32,6 +32,10 @@ final class AppModel: ObservableObject {
     @Published var activity: [String: [SessionActivity]] = [:]
     @Published var selectedID: String?
     @Published var pending: [String: PendingRequest] = [:]
+    @Published var codexInteractions: [String: [CodexInteraction]] = [:]
+    @Published var interactionSubmitting: Set<String> = []
+    @Published var interactionErrors: Set<String> = []
+    var codexResponder: ((CodexInteraction, String?, [String: String], @escaping (Bool) -> Void) -> Void)?
     @Published var navigationErrorID: String?
     var sessionNavigator: any SessionNavigating = SessionNavigator()
     private var navigationGeneration = 0
@@ -127,7 +131,7 @@ final class AppModel: ObservableObject {
     }
     var filtered: [AgentSession] {
         sessions.filter { s in
-            if pending[s.id] != nil { return true }
+            if attentionIdentity(s.id) != nil { return true }
             let matchesFilter = activeFilter == "Все" || (activeFilter == "В работе" && s.status == .working) || (activeFilter == "Внимание" && [.approval, .waiting, .failed].contains(s.status)) || (activeFilter == "Готово" && s.status == .completed)
             let matchesSearch = search.isEmpty || "\(s.title) \(s.provider) \(s.projectPath ?? "")".localizedCaseInsensitiveContains(search)
             return matchesFilter && matchesSearch
@@ -207,7 +211,7 @@ final class AppModel: ObservableObject {
     var workingCount: Int { sessions.filter { $0.status == .working }.count }
     var presentationState: IslandPresentationState {
         IslandPresentationState(hasSessions: !sessions.isEmpty, hasWorkingSessions: workingCount > 0,
-            hasPendingRequest: !pending.isEmpty, pointerInside: pointerInside,
+            hasPendingRequest: !pending.isEmpty || !codexInteractions.isEmpty, pointerInside: pointerInside,
             isExpanded: expanded, keepOpen: defaults.bool(forKey: "keepOpen"))
     }
     var showHover: Bool { defaults.object(forKey: "hoverExpand") as? Bool ?? true }
@@ -269,10 +273,12 @@ final class AppModel: ObservableObject {
     }
 
     func refreshCodexObserver() {
-        guard defaults.bool(forKey: "codexAutoDetect") else { codexObserver?.stop(); return }
+        guard defaults.bool(forKey: "codexAutoDetect") else { codexObserver?.stop(); codexInteractions.removeAll(); return }
         if codexObserver == nil {
             codexObserver = CodexSessionObserver(onHistory: { [weak self] event in
                 Task { @MainActor in self?.recordHistoryContent(event) }
+            }, onInteractions: { [weak self] id, requests in
+                Task { @MainActor in self?.receiveCodexInteractions(id, requests: requests) }
             }) { [weak self] event, bootstrap in
                 Task { @MainActor in
                     self?.receiveCodexObservation(event, bootstrap: bootstrap)
@@ -342,17 +348,39 @@ final class AppModel: ObservableObject {
         guard !paused else { reply(json(["ok": false, "error": "paused"])); return }
         do {
             var event = try AgentEvent.parse(data: data)
+            // Tool hooks continue during asynchronous questions. Only the
+            // authoritative Desktop stream may resolve a displayed request.
+            if event.provider == "codex", let request = codexInteractions[event.sessionID]?.first,
+               request.expiresAt > ProcessInfo.processInfo.systemUptime,
+               ![.completed, .failed, .sessionEnded].contains(event.kind) {
+                event.kind = request.isApproval ? .approvalRequested : .waiting
+                event.attentionRequestID = request.id
+            } else if event.provider == "codex", event.id?.hasPrefix("desktop-stream:") != true,
+                      [.working, .toolStarted, .toolFinished, .toolFailed].contains(event.kind),
+                      let attention = attentionIdentity(event.sessionID) {
+                event.kind = store.sessions[event.sessionID]?.status == .approval ? .approvalRequested : .waiting
+                event.attentionRequestID = attention
+            }
             if event.provider.lowercased() == "pi", event.id?.hasPrefix("pi-file:") != true {
                 piObserver?.markHookObserved(sessionID: event.sessionID)
             }
             let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             let waitingForReply = raw["await_response"] as? Bool == true
+            // Observers can identify a request without owning a response channel.
+            // Such requests still reveal the common fallback, never action buttons.
+            if !waitingForReply, event.id?.hasPrefix("interaction-submitted:") != true,
+               event.attentionRequestID == nil, [.waiting, .approvalRequested].contains(event.kind),
+               let requestID = event.approvalID {
+                event.attentionRequestID = requestID
+            }
             // Desktop's follower can report a stale running/waiting snapshot
             // while a PermissionRequest hook owns a live reply channel. It must
             // not remove the buttons or decide that request on the user's behalf.
-            let preservesPending = !waitingForReply && event.provider == "codex" &&
-                event.id?.hasPrefix("desktop-stream:") == true && pending[event.sessionID] != nil &&
-                [.working, .waiting, .approvalRequested].contains(event.kind)
+            let desktopObservation = event.provider == "codex" && event.id?.hasPrefix("desktop-stream:") == true
+            let replacesRequest = event.approvalID != nil && event.approvalID != pending[event.sessionID]?.requestID
+            let preservesPending = !waitingForReply && pending[event.sessionID] != nil &&
+                ![.sessionStarted, .completed, .failed, .sessionEnded].contains(event.kind) &&
+                (desktopObservation || !replacesRequest)
             if preservesPending, let request = pending[event.sessionID] {
                 event.kind = request.question ? .waiting : .approvalRequested
                 event.message = nil
@@ -458,20 +486,21 @@ final class AppModel: ObservableObject {
                 if let id = event.attentionRequestID {
                     observedAttention[event.sessionID] = (id, ProcessInfo.processInfo.systemUptime)
                 } else if event.id?.hasPrefix("desktop-stream:") == true ||
-                            [.sessionStarted, .working, .completed, .failed, .sessionEnded].contains(event.kind) {
+                            (event.provider != "codex" && event.kind == .working) ||
+                            [.sessionStarted, .completed, .failed, .sessionEnded].contains(event.kind) {
                     observedAttention[event.sessionID] = nil
                 }
                 let newAttention = attentionIdentity(event.sessionID)
                 if !suppressPresentation, let status = newStatus,
-                   oldStatus != newStatus || oldAttention != newAttention {
+                   oldStatus != newStatus || oldAttention != newAttention || event.attentionRequestID != previousObservedAttention {
                     reminders.update(id: event.sessionID, status: status, now: ProcessInfo.processInfo.systemUptime,
                         delay: defaults.double(forKey: "followupMinutes") * 60, includeCompleted: defaults.bool(forKey: "followupCompleted"))
                     let repeatedObservation = event.attentionRequestID != nil && event.attentionRequestID == previousObservedAttention
-                    let needsAnswer = newAttention != nil && newAttention != oldAttention && !repeatedObservation && defaults.bool(forKey: "attentionReveal")
+                    let needsAnswer = newAttention != nil && !repeatedObservation && defaults.bool(forKey: "attentionReveal")
                     let completed = status == .completed && oldStatus != status && defaults.bool(forKey: "completionReveal")
                     if (needsAnswer || completed), !quiet, defaults.bool(forKey: "autoExpand"),
                        presentationPolicy?.canAutomaticallyReveal(for: store.sessions[event.sessionID]) ?? true {
-                        if pending[event.sessionID] != nil { showAgents = false }
+                        if needsAnswer { showAgents = false; if showingHistory { activeFilter = "Внимание" } }
                         reveal(reason: needsAnswer ? "response-needed" : "completed")
                     }
                 }
@@ -568,22 +597,83 @@ final class AppModel: ObservableObject {
         var response: [String: Any] = ["ok": true, "decision": decision, "request_id": request.requestID]
         if let answer { response["answer"] = answer }
         request.reply(json(response))
+        observedAttention[id] = nil
         let messageKey = decision == "deny" ? "Вы отклонили действие" : decision == "answer" ? "Вы выбрали ответ. Ожидаем событие агента." : "Вы разрешили этот запрос. Ожидаем событие агента."
-        inject(["event": "waiting", "session_id": id, "provider": store.sessions[id]?.provider ?? "custom", "message": messageKey], appOwnedMessageKey: messageKey)
+        inject(["event": "waiting", "session_id": id, "provider": store.sessions[id]?.provider ?? "custom",
+                "id": "interaction-submitted:\(request.token)", "message": messageKey], appOwnedMessageKey: messageKey)
         resumeAutoDismiss()
+    }
+    func interactions(for id: String) -> [AgentInteraction] {
+        // A live hook owns its reply channel; do not show a second set of
+        // Desktop controls for the same permission request.
+        if let request = pending[id] {
+            let message = request.messageIsAppOwned ? L10n.tr(request.message) : request.message
+            return [AgentInteraction(id: request.token, sessionID: id, detail: request.question ? "" : message,
+                questions: request.question ? [.init(id: "answer", title: message, options: [], optionDescriptions: [], secret: false)] : [],
+                actions: request.question ? [.init(id: "deny", label: "interaction.deny", destructive: true)] : [.init(id: "allow", label: "interaction.allowOnce", destructive: false),
+                    .init(id: "deny", label: "interaction.deny", destructive: true)], expiresAt: request.expiresAt)]
+        }
+        return codexInteractions[id]?.map(\.presentation) ?? []
+    }
+
+    func respondToInteraction(_ request: AgentInteraction, action: String? = nil, answers: [String: String] = [:]) {
+        guard interactions(for: request.sessionID).contains(request),
+              request.expiresAt > ProcessInfo.processInfo.systemUptime,
+              request.actions.contains(where: { $0.id == action }) || (action == nil && request.accepts(answers: answers)) else { return }
+        if let hook = pending[request.sessionID], hook.token == request.id {
+            respond(request.sessionID, expectedToken: hook.token,
+                decision: action ?? "answer", answer: answers["answer"])
+        } else if let native = codexInteractions[request.sessionID]?.first(where: { $0.id == request.id }) {
+            respondToCodex(native, action: action, answers: answers)
+        }
+    }
+
+    func receiveCodexInteractions(_ id: String, requests: [CodexInteraction]) {
+        guard defaults.bool(forKey: "codexAutoDetect") else { return }
+        let previous = codexInteractions[id] ?? []
+        guard previous != requests else { return }
+        codexInteractions[id] = requests.isEmpty ? nil : requests
+        let active = Set(codexInteractions.values.flatMap { $0.map(\.id) })
+        interactionErrors.formIntersection(active)
+        if let request = requests.first, let session = store.sessions[id], !sessionFilter.hides(path: session.projectPath, firstPrompt: session.firstPrompt) {
+            inject(["event": request.isApproval ? "approval.request" : "agent.waiting", "provider": "codex",
+                "session_id": id, "attention_request_id": request.id])
+            selectedID = id
+            showAgents = false
+        }
+        revision += 1
+        onLayout?()
+        if requests.isEmpty { resumeAutoDismiss() }
+    }
+    func respondToCodex(_ request: CodexInteraction, action: String? = nil, answers: [String: String] = [:]) {
+        guard codexInteractions[request.sessionID]?.contains(request) == true,
+              request.expiresAt > ProcessInfo.processInfo.systemUptime,
+              !interactionSubmitting.contains(request.id), !interactionErrors.contains(request.id) else { return }
+        interactionSubmitting.insert(request.id)
+        let completion: (Bool) -> Void = { [weak self] success in
+            guard let self else { return }
+            self.interactionSubmitting.remove(request.id)
+            if !success, self.codexInteractions[request.sessionID]?.contains(where: { $0.id == request.id }) == true {
+                self.interactionErrors.insert(request.id)
+            }
+        }
+        if let codexResponder { codexResponder(request, action, answers, completion) }
+        else if let codexObserver { codexObserver.respond(request, action: action, answers: answers, completion: completion) }
+        else { completion(false) }
     }
     func cancelRequest(_ id: String) {
         if let p = pending.removeValue(forKey: id) { p.reply(json(["ok": false, "decision": "cancelled", "request_id": p.requestID])) }
     }
     func attentionIdentity(_ id: String, at now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> String? {
+        if let request = codexInteractions[id]?.first, now < request.expiresAt { return request.id }
         if let request = pending[id], now < request.expiresAt { return "reply:\(request.requestID)" }
         guard let request = observedAttention[id], (0..<45).contains(now - request.seenAt),
-              let status = store.sessions[id]?.status, ![.completed, .failed, .ended].contains(status) else { return nil }
+              let status = store.sessions[id]?.status, [.waiting, .approval].contains(status) else { return nil }
         return request.id
     }
     private func resumeAutoDismiss() {
         guard expanded, expansionOrigin == .automatic, !pointerInside,
-              pending.isEmpty, !sessions.contains(where: { attentionIdentity($0.id) != nil }) else { return }
+              pending.isEmpty, codexInteractions.isEmpty, !sessions.contains(where: { attentionIdentity($0.id) != nil }) else { return }
         reveal()
     }
     func dismiss(_ id: String) { dismissSessions([id]) }
@@ -592,6 +682,7 @@ final class AppModel: ObservableObject {
         for id in ids {
             reminders.cancel(id)
             cancelRequest(id)
+            codexInteractions[id] = nil
             observedAttention[id] = nil
             store.removeSession(id: id)
             appOwnedTitles[id] = nil
@@ -627,7 +718,7 @@ final class AppModel: ObservableObject {
         cancelExpansionTimer()
         cancelRevealTimer()
         if value { expansionOrigin = origin }
-        if value && !expanded && !pending.isEmpty { showAgents = false }
+        if value && !expanded && (!pending.isEmpty || !codexInteractions.isEmpty) { showAgents = false }
         guard expanded != value else { presentationPolicy?.expansionChanged(value, origin: origin); return }
         if !value {
             let overPill = compactHoverRegion?.contains(hoverLocation()) ?? pointerInside
@@ -664,12 +755,12 @@ final class AppModel: ObservableObject {
     func reveal(reason: String = "response-needed") {
         if expanded, expansionOrigin != .automatic { return }
         setExpanded(true, origin: .automatic, reason: reason)
-        guard pending.isEmpty else { return }
+        guard pending.isEmpty, codexInteractions.isEmpty else { return }
         let generation = revealGeneration
         revealTimer = Timer.scheduledTimer(withTimeInterval: max(2, defaults.double(forKey: "revealDwell")), repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.revealGeneration == generation, self.expanded,
-                      !self.pointerInside, self.pending.isEmpty,
+                      !self.pointerInside, self.pending.isEmpty, self.codexInteractions.isEmpty,
                       !self.defaults.bool(forKey: "keepOpen") else { return }
                 self.setExpanded(false, origin: .automatic, reason: "dwell-expired")
             }
@@ -723,7 +814,7 @@ final class AppModel: ObservableObject {
     }
     private var canCollapseAfterPointerLeave: Bool {
         presentationPolicy?.canCollapseOnMouseLeave ??
-            (expanded && !pointerInside && pending.isEmpty && !defaults.bool(forKey: "keepOpen"))
+            (expanded && !pointerInside && pending.isEmpty && codexInteractions.isEmpty && !defaults.bool(forKey: "keepOpen"))
     }
     func activateSession(_ session: AgentSession) {
         if defaults.bool(forKey: "disableClickJump") {
@@ -804,7 +895,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var shortcutConfiguration: String?
 
     init(model: AppModel? = nil) {
-        self.model = model ?? AppModel()
+        self.model = model ?? AppModel(defaults: CommandLine.arguments.contains("--qa-interactions")
+            ? UserDefaults(suiteName: "si-notch.interaction-qa.\(UUID().uuidString)")! : .standard)
         super.init()
     }
 
@@ -860,6 +952,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let i = CommandLine.arguments.firstIndex(of: "--qa-export"), CommandLine.arguments.indices.contains(i + 1) {
             panel.orderFrontRegardless()
             QAExporter.run(delegate: self, directory: URL(fileURLWithPath: CommandLine.arguments[i + 1], isDirectory: true))
+            return
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--qa-interactions"), CommandLine.arguments.indices.contains(i + 2) {
+            QAInteractionSession.start(delegate: self, socket: CommandLine.arguments[i + 1], sessionID: CommandLine.arguments[i + 2])
             return
         }
         model.presentationPolicy = PresentationPolicy(defaults: model.defaults,

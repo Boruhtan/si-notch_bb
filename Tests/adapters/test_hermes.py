@@ -236,6 +236,8 @@ class HermesPluginTests(unittest.TestCase):
         self.assertEqual([event["sequence"] for event in output], list(range(1, 9)))
         self.assertEqual(output[3]["tool_name"], "tool")
         self.assertTrue(output[4]["approval_id"].startswith("request-"))
+        self.assertTrue(output[4]["attention_request_id"].startswith("input-"))
+        self.assertNotIn("attention_request_id", output[5])
 
     def test_model_and_effort_follow_actual_requests_without_forwarding_request_content(self):
         output = []

@@ -239,7 +239,7 @@ struct CodexRolloutScanner {
         guard let stamp = Self.recordDate(record) else { return }
         if includeContent, kind == "response_item", payload["type"] as? String == "message" {
             let role = payload["role"] as? String
-            if role == "user" { state.prompt = SessionSnippet.message(payload["content"]); state.message = nil }
+            if role == "user", let prompt = SessionSnippet.message(payload["content"]) { state.prompt = prompt; state.message = nil }
             if role == "assistant", payload["phase"] as? String != "analysis" {
                 state.message = SessionSnippet.message(payload["content"]) ?? state.message
             }
@@ -253,8 +253,7 @@ struct CodexRolloutScanner {
         if kind == "event_msg" {
             switch payload["type"] as? String {
             case "user_message" where includeContent:
-                state.prompt = SessionSnippet.text(payload["message"])
-                state.message = nil
+                if let prompt = SessionSnippet.text(payload["message"]) { state.prompt = prompt; state.message = nil }
                 if state.visible && !bootstrap,
                    let item = HistoryContent.message(id: "user-\(state.offset)", role: .user, content: payload["message"]) {
                     observations.append(CodexSessionObservation(event: event(.usageUpdated, state: state,
@@ -405,6 +404,7 @@ final class CodexSessionObserver {
     private let interval: TimeInterval
     private let onEvent: (AgentEvent, Bool) -> Void
     private let onHistory: (AgentEvent) -> Void
+    private let onInteractions: (String, [CodexInteraction]) -> Void
     private var scanner: CodexRolloutScanner
     private var desktopScanner = CodexDesktopScanner()
     private var desktopStream: CodexDesktopStream?
@@ -415,11 +415,13 @@ final class CodexSessionObserver {
             .appendingPathComponent(".codex/sessions", isDirectory: true),
          pollInterval: TimeInterval = 1,
          onHistory: @escaping (AgentEvent) -> Void = { _ in },
+         onInteractions: @escaping (String, [CodexInteraction]) -> Void = { _, _ in },
          onEvent: @escaping (AgentEvent, Bool) -> Void) {
         scanner = CodexRolloutScanner(sessionsRoot: sessionsRoot, includeContent: true)
         interval = max(0.25, pollInterval)
         self.onEvent = onEvent
         self.onHistory = onHistory
+        self.onInteractions = onInteractions
     }
 
     func start() {
@@ -434,7 +436,12 @@ final class CodexSessionObserver {
             let watcher = CodexRolloutWatcher(root: self.scanner.sessionsRoot, queue: self.queue)
             watcher.start()
             self.rolloutWatcher = watcher
-            self.desktopStream = CodexDesktopStream(queue: self.queue) { [weak self] event, bootstrap in
+            self.desktopStream = CodexDesktopStream(queue: self.queue, onInteractions: { [weak self] id, requests in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.isCurrent(currentGeneration) else { return }
+                    self.onInteractions(id, requests)
+                }
+            }) { [weak self] event, bootstrap in
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.isCurrent(currentGeneration) else { return }
                     self.onEvent(event, bootstrap)
@@ -484,6 +491,15 @@ final class CodexSessionObserver {
             self?.desktopStream = nil
             self?.rolloutWatcher?.stop()
             self?.rolloutWatcher = nil
+        }
+    }
+
+    func respond(_ request: CodexInteraction, action: String?, answers: [String: String], completion: @escaping (Bool) -> Void) {
+        queue.async { [weak self] in
+            guard let stream = self?.desktopStream else { DispatchQueue.main.async { completion(false) }; return }
+            stream.respond(request, action: action, answers: answers) { success in
+                DispatchQueue.main.async { completion(success) }
+            }
         }
     }
 

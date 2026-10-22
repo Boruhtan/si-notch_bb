@@ -694,3 +694,19 @@
 "updates.plugins.added" = "New plugin";
 "updates.plugins.updated" = "Plugin update";
 "updates.plugins.install" = "Install from GitHub";
+
+// Request-bound agent interactions
+"interaction.allowOnce" = "Allow once";
+"interaction.deny" = "Deny";
+"interaction.allowSession" = "Allow for this session";
+"interaction.allowRule" = "Always allow this command rule";
+"interaction.cancel" = "Cancel action";
+"interaction.approvalTitle" = "Approval required";
+"interaction.questionTitle" = "Your answer is needed";
+"interaction.approvalInAgent" = "Approve or deny this action in %@. This request cannot be answered here.";
+"interaction.answerInAgent" = "Choose an option or reply in %@. This request cannot be answered here.";
+"interaction.openAgent" = "Open %@";
+
+"interaction.failed" = "Response not confirmed. Check the request in %@ before trying again.";
+"interaction.sending" = "Waiting for confirmation from %@…";
+"interaction.openManually" = "Open the original %@ chat or the terminal where this task is running.";

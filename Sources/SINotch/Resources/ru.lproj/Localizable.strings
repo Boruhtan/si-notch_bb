@@ -694,3 +694,19 @@
 "updates.plugins.added" = "Новый плагин";
 "updates.plugins.updated" = "Обновление плагина";
 "updates.plugins.install" = "Установка на GitHub";
+
+// Request-bound agent interactions
+"interaction.allowOnce" = "Разрешить один раз";
+"interaction.deny" = "Отклонить";
+"interaction.allowSession" = "Разрешить для этой сессии";
+"interaction.allowRule" = "Всегда разрешать это правило команды";
+"interaction.cancel" = "Отменить действие";
+"interaction.approvalTitle" = "Нужно разрешение";
+"interaction.questionTitle" = "Нужен ваш ответ";
+"interaction.approvalInAgent" = "Подтвердите или отклоните действие в %@. Этот запрос нельзя обработать в чёлке.";
+"interaction.answerInAgent" = "Выберите вариант или дайте ответ в %@. Этот запрос нельзя обработать в чёлке.";
+"interaction.openAgent" = "Открыть %@";
+
+"interaction.failed" = "Ответ не подтверждён. Проверьте запрос в %@ перед повторной попыткой.";
+"interaction.sending" = "Ожидаем подтверждение от %@…";
+"interaction.openManually" = "Откройте исходный чат %@ или терминал, где запущена эта задача.";

@@ -85,6 +85,8 @@ test("Pi extension maps real lifecycle boundaries without content", () => {
   assert.ok(events.every((e) => e.provider === "pi" && e.session_id === "pi-real-session"));
   assert.deepEqual(events.map((e) => e.sequence), [1, 2, 3, 4, 5, 6, 7]);
   assert.ok(!JSON.stringify(events).includes("SECRET"));
+  assert.equal(typeof events[4].attention_request_id, "string");
+  assert.equal(events[5].attention_request_id, undefined);
   fire("agent_start");
   fire("agent_before_settle", { outcome: "error" });
   fire("agent_settled", { aborted: false });

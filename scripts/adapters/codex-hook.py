@@ -76,7 +76,9 @@ def event_from_hook(hook):
     if name == "SessionStart":
         event["title"] = display_summary(os.path.basename(cwd.rstrip("/")), 100) if "cwd" in event else "Codex"
     if name == "UserPromptSubmit":
-        summary = display_summary(hook.get("prompt"))
+        prompt = hook.get("prompt")
+        # A reply envelope is control input, not a replacement task title.
+        summary = None if isinstance(prompt, str) and prompt.lstrip().startswith("<send_user_message_question_reply>") else display_summary(prompt)
         if summary:
             event.update(title=display_summary(summary, 100), first_prompt=summary, message=summary)
     if name == "Stop":

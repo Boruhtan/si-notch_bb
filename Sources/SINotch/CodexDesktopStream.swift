@@ -3,12 +3,16 @@ import Foundation
 import Network
 import SINotchCore
 
-/// Read-only follower of the user's local Desktop IPC socket. It never starts
-/// a router, resumes a thread, sends a prompt, or answers an approval request.
-final class CodexDesktopStream {
+/// Follows Desktop without taking ownership. The interaction bridge only sends
+/// a request-bound response after an explicit click and a fresh owner check.
+/// All mutable state and public operations are confined to the supplied queue.
+final class CodexDesktopStream: @unchecked Sendable {
     private let queue: DispatchQueue
     private let socketURL: URL
     private let onEvent: (AgentEvent, Bool) -> Void
+    private let onInteractions: (String, [CodexInteraction]) -> Void
+    private lazy var interactions = CodexInteractionBridge(update: onInteractions,
+        send: { [weak self] in self?.send($0) }, refresh: { [weak self] in self?.follow($0, following: true) })
     private var connection: NWConnection?
     private var clientID: String?
     private var pending = Data()
@@ -22,17 +26,22 @@ final class CodexDesktopStream {
     private let maximumFrame = 32 * 1024 * 1024
 
     init(queue: DispatchQueue, socketURL: URL = FileManager.default.homeDirectoryForCurrentUser
-         .appendingPathComponent(".codex/ipc/ipc.sock"), onEvent: @escaping (AgentEvent, Bool) -> Void) {
+         .appendingPathComponent(".codex/ipc/ipc.sock"),
+         onInteractions: @escaping (String, [CodexInteraction]) -> Void = { _, _ in },
+         onEvent: @escaping (AgentEvent, Bool) -> Void) {
         self.queue = queue
         self.socketURL = socketURL
         self.onEvent = onEvent
+        self.onInteractions = onInteractions
     }
 
     func observe(_ ids: [String], now: Date = Date()) {
+        interactions.tick()
         track(ids, activity: true, now: now)
         for (id, seen) in tracked where now.timeIntervalSince(seen) > 3600 {
             follow(id, following: false); tracked[id] = nil; taskSessions.remove(id)
             feed.remove(id); subscribed.remove(id); resnapshotAt[id] = nil
+            interactions.remove(id)
         }
         if let connectingAt, now.timeIntervalSince(connectingAt) > 10, clientID == nil { disconnect() }
         // Connect before the first log/rollout signal so native local discovery
@@ -59,6 +68,10 @@ final class CodexDesktopStream {
     }
 
     func contains(_ id: String) -> Bool { connection != nil && feed.isFresh(id) }
+
+    func respond(_ request: CodexInteraction, action: String?, answers: [String: String], completion: @escaping (Bool) -> Void) {
+        interactions.submit(request, action: action, answers: answers, completion: completion)
+    }
 
     func stop() {
         for id in subscribed { follow(id, following: false) }
@@ -121,15 +134,24 @@ final class CodexDesktopStream {
            frame["resultType"] as? String == "success",
            let id = (frame["result"] as? [String: Any])?["clientId"] as? String, UUID(uuidString: id) != nil {
             clientID = id; connectingAt = nil
+            interactions.connected(clientID: id)
             subscribe()
             return
         }
+        interactions.receive(frame)
         if frame["type"] as? String == "client-discovery-request", let requestID = frame["requestId"] as? String {
             send(["type": "client-discovery-response", "requestId": requestID, "response": ["canHandle": false]])
             return
         }
         guard frame["type"] as? String == "broadcast" else { return }
         if let targets = frame["targetClientIds"] as? [String], let clientID, !targets.contains(clientID) { return }
+        if frame["method"] as? String == "thread-stream-state-changed", frame["version"] as? Int != 11,
+           let params = frame["params"] as? [String: Any], let id = params["conversationId"] as? String,
+           subscribed.contains(id) {
+            interactions.remove(id)
+            feed.remove(id)
+            return
+        }
         if frame["method"] as? String == "thread-read-state-changed", frame["version"] as? Int == 3,
            let params = frame["params"] as? [String: Any], params["hostId"] as? String == "local",
            let id = params["conversationId"] as? String, UUID(uuidString: id) != nil {
@@ -145,6 +167,10 @@ final class CodexDesktopStream {
               let host = params["hostId"] as? String, ["local", "durable"].contains(host),
               let change = params["change"] as? [String: Any] else { return }
         let update = feed.consume(id: id, host: host, change: change)
+        if update.needsSnapshot { interactions.remove(id) }
+        if !update.needsSnapshot, feed.acceptsHost(host, for: id), let owner = frame["sourceClientId"] as? String {
+            interactions.consume(sessionID: id, host: host, owner: owner, change: change)
+        }
         if update.needsSnapshot {
             if Date().timeIntervalSince(resnapshotAt[id] ?? .distantPast) >= 5 {
                 resnapshotAt[id] = Date()
@@ -153,7 +179,7 @@ final class CodexDesktopStream {
             return
         }
         if let event = update.event {
-            if event.kind == .working || event.kind == .waiting {
+            if [.working, .waiting, .approvalRequested].contains(event.kind) {
                 tracked[id] = Date()
                 taskSessions.insert(id)
             }
@@ -184,6 +210,7 @@ final class CodexDesktopStream {
         let old = connection
         connection = nil; clientID = nil; connectingAt = nil
         old?.cancel()
+        interactions.disconnect()
         pending.removeAll(); subscribed.removeAll(); feed = CodexDesktopFeed(); resnapshotAt.removeAll()
         retryAfter = Date().addingTimeInterval(5)
     }
@@ -202,6 +229,7 @@ struct CodexDesktopFeed {
     private var entries: [String: Entry] = [:]
 
     func hasSnapshot(_ id: String) -> Bool { entries[id] != nil }
+    func acceptsHost(_ host: String, for id: String) -> Bool { entries[id]?.host == host }
 
     func isFresh(_ id: String, now: Date = Date()) -> Bool {
         guard let entry = entries[id] else { return false }

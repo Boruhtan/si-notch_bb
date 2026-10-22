@@ -144,7 +144,7 @@ export function registerPiEvents(pi, send = makeSender()) {
     emit(event.isError ? "tool.failed" : "tool.finish", { tool_name: String(event.toolName || "tool").slice(0, 512) });
   });
   pi.on("ui_prompt_start", (_event, ctx) => {
-    if (ensureSession(ctx)) emit("agent.waiting", { message: "Waiting for input" });
+    if (ensureSession(ctx)) emit("agent.waiting", { message: "Waiting for input", attention_request_id: randomUUID() });
   });
   pi.on("ui_prompt_end", (_event, ctx) => {
     if (ensureSession(ctx)) emit("agent.working");

@@ -296,7 +296,7 @@ def _drain_usage() -> None:
 
 
 def _emit(kind: str, session_id: object, *, tool_name: object = None,
-          approval_id: object = None, message: str | None = None,
+          approval_id: object = None, attention_request_id: object = None, message: str | None = None,
           first_prompt: str | None = None, turn_id: object = None,
           task: dict | None = None, subagent: dict | None = None,
           usage: dict | None = None) -> bool:
@@ -334,6 +334,8 @@ def _emit(kind: str, session_id: object, *, tool_name: object = None,
         safe_id = _opaque_id(approval_id, "request-")
         if safe_id:
             payload["approval_id"] = safe_id
+    if safe_id := _opaque_id(attention_request_id, "input-"):
+        payload["attention_request_id"] = safe_id
     if message:
         payload["message"] = message
     if first_prompt:
@@ -477,11 +479,13 @@ def post_llm_call(session_id=None, assistant_response=None, turn_id=None, **kwar
 
 def on_human_input_request(session_id=None, request_id=None, kind=None, **kwargs) -> None:
     _start_once(session_id)
+    identity = request_id if request_id is not None else str(uuid4())
     if kind == "approval":
         _emit("approval.request", session_id, approval_id=request_id,
+              attention_request_id=identity,
               message="Hermes is waiting for approval")
     else:
-        _emit("agent.waiting", session_id, message="Hermes is waiting for input")
+        _emit("agent.waiting", session_id, attention_request_id=identity, message="Hermes is waiting for input")
 
 
 def on_human_input_resolved(session_id=None, **kwargs) -> None:

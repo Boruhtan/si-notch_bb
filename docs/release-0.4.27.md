@@ -1,0 +1,4 @@
+- Answer supported questions and approval requests directly from the notch.
+- Show clear instructions when a request must be handled in its original app.
+- Keep pending requests visible during parallel activity and prevent duplicate responses.
+- Keep reply data out of session titles and previews.

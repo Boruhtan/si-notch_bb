@@ -5,6 +5,68 @@ import SINotchCore
 
 final class AppModelTests: XCTestCase {
     @MainActor
+    func testCommonInteractionContractUsesExactHookForEveryProvider() throws {
+        for provider in ["codex", "claude", "pi", "hermes", "custom"] {
+            let model = makeModel()
+            defer { model.shutdown() }
+            var replies: [[String: Any]] = []
+            let payload: [String: Any] = ["session_id": provider + "-request", "provider": provider,
+                "event": "approval.request", "await_response": true, "request_id": "one", "response_timeout": 60,
+                "message": "Test only"]
+            model.receive(try JSONSerialization.data(withJSONObject: payload)) {
+                replies.append((try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] ?? [:])
+            }
+            let request = try XCTUnwrap(model.interactions(for: provider + "-request").first)
+            XCTAssertEqual(request.actions.map(\.id), ["allow", "deny"])
+            model.respondToInteraction(request, action: "always")
+            XCTAssertTrue(replies.isEmpty)
+            model.respondToInteraction(request, action: "deny")
+            XCTAssertEqual(replies.count, 1)
+            XCTAssertEqual(replies[0]["decision"] as? String, "deny")
+            XCTAssertEqual(replies[0]["request_id"] as? String, "one")
+            model.respondToInteraction(request, action: "allow")
+            XCTAssertEqual(replies.count, 1)
+        }
+    }
+
+    @MainActor
+    func testObservationAloneNeverCreatesResponseCapabilities() throws {
+        for provider in ["codex", "claude", "pi", "hermes"] {
+            let model = makeModel()
+            defer { model.shutdown() }
+            for kind in [AgentEventKind.approvalRequested, .waiting] {
+                model.receive(try JSONEncoder().encode(AgentEvent(sessionID: provider, provider: provider, kind: kind,
+                    attentionRequestID: "concrete-input"))) { _ in }
+                XCTAssertTrue(model.interactions(for: provider).isEmpty)
+                XCTAssertTrue([.waiting, .approval].contains(model.store.sessions[provider]!.status))
+                XCTAssertNotNil(model.attentionIdentity(provider))
+                model.activeFilter = "Готово"
+                model.search = "another task"
+                XCTAssertEqual(model.filtered.map(\.id), [provider])
+            }
+            model.receive(try JSONEncoder().encode(AgentEvent(sessionID: provider, provider: provider, kind: .completed))) { _ in }
+            XCTAssertNil(model.attentionIdentity(provider))
+        }
+    }
+
+    @MainActor
+    func testParallelToolObservationCannotCancelHookResponseChannel() throws {
+        for provider in ["claude", "hermes", "pi"] {
+            let model = makeModel()
+            defer { model.shutdown() }
+            var replies = 0
+            model.receive(try JSONSerialization.data(withJSONObject: ["session_id": provider, "provider": provider,
+                "event": "approval.request", "await_response": true, "request_id": "pending", "response_timeout": 60])) { _ in replies += 1 }
+            let token = try XCTUnwrap(model.pending[provider]?.token)
+            model.receive(try JSONEncoder().encode(AgentEvent(sessionID: provider, provider: provider, kind: .toolFinished))) { _ in }
+            XCTAssertEqual(model.pending[provider]?.token, token)
+            XCTAssertEqual(replies, 0)
+            model.respond(provider, expectedToken: token, decision: "deny")
+            XCTAssertEqual(replies, 1)
+        }
+    }
+
+    @MainActor
     func testObservedNewCodexTurnReopensEndedCLIWithAndWithoutBootstrap() throws {
         for bootstrap in [false, true] {
             let model = makeModel()

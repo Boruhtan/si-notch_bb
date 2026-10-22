@@ -59,7 +59,7 @@ struct CodexDesktopState {
                 let text = content as? String ?? (content as? [[String: Any]])?.prefix(16).compactMap {
                     ["text", "input_text", "output_text"].contains($0["type"] as? String ?? "") ? $0["text"] as? String : nil
                 }.joined(separator: "\n")
-                return text.flatMap { $0.isEmpty ? nil : .init(id: id, role: .user, text: String($0.prefix(HistoryStore.maximumTextCharacters))) }
+                return text.flatMap { $0.isEmpty || Self.replyQuestionIDs($0) != nil ? nil : .init(id: id, role: .user, text: String($0.prefix(HistoryStore.maximumTextCharacters))) }
             case "agentMessage" where item["phase"] as? String != "analysis":
                 return (item["text"] as? String).flatMap { $0.isEmpty ? nil : .init(id: id, role: .assistant, text: $0) }
             case "commandExecution":
@@ -70,7 +70,9 @@ struct CodexDesktopState {
         let runtime = root["threadRuntimeStatus"] as? [String: Any] ?? [:]
         let flags = runtime["activeFlags"] as? [String] ?? []
         let active = runtime["type"] as? String == "active" || turn["status"] as? String == "inProgress"
-        let kind: AgentEventKind = flags.contains("waitingOnUserInput") || flags.contains("waitingOnApproval") ? .waiting :
+        let attention = Self.attentionRequest(in: root, turn: turn)
+        let kind: AgentEventKind = flags.contains("waitingOnApproval") ? .approvalRequested :
+            attention != nil || flags.contains("waitingOnUserInput") ? .waiting :
             active ? .working : turn["status"] as? String == "failed" ? .failed :
             turn["status"] as? String == "completed" ? .completed : .sessionStarted
         let message = items.reversed().first { $0["type"] as? String == "agentMessage" && $0["phase"] as? String != "analysis" }
@@ -84,7 +86,6 @@ struct CodexDesktopState {
             .compactMap { SessionSnippet.text($0, limit: 256) }.first
         let effort = [root["latestReasoningEffort"], turn["requestedReasoningEffort"], params["effort"], settings["reasoning_effort"]]
             .compactMap { SessionSnippet.text($0, limit: 128) }.first
-        let attention = Self.attentionRequest(in: root, turn: turn)
         let usage = root["latestTokenUsageInfo"] as? [String: Any] ?? [:]
         let total = usage["total"] as? [String: Any] ?? [:]
         let last = usage["last"] as? [String: Any] ?? [:]
@@ -142,7 +143,7 @@ struct CodexDesktopState {
         return "codex-request:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func replyQuestionIDs(_ text: String) -> [String]? {
+    static func replyQuestionIDs(_ text: String) -> [String]? {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let start = "<send_user_message_question_reply>", end = "</send_user_message_question_reply>"
         guard value.hasPrefix(start), value.hasSuffix(end), value.utf8.count <= AgentEvent.maximumPayloadBytes,
@@ -206,7 +207,7 @@ struct CodexDesktopState {
         return value
     }
 
-    private static func edit(_ value: inout Any, path: ArraySlice<Any>, operation: String, replacement: Any) {
+    static func edit(_ value: inout Any, path: ArraySlice<Any>, operation: String, replacement: Any) {
         guard let key = path.first else { value = replacement; return }
         let tail = path.dropFirst()
         if let key = key as? String, var object = value as? [String: Any] {

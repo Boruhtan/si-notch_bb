@@ -140,6 +140,13 @@ class CodexHookTests(unittest.TestCase):
         self.assertNotIn("title", tool)
         self.assertNotIn("message", tool)
 
+    def test_question_reply_never_replaces_task_title_or_prompt(self):
+        event = hook_adapter.event_from_hook({"hook_event_name": "UserPromptSubmit", "session_id": "thread_123",
+            "prompt": '<send_user_message_question_reply>[{"answer":"Yes"}]</send_user_message_question_reply>'})
+        self.assertEqual(event["event"], "agent.working")
+        for field in ("title", "first_prompt", "message"):
+            self.assertNotIn(field, event)
+
     def test_invalid_session_and_unsafe_metadata_are_rejected(self):
         self.assertIsNone(hook_adapter.event_from_hook({"hook_event_name": "Stop", "session_id": "bad id"}))
         self.assertIsNone(hook_adapter.event_from_hook({"hook_event_name": "Other", "session_id": "thread_123"}))

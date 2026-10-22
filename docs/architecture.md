@@ -22,6 +22,31 @@ Common events: `session.start`, `agent.working`, `agent.waiting`, `agent.complet
 
 ## Transport and code
 
+### Interaction boundaries
+
+`AgentInteraction` is the provider-independent presentation contract: an opaque identity, session, deadline, questions/options and explicitly offered actions. `AgentInteractionView` renders that contract for every provider. It contains no provider wire format or permission policy. `AppModel` revalidates the current identity and deadline before routing an explicit click to its owning adapter. A live hook takes precedence over a Desktop observation of the same session, so two channels cannot offer competing buttons.
+
+The hook transport retains its existing per-connection reply closure and one-shot token. It supports Allow once/Deny and free-text questions. `CodexInteractionState` projects Desktop request content into ephemeral memory; `CodexInteractionBridge` owns versioned Desktop responses and their confirmation lifecycle. A new adapter must supply a real request-bound response channel before it can expose actions. Observing `waiting` or `approval` alone never creates response capabilities.
+
+Desktop IPC is an internal compatibility interface, not a public extension API. The adapter accepts stream version 11, refreshes the exact request and discovers its owner before sending a decision once. It requires a matching RPC acknowledgement and stream resolution; asynchronous answers also require the original turn and an accepted question identity. Unknown versions, unsupported kinds, changed ownership, expired requests, disconnects and uncertain acknowledgements fall back to the originating app. Uncertain mutations are never replayed. Questions expire locally after five minutes; expiration grants nothing. A future upstream change can therefore remove inline controls without granting permissions or submitting guessed responses.
+
+Permanent or session-scoped permissions are shown only when the exact request advertises them. A command-rule grant carries precisely its advertised rule. There is no global auto-approve policy. Request bodies and answers are not added to history or usage storage. Native asynchronous reply envelopes are excluded from titles and public snippets.
+
+When no response channel is available, the card explicitly asks the user to approve/reject or answer in the named harness. It opens the exact task or originating application when navigation metadata exists; otherwise it instructs the user to open the original chat or terminal. A missing navigation destination never produces a fictitious Open action in the fallback panel.
+
+| Integration | Inline response path | Fallback |
+| --- | --- | --- |
+| Codex Desktop | Versioned owner-bound compatibility adapter: command/file approvals, blocking questions, asynchronous choices/free text | Unsupported request/version, unavailable owner, stale or unconfirmed response: open Codex |
+| Codex CLI | Existing explicitly configured PermissionRequest hook: Allow once/Deny | Native Codex permission UI |
+| Claude Code | Existing optional permission bridge: Allow once/Deny | Native Claude UI for unsupported tools/inputs or absent bridge |
+| Pi | Current extension observes UI prompt start/end; no response capability is claimed | Original Pi terminal |
+| Hermes | Current plugin observes human-input request/resolved; no response capability is claimed | Original Hermes chat or terminal |
+| Custom local producer | Existing request/reply socket, using the same shared controls | Producer's own UI on timeout/disconnect |
+
+The table describes capabilities, not live end-to-end verification of every provider. See [verification](verification.md) and [feature status](parity.md).
+
+### Socket limits
+
 - JSON messages are limited to 128 KiB; `emit` waits up to one second for acknowledgement.
 - The socket and its directory use modes 0600 and 0700 and require the same user. Up to 16 clients and eight pending requests are supported.
 - Override the socket with `SI_NOTCH_SOCKET` or `--socket /absolute/path`.

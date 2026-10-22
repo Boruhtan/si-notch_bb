@@ -694,3 +694,19 @@
 "updates.plugins.added" = "新插件";
 "updates.plugins.updated" = "插件更新";
 "updates.plugins.install" = "在 GitHub 查看安装说明";
+
+// Request-bound agent interactions
+"interaction.allowOnce" = "允许一次";
+"interaction.deny" = "拒绝";
+"interaction.allowSession" = "在此会话中允许";
+"interaction.allowRule" = "始终允许此命令规则";
+"interaction.cancel" = "取消操作";
+"interaction.approvalTitle" = "需要批准";
+"interaction.questionTitle" = "需要您的回复";
+"interaction.approvalInAgent" = "请在 %@ 中批准或拒绝此操作。无法在此处处理该请求。";
+"interaction.answerInAgent" = "请在 %@ 中选择选项或回复。无法在此处处理该请求。";
+"interaction.openAgent" = "打开 %@";
+
+"interaction.failed" = "回复尚未确认。请先在 %@ 中检查请求，再重试。";
+"interaction.sending" = "正在等待 %@ 确认…";
+"interaction.openManually" = "请打开原来的 %@ 对话或运行此任务的终端。";

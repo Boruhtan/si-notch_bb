@@ -59,7 +59,7 @@ final class CodexDesktopStateTests: XCTestCase {
             XCTAssertTrue(state.apply(["type": "snapshot", "revision": revision, "conversationState": root]))
         }
         apply(1)
-        XCTAssertEqual(state.event(sessionID: id)?.kind, .waiting)
+        XCTAssertEqual(state.event(sessionID: id)?.kind, .approvalRequested)
         XCTAssertNil(state.event(sessionID: id)?.attentionRequestID)
         root["requests"] = [["method": "item/tool/requestUserInput", "id": 42,
                              "params": ["turnId": "turn-a", "questions": [["question": "PRIVATE QUESTION"]], "command": "PRIVATE COMMAND"]]]
@@ -171,7 +171,7 @@ final class CodexDesktopStateTests: XCTestCase {
         XCTAssertTrue(state.apply(["type": "patches", "baseRevision": 10, "revision": 11, "patches": [
             ["op": "replace", "path": ["threadRuntimeStatus", "activeFlags"], "value": ["waitingOnApproval"]]
         ]]))
-        XCTAssertEqual(state.event(sessionID: id)?.kind, .waiting)
+        XCTAssertEqual(state.event(sessionID: id)?.kind, .approvalRequested)
         XCTAssertTrue(state.apply(["type": "patches", "baseRevision": 11, "revision": 12, "patches": [
             ["op": "replace", "path": ["threadRuntimeStatus"], "value": ["type": "idle"]],
             ["op": "replace", "path": ["turnHistory", "history", "entitiesByKey", key, "status"], "value": "completed"]
