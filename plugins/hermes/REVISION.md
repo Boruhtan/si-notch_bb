@@ -1,10 +1,23 @@
-# Local development revision
+# Tested revision
 
 Plugin **1.10** adds task attribution and a bounded private numeric outbox. Requests retain stable identity and the parent turn captured before a child call. The application acknowledges usage only after saving its journal; retries do not increase totals.
 
-On 2026-10-22, app-managed setup updated all eight already-enabled remote profiles and the shared relay (17 files, zero profile configuration changes). All 17 backups and the setup receipt were verified; installed SHA-256 values match the bundled sources. Live `plugins.list` reports version 1.10, 15 hooks, enabled and no load error in every profile. All eight resumed presence in the installed application. No gateway restart was required. A subsequent real API task and one native child produced five requests whose token fields match the native per-model ledger, including title generation (89,816 tokens). Replaying each request three times through the remote relay left all counts unchanged. The queue/retry behavior, parent-turn isolation and durable acknowledgement were tested locally, including a real helper and Unix socket. The published revisions below are unchanged.
+On 2026-10-22, app-managed setup updated all eight already-enabled remote profiles and the shared relay (17 files, zero profile configuration changes). All 17 backups and the setup receipt were verified; installed SHA-256 values match the bundled sources. Live `plugins.list` reports version 1.10, 15 hooks, enabled and no load error in every profile. All eight resumed presence in the installed application. No gateway restart was required. A subsequent real API task and one native child produced five requests whose token fields match the native per-model ledger, including title generation (89,816 tokens). Replaying each request three times through the remote relay left all counts unchanged. The queue/retry behavior, parent-turn isolation and durable acknowledgement were tested locally, including a real helper and Unix socket.
 
-# Tested revision
+App release: **0.4.26**. Immutable runtime source: [`856b403c633c248ae14b0e80abd9339f637996cb`](https://github.com/eugeneb1ack/si-notch/tree/856b403c633c248ae14b0e80abd9339f637996cb/plugins/hermes).
+
+```sh
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 856b403c633c248ae14b0e80abd9339f637996cb --no-enable
+```
+
+| File | SHA-256 |
+| --- | --- |
+| `__init__.py` | `8b932802293303b10488afc6a2248751fcceb23476483290916f6de1cc5ca9d6` |
+| `plugin.yaml` | `2faa06d7b674f3a69c11fc9e0115b98c06e7b1d13de2df77d8e19b3ab05ef99d` |
+| `relay.py` | `81a5abb7088c6c1ff9ca9b25f6cb4aa4e71ef19206b20092ae2dac994fb90d91` |
+| `configure.py` | `eed5b0c81a73a8aefa33c2e7fb226539b6d98ac0ffeeb9db971e6bc273ce06f8` |
+
+## Previous plugin 1.8 verification
 
 Plugin version: **1.8**. App release: **0.4.15**.
 
