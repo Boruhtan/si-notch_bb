@@ -4,7 +4,7 @@
 
 将远程 Hermes 的任务、可见助手消息、工具开始/结束/失败、最终回答与完成状态显示在 Mac 刘海中；Agents 按连接分组显示各配置。
 
-插件 **1.7**。需要 **si-notch 0.4.11 或更新版本**、可信 SSH 密钥登录及 Unix 套接字转发、远程 Python 3.10+。仅使用标准库与现有解释器，无需 pip 依赖、模型凭据、TCP 监听器或新服务。
+插件 **1.11**。需要 **si-notch 0.4.27 或更新版本**、可信 SSH 密钥登录及 Unix 套接字转发、远程 Python 3.10+。仅使用标准库与现有解释器，无需 pip 依赖、模型凭据、TCP 监听器或新服务。
 
 模型和推理模式来自当前原生 API 请求，会话项目来自 Hermes 的会话目录 API。任务来自结构化 todo_list 结果，子代理状态来自其生命周期事件。任务标题遵循现有文本共享设置；完整请求、推理文本及其他工具内容不会传输。可在 Display → Session details 中独立控制每个字段。旧版 Hermes 可能不提供部分字段。
 
@@ -26,7 +26,7 @@
 此目录是名为 `si-notch` 的完整插件。内置 `relay.py` 通过 Python 运行，不依赖可执行权限。使用 [REVISION.md](REVISION.md) 中经验证的 40 位提交 SHA：
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref abb6ae74296be712cdba2d25ec7d623137746e5c --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 38e50861b6601aaf0c5acffa839c38c2be525a3e --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "Remote Hermes" --hide-text
 hermes plugins enable si-notch
 ```

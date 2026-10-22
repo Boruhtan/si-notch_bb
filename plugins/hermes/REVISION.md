@@ -1,4 +1,23 @@
-# Tested revision
+# Current revision
+
+Plugin **1.11**, bundled with app **0.4.27**, adds an opaque identity to human-input notifications. The app can distinguish a new question from an ordinary waiting status and show instructions for responding in the original chat or terminal. The observer does not approve actions or submit answers.
+
+Immutable runtime source: [`38e50861b6601aaf0c5acffa839c38c2be525a3e`](https://github.com/eugeneb1ack/si-notch/tree/38e50861b6601aaf0c5acffa839c38c2be525a3e/plugins/hermes).
+
+```sh
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 38e50861b6601aaf0c5acffa839c38c2be525a3e --no-enable
+```
+
+Lifecycle/privacy fixtures and the local application suite passed. Remote deployment and a live human-input roundtrip for this plugin revision have not been verified. Existing profile configuration and approval policies are unchanged; update the plugin separately through the existing installation flow.
+
+| File | SHA-256 |
+| --- | --- |
+| `__init__.py` | `0ed6b838535a3b396ef1a60ed93f3c8676e6800daec156448007349f4bdfd883` |
+| `plugin.yaml` | `95a543cbb7fa2fe353930a5461bea42fd1f6e21bb5ecae734a7481e01a809b40` |
+| `relay.py` | `81a5abb7088c6c1ff9ca9b25f6cb4aa4e71ef19206b20092ae2dac994fb90d91` |
+| `configure.py` | `eed5b0c81a73a8aefa33c2e7fb226539b6d98ac0ffeeb9db971e6bc273ce06f8` |
+
+# Previous plugin 1.10 verification
 
 Plugin **1.10** adds task attribution and a bounded private numeric outbox. Requests retain stable identity and the parent turn captured before a child call. The application acknowledges usage only after saving its journal; retries do not increase totals.
 

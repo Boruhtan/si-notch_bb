@@ -4,7 +4,7 @@
 
 Show remote Hermes sessions in your Mac's notch: tasks, visible assistant messages, tool names and start/finish/failure events, completion, and separate profiles in Agents.
 
-Plugin **1.10**. Use **si-notch 0.4.26 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
+Plugin **1.11**. Use **si-notch 0.4.27 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
 
 Model and reasoning are taken from the current native API request. The session project comes from Hermes’ session-cwd API. Structured todo_list results and subagent lifecycle hooks supply tasks and child status. Task titles follow the existing text-sharing choice; raw requests, reasoning text and other tool content are excluded. Each field is controlled independently in Display → Session details. Older Hermes versions may omit fields.
 
@@ -28,7 +28,7 @@ This directory is a complete Hermes plugin, named `si-notch`. Its own `relay.py`
 Use the tested immutable revision in [REVISION.md](REVISION.md):
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 856b403c633c248ae14b0e80abd9339f637996cb --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 38e50861b6601aaf0c5acffa839c38c2be525a3e --no-enable
 ```
 
 For a named profile, put `-p PROFILE` before `plugins` in each Hermes command. The command pins the full tested revision. The source is this repository, not an entry in the Hermes plugin catalog. Review it before enabling; retain the normal installer checks and consent prompts.
