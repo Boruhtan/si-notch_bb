@@ -43,6 +43,8 @@ def main():
         'url': f'https://github.com/{config["repository"]}/releases/download/v{version}/{zip_name}',
         'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)
     }]}
+    if config.get('pluginUpdates'):
+        feed['releases'][0]['pluginUpdates'] = config['pluginUpdates']
     with tempfile.TemporaryDirectory(prefix='si-notch-feed-') as directory:
         unsigned = Path(directory) / 'unsigned.json'
         unsigned.write_text(json.dumps(feed))

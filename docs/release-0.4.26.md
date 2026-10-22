@@ -1,0 +1,4 @@
+- Track token usage by task, session, and subagent, with clear input, output, and cache details.
+- Preserve usage history and prevent duplicate counts when reconnecting.
+- Refresh account limits automatically and open Usage directly from the menu bar.
+- Show new and updated plugins with links to their installation guides.

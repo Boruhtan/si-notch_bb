@@ -104,6 +104,11 @@ private func sendObservation(_ data: Data, client: IPCClient) throws {
     guard acknowledgement["ok"] as? Bool == true else {
         throw CLIError.deliveryRejected(acknowledgement["error"] as? String ?? "the app rejected the event")
     }
+    let event = try dictionary(outgoing)
+    if event["event"] as? String == "usage.update", (event["usage"] as? [String: Any])?["request_id"] != nil,
+       acknowledgement["disposition"] as? String != "usage_committed" {
+        throw CLIError.deliveryRejected("usage was not durably saved")
+    }
 }
 
 private func sendEvent(_ object: [String: Any], client: IPCClient, silent: Bool = false) throws {

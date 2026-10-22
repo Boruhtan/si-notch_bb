@@ -1,10 +1,12 @@
 name: si-notch
-version: "1.8"
+version: "1.10"
 description: Observe Hermes Agent lifecycle in si-notch, with optional session text
 provides_hooks:
   - on_session_start
   - pre_llm_call
   - pre_api_request
+  - post_api_request
+  - post_auxiliary_call
   - pre_tool_call
   - post_tool_call
   - on_interim_message

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import math
+import stat
 import json
 import os
 import re
@@ -25,6 +27,10 @@ _TASK_TITLES: dict[str, str] = {}
 _METADATA: dict[str, dict] = {}
 _TODO_IDS: dict[str, set[str]] = {}
 _CONTEXT = None
+_PARENTS: dict[str, tuple[str, str]] = {}
+_TURN_PARENTS: dict[tuple[str, str], tuple[str, str]] = {}
+_SPOOL_LOCK = threading.RLock()
+_SPOOL_LIMIT = 2000
 _EFFORTS = frozenset({"none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "auto", "adaptive", "enabled", "disabled"})
 _DISABLED_UNTIL = 0.0
 _TIMEOUT_SECONDS = 2.5
@@ -223,10 +229,77 @@ def _send(payload: dict) -> bool:
     return False
 
 
+def _spool_directory() -> Path:
+    return Path(__file__).resolve().parent / "usage-outbox"
+
+
+def _private_spool() -> Path:
+    directory = _spool_directory()
+    directory.mkdir(mode=0o700, exist_ok=True)
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        raise OSError("unsafe usage queue")
+    return directory
+
+
+def _queue_usage(payload: dict) -> bool:
+    # Store only numeric usage and opaque identity. Session text stays ephemeral.
+    keep = {"event", "session_id", "provider", "timestamp", "connection_id", "connection_name", "model", "turn_id", "usage"}
+    value = {key: data for key, data in payload.items() if key in keep}
+    try:
+        with _SPOOL_LOCK:
+            directory = _private_spool()
+            if len(list(directory.glob("*.json"))) >= _SPOOL_LIMIT:
+                marker = directory / "incomplete"
+                fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+                os.close(fd)
+                return False
+            if (directory / "incomplete").exists(): value["usage"] = {**value["usage"], "incomplete": True}
+            key = hashlib.sha256((value.get("connection_id", "") + ":" + value["session_id"] + ":" + value["usage"]["request_id"]).encode()).hexdigest()
+            path = directory / (key + ".json")
+            if not path.exists():
+                data = json.dumps(value, separators=(",", ":")).encode()
+                if len(data) > 8192: return False
+                temporary = directory / (".write-" + str(uuid4()))
+                fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                try:
+                    with os.fdopen(fd, "wb") as stream:
+                        stream.write(data); stream.flush(); os.fsync(stream.fileno())
+                    os.replace(temporary, path)
+                    directory_fd = os.open(directory, os.O_RDONLY)
+                    try: os.fsync(directory_fd)
+                    finally: os.close(directory_fd)
+                finally:
+                    temporary.unlink(missing_ok=True)
+        _drain_usage()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _drain_usage() -> None:
+    if not _SPOOL_LOCK.acquire(blocking=False): return
+    try:
+        directory = _spool_directory()
+        if not directory.exists(): return
+        _private_spool()
+        for path in sorted(directory.glob("*.json"))[:1]:
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_size > 8192: continue
+            value = json.loads(path.read_text())
+            if value.get("event") != "usage.update" or not isinstance(value.get("usage"), dict): continue
+            if _send(value): path.unlink()
+    except (OSError, ValueError):
+        pass
+    finally:
+        _SPOOL_LOCK.release()
+
+
 def _emit(kind: str, session_id: object, *, tool_name: object = None,
           approval_id: object = None, message: str | None = None,
           first_prompt: str | None = None, turn_id: object = None,
-          task: dict | None = None, subagent: dict | None = None) -> bool:
+          task: dict | None = None, subagent: dict | None = None,
+          usage: dict | None = None) -> bool:
     session = _session_key(session_id)
     if session is None:
         return False
@@ -249,6 +322,7 @@ def _emit(kind: str, session_id: object, *, tool_name: object = None,
         "title": title,
         **metadata,
     }
+    if usage is not None: payload["usage"] = usage
     if task is not None: payload["task"] = task
     if subagent is not None: payload["subagent"] = subagent
     if connection := _connection_id():
@@ -266,7 +340,7 @@ def _emit(kind: str, session_id: object, *, tool_name: object = None,
         payload["first_prompt"] = first_prompt
     if safe_turn := _opaque_id(turn_id, "turn-"):
         payload["turn_id"] = safe_turn
-    return _send(payload)
+    return _queue_usage(payload) if usage is not None else _send(payload)
 
 
 def _start_once(session_id: object) -> None:
@@ -286,9 +360,51 @@ def on_session_start(session_id=None, model=None, **kwargs) -> None:
 
 
 def pre_api_request(session_id=None, turn_id=None, model=None, request=None, **kwargs) -> None:
+    with _LOCK:
+        if session_id in _PARENTS and turn_id:
+            _TURN_PARENTS.setdefault((session_id, turn_id), _PARENTS[session_id])
     _observe_metadata(session_id, model, request, kwargs.get("reasoning_effort"))
     _start_once(session_id)
     _emit("agent.working", session_id, turn_id=turn_id)
+
+
+def post_api_request(session_id=None, task_id=None, turn_id=None, api_request_id=None,
+                     usage=None, model=None, started_at=None, ended_at=None, call_kind=None, **kwargs) -> None:
+    # Hermes supplies normalized CanonicalUsage. Its input excludes cache buckets.
+    # A stable request ID makes retries/replayed deliveries idempotent in the app.
+    request_id = _opaque_id(api_request_id, "usage-")
+    if request_id is None or not isinstance(usage, dict):
+        return
+    names = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens")
+    values = {}
+    for name in names:
+        value = usage.get(name, 0 if name not in ("input_tokens", "output_tokens") else None)
+        if type(value) is not int or value < 0 or value >= 10**15:
+            return
+        values[name] = value
+    session_id = session_id or task_id
+    _observe_metadata(session_id, model)
+    def stamp(value):
+        return value if type(value) in (int, float) and math.isfinite(value) and 0 <= value <= time.time() + 60 else None
+    with _LOCK:
+        parent = _TURN_PARENTS.get((session_id, turn_id)) or _PARENTS.get(session_id)
+    _emit("usage.update", session_id, turn_id=turn_id, usage={
+        "request_id": request_id,
+        **({"parent_session_id": _session_key(parent[0]), "parent_turn_id": _opaque_id(parent[1], "turn-")} if parent else {}),
+        **({"started_at": stamp(started_at)} if stamp(started_at) is not None else {}),
+        **({"ended_at": stamp(ended_at)} if stamp(ended_at) is not None else {}),
+        **({"call_kind": call_kind} if call_kind in ("auxiliary", "compression") else {}),
+        "input_tokens": values["input_tokens"] + values["cache_read_tokens"] + values["cache_write_tokens"],
+        "output_tokens": values["output_tokens"],
+        "cached_input_tokens": values["cache_read_tokens"],
+        "cache_write_input_tokens": values["cache_write_tokens"],
+        "reasoning_output_tokens": values["reasoning_tokens"],
+    })
+
+
+def post_auxiliary_call(error=None, **kwargs) -> None:
+    if error is None:
+        post_api_request(call_kind="auxiliary", **{k: v for k, v in kwargs.items() if k != "call_kind"})
 
 
 def pre_llm_call(session_id=None, user_message=None, turn_id=None, model=None, **kwargs) -> None:
@@ -328,17 +444,20 @@ def post_tool_call(session_id=None, tool_name=None, status=None, turn_id=None, t
         _observe_todos(session_id, outcome)
 
 
-def _subagent(parent_session_id, child_session_id, child_role, status) -> None:
+def _subagent(parent_session_id, child_session_id, child_role, status, parent_turn_id=None) -> None:
     identifier = _opaque_id(child_session_id, "subagent-")
     if identifier is None: return
     role = _metadata_text(child_role, 128)
     name = role if role and re.fullmatch(r"[a-zA-Z0-9_./ -]+", role) else "Subagent"
     _emit("subagent.start" if status == "working" else "subagent.end", parent_session_id,
-          subagent={"id": identifier, "name": name, "status": status})
+          subagent={"id": identifier, "name": name, "status": status, "sessionID": _session_key(child_session_id),
+                    **({"parentTurnID": _opaque_id(parent_turn_id, "turn-")} if parent_turn_id else {})})
 
 
-def subagent_start(parent_session_id=None, child_session_id=None, child_role=None, **kwargs) -> None:
-    _subagent(parent_session_id, child_session_id, child_role, "working")
+def subagent_start(parent_session_id=None, child_session_id=None, child_role=None, parent_turn_id=None, **kwargs) -> None:
+    if isinstance(parent_session_id, str) and isinstance(child_session_id, str) and isinstance(parent_turn_id, str) and parent_turn_id:
+        with _LOCK: _PARENTS[child_session_id] = (parent_session_id, parent_turn_id)
+    _subagent(parent_session_id, child_session_id, child_role, "working", parent_turn_id)
 
 
 def subagent_stop(parent_session_id=None, child_session_id=None, child_role=None, child_status=None, **kwargs) -> None:
@@ -393,6 +512,9 @@ def on_session_finalize(session_id=None, **kwargs) -> None:
             _TASK_TITLES.pop(session, None)
             _METADATA.pop(session, None)
             _TODO_IDS.pop(session, None)
+            _PARENTS.pop(session_id, None)
+            for key in list(_TURN_PARENTS):
+                if key[0] == session_id: _TURN_PARENTS.pop(key, None)
 
 
 def _stop_heartbeat() -> None:
@@ -416,10 +538,13 @@ def _start_heartbeat(ctx, connection: str) -> None:
     stop = threading.Event()
 
     def heartbeat() -> None:
-        while not stop.wait(_HEARTBEAT_SECONDS):
-            if _connection_id() != connection:
-                return
-            _emit("agent.presence", "presence-" + connection)
+        next_presence = time.monotonic() + _HEARTBEAT_SECONDS
+        while not stop.wait(min(2.0, _HEARTBEAT_SECONDS)):
+            if _connection_id() != connection: return
+            _drain_usage()
+            if time.monotonic() >= next_presence:
+                _emit("agent.presence", "presence-" + connection)
+                next_presence = time.monotonic() + _HEARTBEAT_SECONDS
 
     worker = threading.Thread(target=heartbeat, name="si-notch-presence", daemon=True)
     def dispose() -> None:
@@ -440,6 +565,8 @@ def register(ctx) -> None:
         ("on_session_start", on_session_start),
         ("pre_llm_call", pre_llm_call),
         ("pre_api_request", pre_api_request),
+        ("post_api_request", post_api_request),
+        ("post_auxiliary_call", post_auxiliary_call),
         ("pre_tool_call", pre_tool_call),
         ("post_tool_call", post_tool_call),
         ("on_interim_message", on_interim_message),

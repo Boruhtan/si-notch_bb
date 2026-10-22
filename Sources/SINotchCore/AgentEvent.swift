@@ -119,6 +119,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         if let subagent {
             try Self.validateID(subagent.id, field: "subagent.id")
             try Self.validateText(subagent.name, field: "subagent.name", maximum: 512)
+            if let id = subagent.parentTurnID { try Self.validateID(id, field: "subagent.parentTurnID") }
+            if let id = subagent.sessionID { try Self.validateID(id, field: "subagent.sessionID") }
         }
         if let approvalID { try Self.validateID(approvalID, field: "approval_id") }
         if let turnID { try Self.validateID(turnID, field: "turn_id") }
@@ -139,7 +141,13 @@ public struct AgentEvent: Codable, Equatable, Sendable {
             if let value { try Self.validateText(value, field: name, maximum: maximum) }
         }
         if let usage {
-            let counts = [usage.inputTokens, usage.outputTokens, usage.contextTokens, usage.contextWindow]
+            if let id = usage.requestID { try Self.validateID(id, field: "usage.request_id", maximum: 512) }
+            if let id = usage.parentSessionID { try Self.validateID(id, field: "usage.parent_session_id") }
+            if let id = usage.parentTurnID { try Self.validateID(id, field: "usage.parent_turn_id") }
+            if let kind = usage.callKind { try Self.validateID(kind, field: "usage.call_kind", maximum: 64) }
+            guard [usage.startedAt, usage.endedAt].allSatisfy({ $0.map { $0.isFinite && $0 >= 0 } ?? true }) else { throw AgentEventError.invalidUsage }
+            let counts = [usage.inputTokens, usage.outputTokens, usage.contextTokens, usage.contextWindow,
+                          usage.cachedInputTokens, usage.cacheWriteInputTokens, usage.reasoningOutputTokens]
             guard counts.allSatisfy({ $0 == nil || $0! >= 0 }),
                   usage.costUSD.map({ $0.isFinite && $0 >= 0 }) ?? true,
                   [usage.primaryUsedPercent, usage.secondaryUsedPercent].allSatisfy({

@@ -136,6 +136,8 @@ struct IslandView: View {
                     }.foregroundStyle(NotchDesign.secondary)
                 }
                 Spacer(minLength: model.cameraWidth)
+                Button { model.openUsage?(nil) } label: { Image(systemName: "chart.bar").font(.system(size: 12)) }
+                    .buttonStyle(IslandGlassButtonStyle()).controlSize(.small).help(L10n.tr("settings.usage")).accessibilityLabel(L10n.tr("settings.usage"))
                 Button { model.openSettings?() } label: { Image(systemName: "gearshape").font(.system(size: 12)) }.buttonStyle(IslandGlassButtonStyle()).controlSize(.small).help(L10n.tr("Настройки")).accessibilityLabel(L10n.tr("Настройки"))
                 Button { model.setExpanded(false) } label: { Image(systemName: "chevron.up").font(.system(size: 11, weight: .semibold)) }.buttonStyle(IslandGlassButtonStyle()).controlSize(.small).padding(.leading, 4).help(L10n.tr("Свернуть")).accessibilityLabel(L10n.tr("Свернуть панель"))
             }
@@ -160,7 +162,7 @@ struct IslandView: View {
                         }
                         Spacer(minLength: 0)
                     }.padding(.horizontal, 20).padding(.bottom, 10)
-                    if model.showingHistory { HistoryView(history: model.history) }
+                    if model.showingHistory { HistoryView(history: model.history, usage: model.usage, openUsage: { model.openUsage?($0) }) }
                     else if model.sessions.isEmpty { emptyState }
                     else {
                         ScrollView {
@@ -403,6 +405,17 @@ struct SessionCard: View {
                     .font(.system(size: 10)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if selected {
+                let tokenRow = model.usage.task(session: UsageSession.key(provider: session.provider, connection: session.connectionID, session: session.id), turn: session.turnID)
+                Button { model.openUsage?(tokenRow?.id ?? UsageSession.key(provider: session.provider, connection: session.connectionID, session: session.id)) } label: {
+                    HStack {
+                        Label(L10n.tr("task.tokens"), systemImage: "chart.bar")
+                        Spacer()
+                        Text(tokenRow?.counts.map { TokenFormat.compact($0.total) } ?? "—").monospacedDigit()
+                        if tokenRow?.partial == true { Image(systemName: "info.circle").help(L10n.tr("tokens.partial")) }
+                        Image(systemName: "chevron.right")
+                    }.font(.system(size: 11)).foregroundStyle(NotchDesign.secondary)
+                        .padding(9).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                }.buttonStyle(.plain).accessibilityIdentifier("session-usage-" + session.id)
                 if showActivity, let message = info.message, model.pending[session.id] == nil {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(L10n.tr(session.status == .completed || session.status == .failed ? "session.lastResult" : "session.latestUpdate"))
@@ -459,7 +472,6 @@ struct SessionCard: View {
                             ProgressView(value: min(100, max(0, used)), total: 100).tint(used > 85 ? .orange : providerStyle.color)
                         }
                     }
-                    if let cost = usage.costUSD { Text(L10n.tr("Стоимость от агента: $%.3f", cost)).font(.system(size: 9)).foregroundStyle(.white.opacity(0.35)) }
                 }
                 if let request = model.pending[session.id] {
                     Divider().overlay(.white.opacity(0.08))

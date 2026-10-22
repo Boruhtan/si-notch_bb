@@ -1,6 +1,6 @@
 import Foundation
 
-struct CodexQuotaWindow: Decodable, Equatable {
+struct CodexQuotaWindow: Codable, Equatable {
     let usedPercent: Double?
     let windowDurationMins: Int?
     let resetsAt: TimeInterval?
@@ -16,7 +16,7 @@ struct CodexQuotaWindow: Decodable, Equatable {
     }
 }
 
-struct CodexRateLimitBucket: Decodable, Equatable, Identifiable {
+struct CodexRateLimitBucket: Codable, Equatable, Identifiable {
     let limitId: String
     let limitName: String?
     let primary: CodexQuotaWindow?
@@ -25,7 +25,7 @@ struct CodexRateLimitBucket: Decodable, Equatable, Identifiable {
     var id: String { limitId }
 }
 
-struct CodexUsageSnapshot: Equatable {
+struct CodexUsageSnapshot: Codable, Equatable {
     let planType: String?
     let buckets: [CodexRateLimitBucket]
     let checkedAt: Date
@@ -69,6 +69,8 @@ enum CodexBinaryLocator {
         if let path = environment["PATH"] {
             candidates += path.split(separator: ":").map { String($0) + "/codex" }
         }
+        candidates.append("/Applications/Codex.app/Contents/Resources/codex")
+        candidates.append("/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
         candidates.append(bundled)
         return candidates.lazy.map(URL.init(fileURLWithPath:)).first(where: isExecutable)
     }
@@ -83,7 +85,7 @@ enum CodexBinaryLocator {
         if selected.pathExtension.lowercased() != "app" { return isExecutable(selected) ? selected : nil }
         guard let bundle = Bundle(url: selected),
               ["com.openai.codex", "codex"].contains(bundle.bundleIdentifier ?? "") else { return nil }
-        let paths = ["Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+        let paths = ["Contents/Resources/codex", "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
                      "Contents/MacOS/codex"]
         return paths.map { selected.appendingPathComponent($0) }.first(where: isExecutable)
     }

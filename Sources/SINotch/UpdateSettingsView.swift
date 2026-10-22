@@ -5,6 +5,7 @@ struct UpdateSettingsView: View {
     @AppStorage("updateChannel") private var savedChannel = UpdateChannel.stable.rawValue
     @AppStorage("updateBackgroundChecks") private var backgroundChecks = true
     @AppStorage("updateAvailableVersion") private var backgroundAvailableVersion = ""
+    @AppStorage("updatePluginCatalog") private var pluginCatalog = Data()
     @State private var result: UpdateCheckResult?
     @State private var error: String?
     @State private var checking = false
@@ -35,7 +36,7 @@ struct UpdateSettingsView: View {
                     checkTask?.cancel(); downloadTask?.cancel()
                     checking = false; downloading = false
                     discardVerifiedArchive()
-                    result = nil; error = nil; backgroundAvailableVersion = ""
+                    result = nil; error = nil; backgroundAvailableVersion = ""; pluginCatalog = Data()
                 }
                 Toggle(L10n.tr("updates.background"), isOn: $backgroundChecks)
                 Text(L10n.tr("updates.backgroundHelp"))
@@ -88,6 +89,7 @@ struct UpdateSettingsView: View {
                         }
                     }
                 }
+                PluginUpdatesView(updates: pluginUpdates)
                 if let error {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -105,6 +107,12 @@ struct UpdateSettingsView: View {
             checkTask?.cancel(); downloadTask?.cancel()
             discardVerifiedArchive()
         }
+    }
+
+    private var pluginUpdates: [PluginUpdate] {
+        if case .available(let release) = result { return release.pluginUpdates ?? [] }
+        return PluginUpdateCatalog.displayed(data: pluginCatalog, availableVersion: backgroundAvailableVersion,
+                                            channel: channel)
     }
 
     private func discardVerifiedArchive() {
@@ -131,8 +139,7 @@ struct UpdateSettingsView: View {
             let checked = try await service.check(currentVersion: version, channel: channel)
             guard generation == token, !Task.isCancelled, self.channel == channel else { return }
             result = checked
-            if case .available(let release) = checked { backgroundAvailableVersion = release.version }
-            else { backgroundAvailableVersion = "" }
+            PluginUpdateCatalog.save(checked, channel: channel, defaults: .standard)
         }
         catch {
             guard generation == token, !Task.isCancelled else { return }

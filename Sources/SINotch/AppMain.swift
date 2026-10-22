@@ -64,6 +64,7 @@ final class AppModel: ObservableObject {
     private var remoteSubscription: AnyCancellable?
     var onLayout: (() -> Void)?
     var openSettings: (() -> Void)?
+    var openUsage: ((String?) -> Void)?
     var openIntegrations: (() -> Void)?
     var openRemoteConnections: (() -> Void)?
     var closeSettings: (() -> Void)?
@@ -89,6 +90,9 @@ final class AppModel: ObservableObject {
     var transientMessage: String?
     let defaults: UserDefaults
     let soundPlayer: EventSoundPlayer
+    let usage = UsageController()
+    let quota: CodexQuotaController
+    private var usageSubscription: AnyCancellable?
     let history: HistoryController
     private var historySubscription: AnyCancellable?
     private var sessionSounds = SessionSoundPolicy()
@@ -212,9 +216,11 @@ final class AppModel: ObservableObject {
 
     init(defaults: UserDefaults = .standard, soundPlayer: EventSoundPlayer? = nil) {
         self.defaults = defaults
+        self.quota = CodexQuotaController(defaults: defaults)
         self.remoteConnections = RemoteConnectionManager(defaults: defaults)
         self.soundPlayer = soundPlayer ?? EventSoundPlayer(defaults: defaults)
         self.history = HistoryController(policy: HistoryPolicy(defaults: defaults))
+        usageSubscription = usage.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         historySubscription = history.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         remoteSubscription = remoteConnections.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.revision += 1; self?.onLayout?() }
@@ -226,6 +232,8 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
+        usage.start()
+        quota.start()
         history.start(codexSessionsRoot: defaults.bool(forKey: "codexAutoDetect") ?
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions", isDirectory: true) : nil)
         detectedHarnesses = HarnessDiscoveryService().scan().detected
@@ -363,6 +371,13 @@ final class AppModel: ObservableObject {
                 reply(json(["ok": true, "disposition": applied ? "applied" : "duplicate"]))
                 return
             }
+            if !waitingForReply, event.kind == .usageUpdated, event.usage?.requestID != nil {
+                usage.commit(event) { [weak self] saved in
+                    guard let self else { return }
+                    reply(self.json(["ok": saved, "disposition": saved ? "usage_committed" : "usage_not_saved"]))
+                }
+                return
+            }
             let previous = store.sessions[event.sessionID]
             if waitingForReply {
                 let rid = raw["request_id"] as? String ?? ""
@@ -406,6 +421,7 @@ final class AppModel: ObservableObject {
             }
             store = nextStore
             if disposition == .applied {
+                usage.record(event)
                 if !suppressPresentation, !waitingForReply, !preservesPending,
                    let session = store.sessions[event.sessionID] {
                     history.record(event, session: session)
@@ -754,6 +770,7 @@ final class AppModel: ObservableObject {
     }
     func shutdown() {
         history.shutdown()
+        usage.shutdown(); quota.stop()
         remoteConnections.disconnectAll(); codexObserver?.stop(); piObserver?.stop(); timer?.invalidate()
         for observer in presenceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         presenceObservers.removeAll()
@@ -812,6 +829,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.layout()
         }
         model.openSettings = { [weak self] in self?.showSettings() }
+        model.openUsage = { [weak self] id in
+            guard let self else { return }
+            self.model.usage.selectedID = id
+            self.showSettings(); self.setSettingsContent(tab: 8)
+        }
         model.openIntegrations = { [weak self] in
             guard let self else { return }
             self.showSettings()
@@ -1020,8 +1042,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let m = NSMenu()
         m.addItem(withTitle: L10n.tr("Открыть si-notch"), action: #selector(toggleIsland), keyEquivalent: "")
         m.addItem(withTitle: L10n.tr("Настройки…"), action: #selector(showSettings), keyEquivalent: ",")
+        m.addItem(withTitle: L10n.tr("settings.usage"), action: #selector(showUsage), keyEquivalent: "")
         let available = model.defaults.string(forKey: "updateAvailableVersion") ?? ""
         m.addItem(withTitle: available.isEmpty ? L10n.tr("updates.menuCheck") : L10n.tr("updates.menuAvailable", available), action: #selector(showUpdates), keyEquivalent: "")
+        let plugins = PluginUpdateCatalog.displayed(
+            data: model.defaults.data(forKey: "updatePluginCatalog") ?? Data(), availableVersion: available,
+            channel: UpdateChannel(rawValue: model.defaults.string(forKey: "updateChannel") ?? "stable") ?? .stable)
+        if !plugins.isEmpty {
+            let item = m.addItem(withTitle: L10n.tr("updates.plugins.title"), action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            for plugin in plugins {
+                let link = submenu.addItem(withTitle: "\(plugin.name) \(plugin.version) · \(L10n.tr(plugin.change.labelKey))",
+                                           action: #selector(openPluginInstallation(_:)), keyEquivalent: "")
+                link.representedObject = plugin
+                link.target = self
+            }
+            item.submenu = submenu
+        }
         m.addItem(.separator())
         m.addItem(withTitle: model.paused ? L10n.tr("Возобновить события") : L10n.tr("Приостановить события"), action: #selector(togglePause), keyEquivalent: "")
         let quiet = m.addItem(withTitle: L10n.tr("Тихий режим"), action: #selector(toggleQuiet), keyEquivalent: "")
@@ -1032,6 +1069,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for i in m.items { i.target = self }
         statusItem.menu = m
     }
+    @objc func openPluginInstallation(_ sender: NSMenuItem) {
+        guard let plugin = sender.representedObject as? PluginUpdate, plugin.isValid else { return }
+        NSWorkspace.shared.open(plugin.installURL)
+    }
+    @objc func showUsage() { model.openUsage?(nil) }
     @objc func showUpdates() {
         showSettings()
         setSettingsContent(tab: 9)

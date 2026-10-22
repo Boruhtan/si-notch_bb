@@ -23,8 +23,9 @@ def validate(feed):
     if not isinstance(releases, list) or not 1 <= len(releases) <= 100:
         raise ValueError("releases must contain 1–100 items")
     for release in releases:
-        if not isinstance(release, dict) or set(release) != {"version", "bundleVersion", "bundleBuild", "channel", "notes", "url", "sha256", "size"}:
+        if not isinstance(release, dict) or set(release) - {"pluginUpdates"} != {"version", "bundleVersion", "bundleBuild", "channel", "notes", "url", "sha256", "size"}:
             raise ValueError("release fields do not match the feed schema")
+        validate_plugins(release.get("pluginUpdates", []))
         number = r"(?:0|[1-9][0-9]*)"
         pattern = rf"{number}\.{number}\.{number}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
         if not isinstance(release["version"], str) or not re.fullmatch(pattern, release["version"]):
@@ -44,6 +45,36 @@ def validate(feed):
             raise ValueError("sha256 must be 64 lowercase hex characters")
         if type(release["size"]) is not int or not 1 <= release["size"] <= 250 * 1024 * 1024:
             raise ValueError("archive size is out of bounds")
+
+
+def validate_plugins(plugins):
+    if not isinstance(plugins, list) or len(plugins) > 20:
+        raise ValueError("pluginUpdates must contain at most 20 items")
+    ids = set()
+    for plugin in plugins:
+        if not isinstance(plugin, dict) or set(plugin) != {"id", "name", "version", "change", "installURL"}:
+            raise ValueError("invalid plugin fields")
+        if not isinstance(plugin["id"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", plugin["id"]) or plugin["id"] in ids:
+            raise ValueError("invalid or duplicate plugin id")
+        ids.add(plugin["id"])
+        name = plugin["name"]
+        if not isinstance(name, str) or not 1 <= len(name) <= 80 or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in name):
+            raise ValueError("invalid plugin name")
+        if not isinstance(plugin["version"], str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,2}(?:-[A-Za-z0-9.-]+)?", plugin["version"]):
+            raise ValueError("invalid plugin version")
+        if plugin["change"] not in ("added", "updated"):
+            raise ValueError("invalid plugin change")
+        from urllib.parse import unquote
+        link = plugin["installURL"]
+        if not isinstance(link, str) or len(link.encode()) > 2048:
+            raise ValueError("invalid plugin URL")
+        url = urlparse(link)
+        path = [p for p in unquote(url.path).split("/") if p]
+        if (url.scheme != "https" or url.hostname != "github.com" or url.username is not None or
+            url.password is not None or url.port is not None or url.query or len(path) < 2 or
+            not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+", "/".join(path[:2])) or
+            any(p in (".", "..") for p in path)):
+            raise ValueError("plugin installation URL must be a GitHub repository page")
 
 
 def main():

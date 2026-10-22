@@ -129,6 +129,9 @@ def main():
             return 0 if decision in ("allow", "allow-once") else 2
         if result.get("ok") is not True:
             raise RelayError("app rejected observation")
+        if event.get("event") == "usage.update" and (event.get("usage") or {}).get("request_id"):
+            if result.get("disposition") != "usage_committed":
+                raise RelayError("usage was not durably saved")
         return 0
     except (OSError, ValueError, RelayError) as error:
         if not silent:

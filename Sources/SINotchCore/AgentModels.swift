@@ -67,11 +67,15 @@ public struct AgentSubagent: Identifiable, Codable, Equatable, Sendable {
     public var id: String
     public var name: String
     public var status: AgentStatus
+    public var sessionID: String?
+    public var parentTurnID: String?
 
-    public init(id: String, name: String, status: AgentStatus = .working) {
+    public init(id: String, name: String, status: AgentStatus = .working, sessionID: String? = nil, parentTurnID: String? = nil) {
         self.id = id
         self.name = name
         self.status = status
+        self.sessionID = sessionID
+        self.parentTurnID = parentTurnID
     }
 }
 
@@ -79,6 +83,17 @@ public struct AgentSubagent: Identifiable, Codable, Equatable, Sendable {
 public struct AgentUsage: Codable, Equatable, Sendable {
     public var inputTokens: Int?
     public var outputTokens: Int?
+    public var cachedInputTokens: Int?
+    public var cacheWriteInputTokens: Int?
+    public var reasoningOutputTokens: Int?
+    /// A stable provider request ID makes these counts one request, not a session snapshot.
+    public var requestID: String?
+    public var parentSessionID: String?
+    public var parentTurnID: String?
+    public var startedAt: Double?
+    public var endedAt: Double?
+    public var callKind: String?
+    public var incomplete: Bool?
     public var contextTokens: Int?
     public var contextWindow: Int?
     public var costUSD: Double?
@@ -93,9 +108,19 @@ public struct AgentUsage: Codable, Equatable, Sendable {
 
     public init(inputTokens: Int? = nil, outputTokens: Int? = nil, contextTokens: Int? = nil,
                 contextWindow: Int? = nil, costUSD: Double? = nil,
-                primaryUsedPercent: Double? = nil, secondaryUsedPercent: Double? = nil) {
+                primaryUsedPercent: Double? = nil, secondaryUsedPercent: Double? = nil,
+                cachedInputTokens: Int? = nil, cacheWriteInputTokens: Int? = nil,
+                reasoningOutputTokens: Int? = nil, requestID: String? = nil,
+                parentSessionID: String? = nil, parentTurnID: String? = nil,
+                startedAt: Double? = nil, endedAt: Double? = nil, callKind: String? = nil, incomplete: Bool? = nil) {
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.cacheWriteInputTokens = cacheWriteInputTokens
+        self.reasoningOutputTokens = reasoningOutputTokens
+        self.requestID = requestID
+        self.parentSessionID = parentSessionID; self.parentTurnID = parentTurnID
+        self.startedAt = startedAt; self.endedAt = endedAt; self.callKind = callKind; self.incomplete = incomplete
         self.contextTokens = contextTokens
         self.contextWindow = contextWindow
         self.costUSD = costUSD
@@ -105,6 +130,10 @@ public struct AgentUsage: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case inputTokens = "input_tokens", outputTokens = "output_tokens"
+        case cachedInputTokens = "cached_input_tokens", cacheWriteInputTokens = "cache_write_input_tokens"
+        case reasoningOutputTokens = "reasoning_output_tokens", requestID = "request_id"
+        case parentSessionID = "parent_session_id", parentTurnID = "parent_turn_id"
+        case startedAt = "started_at", endedAt = "ended_at", callKind = "call_kind", incomplete
         case contextTokens = "context_tokens", contextWindow = "context_window"
         case costUSD = "cost_usd", primaryUsedPercent = "primary_used_percent"
         case secondaryUsedPercent = "secondary_used_percent"
@@ -117,7 +146,10 @@ public struct AgentUsage: Codable, Equatable, Sendable {
                    contextWindow: newer.contextWindow ?? contextWindow,
                    costUSD: newer.costUSD ?? costUSD,
                    primaryUsedPercent: newer.primaryUsedPercent ?? primaryUsedPercent,
-                   secondaryUsedPercent: newer.secondaryUsedPercent ?? secondaryUsedPercent)
+                   secondaryUsedPercent: newer.secondaryUsedPercent ?? secondaryUsedPercent,
+                   cachedInputTokens: newer.cachedInputTokens ?? cachedInputTokens,
+                   cacheWriteInputTokens: newer.cacheWriteInputTokens ?? cacheWriteInputTokens,
+                   reasoningOutputTokens: newer.reasoningOutputTokens ?? reasoningOutputTokens)
     }
 }
 
@@ -146,6 +178,7 @@ public struct AgentSession: Identifiable, Codable, Equatable, Sendable {
     public var modelName: String?
     public var reasoningEffort: String?
     public var firstPrompt: String?
+    public var turnID: String?
     public var isWorkSession: Bool?
 
     public init(id: String, provider: String = "custom", title: String = "Agent session",

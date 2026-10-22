@@ -4,6 +4,8 @@ import SINotchCore
 
 struct HistoryView: View {
     @ObservedObject var history: HistoryController
+    @ObservedObject var usage: UsageController
+    var openUsage: (String) -> Void
     var body: some View {
         VStack(spacing: 0) {
             if history.error {
@@ -34,6 +36,13 @@ struct HistoryView: View {
                         }.font(.system(size: 10, weight: .medium))
                         Text(entry.summary.startedAt, format: .dateTime.day().month().hour().minute())
                             .font(.system(size: 10)).foregroundStyle(NotchDesign.muted)
+                        Button { openUsage(usage.task(session: entry.summary.sessionKey, turn: entry.summary.turnID)?.id ?? entry.summary.sessionKey) } label: {
+                            HStack { Label(L10n.tr("task.tokens"), systemImage: "chart.bar"); Spacer()
+                                Text(usage.task(session: entry.summary.sessionKey, turn: entry.summary.turnID)?.counts.map { TokenFormat.compact($0.total) } ?? "—")
+                                if usage.task(session: entry.summary.sessionKey, turn: entry.summary.turnID)?.partial == true { Image(systemName: "info.circle").help(L10n.tr("tokens.partial")) }
+                                Image(systemName: "chevron.right") }
+                                .font(.system(size: 11)).padding(10).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                        }.buttonStyle(.plain)
                         ForEach(Array(entry.items.enumerated()), id: \.offset) { _, item in
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
@@ -71,7 +80,8 @@ struct HistoryView: View {
                         LazyVStack(spacing: 3) {
                             ForEach(Array(matches.prefix(history.visibleCount))) { item in
                                 Button { history.open(item.id) } label: {
-                                    HistoryRow(summary: item)
+                                    HistoryRow(summary: item, tokens: usage.task(session: item.sessionKey, turn: item.turnID)?.counts?.total,
+                                               partial: usage.task(session: item.sessionKey, turn: item.turnID)?.partial == true)
                                 }.buttonStyle(.plain)
                             }
                             if matches.isEmpty { Text(L10n.tr("history.noMatches")).font(.system(size: 12)).foregroundStyle(.secondary).padding(24) }
@@ -94,6 +104,8 @@ struct HistoryView: View {
 
 private struct HistoryRow: View {
     let summary: HistorySummary
+    var tokens: Int?
+    var partial = false
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: summary.status.historySymbol)
@@ -105,6 +117,8 @@ private struct HistoryRow: View {
                 HStack(alignment: .top, spacing: 8) {
                     Text(summary.historyTitle).font(.system(size: 12, weight: .medium))
                         .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    if let tokens { Text(TokenFormat.compact(tokens)).font(.system(size: 10)).monospacedDigit().foregroundStyle(NotchDesign.secondary).help(L10n.tr("task.tokens")) }
+                    if partial { Image(systemName: "info.circle").font(.caption).help(L10n.tr("tokens.partial")) }
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .medium))
                         .foregroundStyle(NotchDesign.muted).padding(.top, 3).accessibilityHidden(true)
                 }

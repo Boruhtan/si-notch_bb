@@ -20,6 +20,38 @@ spec.loader.exec_module(plugin)
 
 class HermesSocketTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("SI_NOTCH_HELPER"), "set SI_NOTCH_HELPER to test the built helper")
+    def test_usage_waits_for_commit_ack_and_replays_identical_request_after_failure(self):
+        helper = str(Path(os.environ["SI_NOTCH_HELPER"]).resolve())
+        with tempfile.TemporaryDirectory(prefix="usage-ack-", dir="/private/tmp") as directory:
+            os.chmod(directory, 0o700)
+            endpoint = str(Path(directory) / "events.sock")
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(endpoint); os.chmod(endpoint, 0o600); listener.listen(3); listener.settimeout(4)
+            seen, errors = [], []
+            def serve():
+                try:
+                    for disposition in ("applied", "usage_committed"):
+                        connection, _ = listener.accept()
+                        with connection:
+                            frame = bytearray()
+                            while b"\n" not in frame: frame.extend(connection.recv(8192))
+                            seen.append(json.loads(bytes(frame).split(b"\n", 1)[0]))
+                            connection.sendall(json.dumps({"ok": True, "disposition": disposition}).encode() + b"\n")
+                except Exception as error: errors.append(error)
+            thread = threading.Thread(target=serve, daemon=True); thread.start()
+            try:
+                with mock.patch.dict(os.environ, {"SI_NOTCH_CLI": helper, "SI_NOTCH_SOCKET": endpoint}), mock.patch.object(plugin, "_spool_directory", return_value=Path(directory) / "outbox"):
+                    plugin._DISABLED_UNTIL = 0
+                    plugin.post_api_request(session_id="s", turn_id="t", api_request_id="r", usage={"input_tokens": 20, "output_tokens": 2})
+                    self.assertEqual(len(list(plugin._spool_directory().glob("*.json"))), 1)
+                    plugin._DISABLED_UNTIL = 0; plugin._drain_usage()
+                    self.assertEqual(list(plugin._spool_directory().glob("*.json")), [])
+                thread.join(4)
+                self.assertEqual(errors, []); self.assertFalse(thread.is_alive())
+                self.assertEqual(len(seen), 2); self.assertEqual(seen[0], seen[1])
+            finally: listener.close()
+
+    @unittest.skipUnless(os.environ.get("SI_NOTCH_HELPER"), "set SI_NOTCH_HELPER to test the built helper")
     def test_plugin_to_real_helper_to_acknowledging_socket(self):
         helper = Path(os.environ["SI_NOTCH_HELPER"]).resolve()
         self.assertTrue(helper.is_file() and os.access(helper, os.X_OK))

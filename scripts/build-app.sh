@@ -67,7 +67,8 @@ info = plistlib.loads(path.read_bytes())
 info.update(CFBundleShortVersionString=config['version'].split('-')[0], CFBundleVersion=config['build'],
             SIReleaseVersion=config['version'], SIUpdateRepository=config['repository'],
             SIUpdateFeedURL='https://github.com/' + config['repository'] + '/releases/latest/download/update.json',
-            SIUpdatePublicKey=config['updatePublicKey'])
+            SIUpdatePublicKey=config['updatePublicKey'],
+            SIPluginUpdates=config.get('pluginUpdates', []))
 path.write_bytes(plistlib.dumps(info))
 PYCONFIG
 codesign --force --deep --sign - "$app"

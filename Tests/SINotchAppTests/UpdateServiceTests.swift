@@ -52,6 +52,45 @@ final class UpdateServiceTests: XCTestCase {
                       channel: channel, notes: "Release notes", url: archiveURL, sha256: digest, size: size)
     }
 
+    private func plugin(_ url: String = "https://github.com/test-owner/si-notch/tree/v1.1.0/plugins/hermes#installation") -> PluginUpdate {
+        PluginUpdate(id: "hermes", name: "Hermes", version: "1.10", change: .updated, installURL: URL(string: url)!)
+    }
+    func testSignedPluginAnnouncementsAndLegacyFeed() async throws {
+        var item = release("1.1.0", .stable); item.pluginUpdates = [plugin()]
+        let (service, _) = try fixture([item])
+        let result = try await service.check(currentVersion: "1.0.0", channel: .stable)
+        XCTAssertEqual(result, .available(item))
+        let (legacy, _) = try fixture([release("1.0.1", .stable)])
+        let old = try await legacy.check(currentVersion: "1.0.0", channel: .stable)
+        if case .available(let value) = old { XCTAssertNil(value.pluginUpdates) } else { XCTFail("Legacy feed must work") }
+    }
+    func testInvalidPluginLinksAndDuplicateIDsRejectSignedFeed() async throws {
+        for url in ["http://github.com/owner/repo", "https://example.com/owner/repo", "https://github.com@evil.test/owner/repo",
+                    "https://user@github.com/owner/repo", "https://github.com:443/owner/repo", "https://github.com/owner",
+                    "https://github.com/owner/repo?redirect=evil", "https://github.com/owner/repo/%2e%2e/file"] {
+            XCTAssertFalse(plugin(url).isValid, url)
+        }
+        var item = release("1.1.0", .stable); item.pluginUpdates = [plugin(), plugin()]
+        let (service, _) = try fixture([item])
+        do { _ = try await service.check(currentVersion: "1.0.0", channel: .stable); XCTFail("Duplicate IDs") }
+        catch UpdateError.invalidFeed { }
+    }
+    func testPluginCatalogChannelVersionAndPostInstallLinks() throws {
+        let suite = "plugin-update-tests-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var item = release("1.1.0", .stable); item.pluginUpdates = [plugin()]
+        PluginUpdateCatalog.save(.available(item), channel: .stable, defaults: defaults)
+        let data = try XCTUnwrap(defaults.data(forKey: "updatePluginCatalog"))
+        XCTAssertEqual(PluginUpdateCatalog.displayed(data: data, availableVersion: "1.1.0", channel: .stable, bundled: []), [plugin()])
+        XCTAssertEqual(PluginUpdateCatalog.displayed(data: data, availableVersion: "1.1.0", channel: .beta, bundled: []), [])
+        XCTAssertEqual(PluginUpdateCatalog.displayed(data: data, availableVersion: "1.2.0", channel: .stable, bundled: []), [])
+        PluginUpdateCatalog.save(.upToDate, channel: .stable, defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: "updateAvailableVersion"))
+        XCTAssertNil(defaults.object(forKey: "updatePluginCatalog"))
+        XCTAssertEqual(PluginUpdateCatalog.displayed(data: Data(), availableVersion: "", channel: .stable, bundled: [plugin()]), [plugin()])
+    }
+
     func testSemVerPrereleaseOrdering() {
         XCTAssertLessThan(UpdateVersion("1.2.0-beta.2")!, UpdateVersion("1.2.0-beta.10")!)
         XCTAssertLessThan(UpdateVersion("1.2.0-beta.10")!, UpdateVersion("1.2.0")!)

@@ -394,46 +394,7 @@ struct SettingsView: View {
             Text(L10n.tr("Спутник реагирует на работу, ожидание, завершение и ошибку. Нажмите на него в раскрытой панели, чтобы поздороваться. Системные «Уменьшение движения» и «Уменьшение прозрачности» учитываются автоматически.")).font(.system(size: 11)).foregroundStyle(.secondary)
         }.font(.system(size: 12))
     }
-    var usage: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            CodexUsageView()
-            Text(L10n.tr("settings.usageScope")).font(.system(size: 11)).foregroundStyle(.secondary)
-            let observed = model.sessions.filter { $0.usage != nil }
-            if observed.isEmpty {
-                GroupBox(L10n.tr("settings.usage")) {
-                    VStack(spacing: 9) {
-                        Image(systemName: "chart.bar.xaxis")
-                            .font(.system(size: 24, weight: .light))
-                            .foregroundStyle(SettingsPalette.secondary)
-                        Text(L10n.tr("settings.noUsage"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(SettingsPalette.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 110)
-                }
-            } else {
-                ForEach(observed) { session in
-                    if let usage = session.usage {
-                        GroupBox("\(session.provider) · \(model.displayTitle(session))") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                if let input = usage.inputTokens { usageRow("settings.inputTokens", input) }
-                                if let output = usage.outputTokens { usageRow("settings.outputTokens", output) }
-                                if let context = usage.contextTokens { usageRow("settings.contextTokens", context) }
-                                if let window = usage.contextWindow { usageRow("settings.contextWindow", window) }
-                                if let percent = usage.usedPercent { HStack { Text(L10n.tr("settings.contextUsed")); Spacer(); Text(percent / 100, format: .percent.precision(.fractionLength(1))) } }
-                                if let secondary = usage.secondaryUsedPercent { HStack { Text(L10n.tr("settings.secondaryUsed")); Spacer(); Text(secondary / 100, format: .percent.precision(.fractionLength(1))) } }
-                                if let cost = usage.costUSD { HStack { Text(L10n.tr("settings.agentReportedCost")); Spacer(); Text(cost, format: .currency(code: "USD")) } }
-                            }.padding(10)
-                        }
-                    }
-                }
-            }
-        }.font(.system(size: 12))
-    }
-    func usageRow(_ key: String, _ value: Int) -> some View {
-        HStack { Text(L10n.tr(key)); Spacer(); Text(value, format: .number) }
-    }
+    var usage: some View { UsageView(usage: model.usage, quota: model.quota, history: model.history) }
     var integrations: some View {
         VStack(alignment: .leading, spacing: 13) {
             if showAgentDiscovery {

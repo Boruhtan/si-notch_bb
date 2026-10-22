@@ -1,3 +1,9 @@
+# Local development revision
+
+Plugin **1.10** adds task attribution and a bounded private numeric outbox. Requests retain stable identity and the parent turn captured before a child call. The application acknowledges usage only after saving its journal; retries do not increase totals.
+
+On 2026-10-22, app-managed setup updated all eight already-enabled remote profiles and the shared relay (17 files, zero profile configuration changes). All 17 backups and the setup receipt were verified; installed SHA-256 values match the bundled sources. Live `plugins.list` reports version 1.10, 15 hooks, enabled and no load error in every profile. All eight resumed presence in the installed application. No gateway restart was required. A subsequent real API task and one native child produced five requests whose token fields match the native per-model ledger, including title generation (89,816 tokens). Replaying each request three times through the remote relay left all counts unchanged. The queue/retry behavior, parent-turn isolation and durable acknowledgement were tested locally, including a real helper and Unix socket. The published revisions below are unchanged.
+
 # Tested revision
 
 Plugin version: **1.8**. App release: **0.4.15**.

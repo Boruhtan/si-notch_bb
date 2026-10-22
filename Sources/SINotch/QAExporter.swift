@@ -149,6 +149,59 @@ enum QAExporter {
                             reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
         }
 
+        func exportUsage() async throws {
+            let model = delegate.model
+            let root = directory.appendingPathComponent("usage-source")
+            try files.createDirectory(at: root, withIntermediateDirectories: true)
+            for (provider, sid, input, output) in [("codex", "qa-codex", 183456, 12493), ("pi", "qa-pi", 23000, 3400)] {
+                let stamp = ISO8601DateFormatter().string(from: Date())
+                let records: [[String: Any]] = provider == "codex" ? [
+                    ["type": "session_meta", "timestamp": stamp, "payload": ["id": sid, "cwd": "/work/si-notch"]],
+                    ["type": "event_msg", "timestamp": stamp, "payload": ["type": "task_started", "turn_id": "qa-turn"]],
+                    ["type": "token_usage_record", "timestamp": stamp, "payload": ["thread_id": sid, "session_id": sid, "turn_id": "qa-turn", "root_turn_id": "qa-turn", "response_id": "qa-response", "usage": ["input_tokens": input, "output_tokens": output, "cached_input_tokens": 140000, "reasoning_output_tokens": 3124]]]
+                ] : [
+                    ["type": "session", "id": sid, "timestamp": stamp, "cwd": "/work/si-notch"],
+                    ["type": "message", "id": "qa-user", "timestamp": stamp, "message": ["role": "user"]],
+                    ["type": "message", "id": "qa-reply", "parentId": "qa-user", "timestamp": stamp, "message": ["role": "assistant", "model": "local-model", "usage": ["input": input, "output": output, "cacheRead": 12000, "cacheWrite": 0]]]
+                ]
+                let folder = root.appendingPathComponent(provider)
+                try files.createDirectory(at: folder, withIntermediateDirectories: true)
+                var data = Data()
+                for record in records { data.append(try JSONSerialization.data(withJSONObject: record)); data.append(10) }
+                try data.write(to: folder.appendingPathComponent(sid + ".jsonl"))
+            }
+            model.usage.start(directory: directory.appendingPathComponent("usage-fixture"), roots: [
+                ("codex", root.appendingPathComponent("codex")), ("pi", root.appendingPathComponent("pi"))])
+            model.usage.record(AgentEvent(sessionID: "qa-hermes", provider: "hermes", kind: .usageUpdated, title: "Research release notes",
+                usage: AgentUsage(inputTokens: 46000, outputTokens: 7400, cachedInputTokens: 32000, reasoningOutputTokens: 2100, requestID: "qa-request"), turnID: "qa-parent-turn", connectionID: "qa-host", connectionName: "Lane"))
+            model.usage.record(AgentEvent(sessionID: "qa-hermes", provider: "hermes", kind: .subagentStarted,
+                subagent: AgentSubagent(id: "qa-child", name: "Researcher", sessionID: "qa-child", parentTurnID: "qa-parent-turn"), connectionID: "qa-host"))
+            model.usage.record(AgentEvent(sessionID: "qa-child", provider: "hermes", kind: .usageUpdated,
+                usage: AgentUsage(inputTokens: 8000, outputTokens: 1900, cachedInputTokens: 4000, cacheWriteInputTokens: 0, reasoningOutputTokens: 600, requestID: "qa-child-request", parentSessionID: "qa-hermes", parentTurnID: "qa-parent-turn"), turnID: "qa-child-turn", connectionID: "qa-host"))
+            model.usage.refresh()
+            try await pause(0.3)
+            check("usage-fixture-recorded", model.usage.sessions.count == 4, "Three providers and one identified child are available in the private fixture.")
+            for language in ["en", "ru", "zh-Hans"] {
+                overrides["appLanguage"] = language; applyOverrides(); model.usage.selectedID = nil
+                try await captureHosted(SettingsView(model: model, tab: 8), name: "settings-usage-\(language)", language: language, size: NSSize(width: 820, height: 660))
+                model.usage.selectedID = UsageTask.key(session: UsageSession.key(provider: "hermes", connection: "qa-host", session: "qa-hermes"), turn: "qa-parent-turn")
+                try await captureHosted(SettingsView(model: model, tab: 8), name: "settings-usage-detail-\(language)", language: language, size: NSSize(width: 820, height: 660))
+                if let task = model.usage.tasks.first(where: { $0.id == model.usage.selectedID }) {
+                    try await captureHosted(TaskUsageDetail(task: task, usage: model.usage, history: model.history).padding(24)
+                        .preferredColorScheme(.dark).background(.black), name: "task-detail-full-\(language)", language: language, size: NSSize(width: 560, height: 1180))
+                    try await captureHosted(TaskUsageDetail(task: task, usage: model.usage, history: model.history).padding(20)
+                        .preferredColorScheme(.dark).background(.black), name: "task-detail-narrow-\(language)", language: language, size: NSSize(width: 420, height: 1300))
+                    try await captureHosted(VStack(spacing: 24) {
+                        TokenBreakdown(counts: .zero)
+                        Divider()
+                        TokenBreakdown(counts: nil)
+                        Label(L10n.tr("tokens.partial"), systemImage: "info.circle").foregroundStyle(.orange)
+                    }.padding(24).preferredColorScheme(.dark).background(.black), name: "task-zero-unknown-\(language)", language: language, size: NSSize(width: 480, height: 900))
+                }
+            }
+            model.usage.shutdown()
+        }
+
         func executeAndTerminate() async {
             do {
                 guard directory.isFileURL, delegate.panel?.contentView != nil,
@@ -178,7 +231,19 @@ enum QAExporter {
                     report.screenFrame = Frame(screen.frame)
                     report.screenMaximumFramesPerSecond = screen.maximumFramesPerSecond
                 }
-                if CommandLine.arguments.contains("--qa-screens-only") {
+                if CommandLine.arguments.contains("--qa-plugin-updates-only") {
+                    let plugins = PluginUpdateCatalog.bundled()
+                    check("bundled-plugin-announcements", plugins.count == 1 && PluginUpdate.validList(plugins), "Bundled plugin metadata is valid.")
+                    for language in ["en", "ru", "zh-Hans"] {
+                        overrides["appLanguage"] = language; applyOverrides()
+                        try await captureHosted(PluginUpdatesView(updates: plugins).padding(24)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .preferredColorScheme(.dark).background(Color(nsColor: .windowBackgroundColor)),
+                            name: "plugin-updates-\(language)", language: language, size: NSSize(width: 600, height: 230))
+                    }
+                } else if CommandLine.arguments.contains("--qa-usage-only") {
+                    try await exportUsage()
+                } else if CommandLine.arguments.contains("--qa-screens-only") {
                     try await exportScreenViews()
                 } else if CommandLine.arguments.contains("--qa-history-only") {
                     try await exportHistory()
@@ -510,7 +575,7 @@ enum QAExporter {
                 model.history.back()
                 try await settle(expanded: true)
                 try capturePanel(name: "island-history-list-\(language)", language: language)
-                try await captureHosted(HistoryView(history: model.history).preferredColorScheme(.dark).background(.black),
+                try await captureHosted(HistoryView(history: model.history, usage: model.usage, openUsage: { _ in }).preferredColorScheme(.dark).background(.black),
                     name: "history-narrow-\(language)", language: language, size: NSSize(width: 360, height: 480))
                 model.history.search = L10n.tr("history.memoryTitle")
                 check("history-memory-title-search-\(language)", model.history.matching.count == 1 && model.history.matching.first?.memoryService == true,

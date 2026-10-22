@@ -15,6 +15,7 @@ struct UpdateRelease: Codable, Equatable {
     let url: URL
     let sha256: String
     let size: Int64
+    var pluginUpdates: [PluginUpdate]? = nil
 }
 
 struct UpdateFeed: Codable {
@@ -209,7 +210,8 @@ struct UpdateService {
                   release.url.scheme?.lowercased() == "https", release.url.host != nil,
                   release.sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
                   release.size > 0, release.size <= Self.maxArchiveBytes,
-                  release.notes.utf8.count <= 64_000 else { throw UpdateError.invalidFeed }
+                  release.notes.utf8.count <= 64_000,
+                  PluginUpdate.validList(release.pluginUpdates ?? []) else { throw UpdateError.invalidFeed }
         }
         return feed
     }
@@ -319,11 +321,7 @@ final class UpdateBackgroundChecker {
             let result = try await UpdateService().check(currentVersion: version, channel: channel)
             let selected = UpdateChannel(rawValue: UserDefaults.standard.string(forKey: "updateChannel") ?? "stable") ?? .stable
             guard UserDefaults.standard.bool(forKey: "updateBackgroundChecks"), selected == channel else { return }
-            switch result {
-            case .available(let release): UserDefaults.standard.set(release.version, forKey: "updateAvailableVersion")
-            case .upToDate: UserDefaults.standard.removeObject(forKey: "updateAvailableVersion")
-            case .unconfigured: break
-            }
+            PluginUpdateCatalog.save(result, channel: channel, defaults: .standard)
         } catch {
             // Background network failures never affect the agent or foreground UI.
         }

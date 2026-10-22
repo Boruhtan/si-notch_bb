@@ -2,12 +2,12 @@ import AppKit
 import SwiftUI
 
 struct CodexUsageView: View {
-    @AppStorage(CodexBinaryLocator.preferenceKey) private var selectedCLI = ""
-    @State private var binary: URL?
-    @State private var status: CodexUsageStatus?
-    @State private var error: String?
-    @State private var loading = false
-    @State private var generation = 0
+    @ObservedObject var controller: CodexQuotaController
+    @State private var selectionError: String?
+    private var binary: URL? { controller.binary }
+    private var status: CodexUsageStatus? { controller.status }
+    private var error: String? { selectionError ?? controller.error }
+    private var loading: Bool { controller.loading }
 
     var body: some View {
         GroupBox(L10n.tr("usage.title")) {
@@ -15,22 +15,11 @@ struct CodexUsageView: View {
                 Text(L10n.tr("usage.description"))
                     .font(.system(size: 11))
                     .foregroundStyle(SettingsPalette.secondary)
-                if let binary {
-                    Text(binary.path)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(SettingsPalette.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                } else {
-                    Label(L10n.tr("usage.missingCLI"), systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                }
                 HStack(spacing: 8) {
-                    Button(L10n.tr("usage.refresh")) { refresh() }
+                    Button(L10n.tr("usage.refresh")) { controller.refresh() }
                         .buttonStyle(NotchActionButtonStyle(prominent: true))
                         .disabled(binary == nil || loading)
-                    Button(L10n.tr("usage.chooseCLI")) { chooseBinary() }.buttonStyle(NotchActionButtonStyle())
+                    Button(L10n.tr("usage.chooseCLI")) { chooseBinary() }.buttonStyle(NotchActionButtonStyle()).help(binary?.path ?? L10n.tr("usage.missingCLI"))
                     if loading { ProgressView().controlSize(.small) }
                     Spacer()
                 }
@@ -70,12 +59,7 @@ struct CodexUsageView: View {
             .font(.system(size: 12))
             .padding(10)
         }
-        .onAppear { binary = CodexBinaryLocator.detected() }
-        .onChange(of: selectedCLI) { _, _ in
-            generation += 1
-            binary = CodexBinaryLocator.detected()
-            status = nil; error = nil; loading = false
-        }
+        .onAppear { controller.refreshIfNeeded() }
     }
 
     private func windowRow(_ title: String, window: CodexQuotaWindow) -> some View {
@@ -111,25 +95,6 @@ struct CodexUsageView: View {
         return "\(title) · \(duration)"
     }
 
-    private func refresh() {
-        guard let binary else { return }
-        generation += 1
-        let token = generation
-        loading = true; error = nil
-        Task {
-            do {
-                let result = try await CodexUsageService().refresh(binary: binary)
-                guard generation == token else { return }
-                status = result
-                loading = false
-            } catch {
-                guard generation == token else { return }
-                self.error = error.localizedDescription
-                loading = false
-            }
-        }
-    }
-
     private func chooseBinary() {
         let panel = NSOpenPanel()
         panel.title = L10n.tr("usage.chooseCLI")
@@ -139,12 +104,11 @@ struct CodexUsageView: View {
         panel.begin { response in
             guard response == .OK, let selected = panel.url else { return }
             guard let executable = CodexBinaryLocator.executable(in: selected) else {
-                error = CodexUsageError.binaryInvalid.localizedDescription
+                selectionError = CodexUsageError.binaryInvalid.localizedDescription
                 return
             }
-            selectedCLI = executable.path
-            binary = executable
-            status = nil; error = nil
+            selectionError = nil
+            controller.select(executable)
         }
     }
 }

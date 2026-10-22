@@ -30,3 +30,9 @@ scripts/publish-release.sh /tmp/si-notch-release-VERSION docs/release-VERSION.md
 Replace `VERSION` with the version in `release.json`. Keep the Ed25519 private key backed up securely; the public key is pinned in installed apps. Never commit or upload the private key as a release asset. Beta releases are marked prerelease and do not replace the latest stable release.
 
 [GitHub Actions](../.github/workflows/ci.yml) tests the source, verifies the ZIP and builds the DMG on each push and pull request. Release signing and publication run locally with the maintainer’s key. No GitHub token is shipped in the app.
+
+## Plugin announcements
+
+`release.json` may include `pluginUpdates`, an array of up to 20 entries with unique `id`, `name`, `version`, `change` (`added` or `updated`) and `installURL`. Installation links must be HTTPS GitHub repository pages. The release packager includes this metadata in the signed feed and the app bundle. Keep the list scoped to plugins introduced or changed in that release; use a versioned GitHub installation page.
+
+Settings → About and the menu bar display these announcements with installation links. They describe the release, not the installed state of a remote profile. Plugins are installed separately. Links remain available after updating the app; changing update channels cannot reuse announcements from another channel. Older feeds without plugin metadata continue to work.

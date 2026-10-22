@@ -34,11 +34,59 @@ class HermesPluginTests(unittest.TestCase):
         plugin._TASK_TITLES.clear()
         plugin._METADATA.clear()
         plugin._TODO_IDS.clear()
+        plugin._PARENTS.clear(); plugin._TURN_PARENTS.clear()
+        self.spool = tempfile.TemporaryDirectory()
+        self.spool_patch = mock.patch.object(plugin, "_spool_directory", return_value=Path(self.spool.name) / "usage")
+        self.spool_patch.start()
         plugin._CONTEXT = None
         plugin._DISABLED_UNTIL = 0
 
     def tearDown(self):
         plugin._stop_heartbeat()
+        self.spool_patch.stop(); self.spool.cleanup()
+
+    def test_usage_outbox_retries_after_restart_without_text_or_duplicate_files(self):
+        with mock.patch.object(plugin, "_send", return_value=False):
+            for _ in range(2):
+                plugin.post_api_request(session_id="s", turn_id="t", api_request_id="r", usage={"input_tokens": 10, "output_tokens": 2})
+        files = list(plugin._spool_directory().glob("*.json"))
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0].stat().st_mode & 0o777, 0o600)
+        payload = json.loads(files[0].read_text())
+        self.assertNotIn("message", payload)
+        self.assertNotIn("first_prompt", payload)
+        self.assertNotIn("title", payload)
+        plugin._STARTED.clear(); plugin._SEQUENCES.clear()
+        with mock.patch.object(plugin, "_send", return_value=False): plugin._drain_usage()
+        self.assertTrue(files[0].exists())
+        with mock.patch.object(plugin, "_send", return_value=True) as send: plugin._drain_usage()
+        self.assertFalse(files[0].exists())
+        self.assertEqual(send.call_args.args[0], payload)
+
+    def test_usage_queue_limit_marks_subsequent_delivery_incomplete(self):
+        with mock.patch.object(plugin, "_send", return_value=False), mock.patch.object(plugin, "_SPOOL_LIMIT", 1):
+            plugin.post_api_request(session_id="s", api_request_id="first", usage={"input_tokens": 1, "output_tokens": 1})
+            plugin.post_api_request(session_id="s", api_request_id="lost", usage={"input_tokens": 1, "output_tokens": 1})
+        self.assertTrue((plugin._spool_directory() / "incomplete").exists())
+        with mock.patch.object(plugin, "_send", return_value=True): plugin._drain_usage()
+        with mock.patch.object(plugin, "_send", return_value=False):
+            plugin.post_api_request(session_id="s", api_request_id="next", usage={"input_tokens": 1, "output_tokens": 1})
+        value = json.loads(next(plugin._spool_directory().glob("*.json")).read_text())
+        self.assertTrue(value["usage"]["incomplete"])
+
+    def test_reused_child_keeps_parent_of_each_inflight_turn(self):
+        events = []
+        with mock.patch.object(plugin, "_send", side_effect=lambda e: events.append(e) or True):
+            plugin.subagent_start(parent_session_id="root", child_session_id="child", parent_turn_id="first")
+            plugin.pre_api_request(session_id="child", turn_id="child-first")
+            plugin.subagent_start(parent_session_id="root", child_session_id="child", parent_turn_id="second")
+            plugin.pre_api_request(session_id="child", turn_id="child-second")
+            plugin.post_api_request(session_id="child", turn_id="child-first", api_request_id="late", usage={"input_tokens": 1, "output_tokens": 1})
+            plugin.post_api_request(session_id="child", turn_id="child-second", api_request_id="new", usage={"input_tokens": 1, "output_tokens": 1})
+        usage = [e for e in events if e["event"] == "usage.update"]
+        self.assertEqual(usage[0]["usage"]["parent_turn_id"], plugin._opaque_id("first", "turn-"))
+        self.assertEqual(usage[1]["usage"]["parent_turn_id"], plugin._opaque_id("second", "turn-"))
+        self.assertEqual(events[0]["subagent"]["parentTurnID"], usage[0]["usage"]["parent_turn_id"])
 
     def test_heartbeat_retries_while_idle_and_unload_stops_the_worker(self):
         class LifecycleContext(Context):
@@ -127,11 +175,36 @@ class HermesPluginTests(unittest.TestCase):
                 self.assertEqual(run.call_args.kwargs["env"]["SI_NOTCH_SOCKET"], "/remote/private/events.sock")
                 self.assertNotEqual(os.environ.get("SI_NOTCH_SOCKET"), "/remote/private/events.sock")
 
+    def test_token_requests_are_numeric_private_and_stably_identified(self):
+        output = []
+        with mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            for _ in range(2):
+                plugin.post_api_request(session_id="s", turn_id="t", api_request_id="request-1",
+                    usage={"input_tokens": 20, "output_tokens": 5, "cache_read_tokens": 100,
+                           "cache_write_tokens": 10, "reasoning_tokens": 3, "private": "SECRET"},
+                    response={"secret": "SECRET"})
+            plugin.subagent_start(parent_session_id="s", child_session_id="child", child_role="research")
+            plugin.post_api_request(session_id="child", api_request_id="child-1", usage={"input_tokens": 2, "output_tokens": 1})
+        self.assertEqual(output[0]["usage"]["input_tokens"], 130)
+        self.assertEqual(output[0]["usage"]["output_tokens"], 5)
+        self.assertEqual(output[0]["usage"]["request_id"], output[1]["usage"]["request_id"])
+        self.assertEqual(output[2]["subagent"]["sessionID"], output[3]["session_id"])
+        self.assertNotIn("SECRET", json.dumps(output))
+        self.assertNotIn("cost", json.dumps(output))
+
+    def test_invalid_or_unidentified_usage_is_not_invented(self):
+        with mock.patch.object(plugin, "_send") as send:
+            for usage in ({}, {"input_tokens": True, "output_tokens": 1},
+                          {"input_tokens": -1, "output_tokens": 1}, {"input_tokens": 1.5, "output_tokens": 1}):
+                plugin.post_api_request(session_id="s", api_request_id="r", usage=usage)
+            plugin.post_api_request(session_id="s", usage={"input_tokens": 1, "output_tokens": 1})
+            send.assert_not_called()
+
     def test_official_observer_contract_and_lifecycle(self):
         ctx = Context()
         plugin.register(ctx)
         self.assertEqual(set(ctx.hooks), {
-            "on_session_start", "pre_llm_call", "pre_api_request", "pre_tool_call", "post_tool_call",
+            "on_session_start", "pre_llm_call", "pre_api_request", "post_api_request", "post_auxiliary_call", "pre_tool_call", "post_tool_call",
             "on_interim_message", "post_llm_call",
             "on_human_input_request", "on_human_input_resolved",
             "on_session_end", "on_session_finalize",

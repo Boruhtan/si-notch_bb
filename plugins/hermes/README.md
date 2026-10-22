@@ -4,7 +4,7 @@
 
 Show remote Hermes sessions in your Mac's notch: tasks, visible assistant messages, tool names and start/finish/failure events, completion, and separate profiles in Agents.
 
-Plugin **1.7**. Use **si-notch 0.4.11 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
+Plugin **1.10**. Use **si-notch 0.4.26 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
 
 Model and reasoning are taken from the current native API request. The session project comes from Hermes’ session-cwd API. Structured todo_list results and subagent lifecycle hooks supply tasks and child status. Task titles follow the existing text-sharing choice; raw requests, reasoning text and other tool content are excluded. Each field is controlled independently in Display → Session details. Older Hermes versions may omit fields.
 
@@ -66,7 +66,7 @@ The [installation prompt](INSTALL_PROMPT.md) can perform the remote half for you
 
 Text sharing defaults to off. Enabled text includes a task excerpt (up to 1,600 characters), visible assistant updates and final answers (up to 4,000 each). Updates appear when Hermes emits their hooks; the plugin does not stream every token. Arguments, tool results, history, hidden reasoning and credentials are excluded. Tool outcome flags are inspected locally to classify failures; their content is never forwarded. Activity retains the app's most recent 12 entries.
 
-Profile and session IDs are hashed. `instanceId` is the stable local profile identity; preserve it across upgrades and use a different one when cloning a profile to another machine. Display names are labels in si-notch. Input/approval events are notifications; decisions stay in Hermes. Delivery is bounded and fails open when the Mac is disconnected; events are not queued or replayed. Plugin 1.8 announces profile presence every 30 seconds while loaded, using the same transport. The heartbeat creates no task, does not refresh task progress, and stops on plugin unload or reload. It restores presence after the Mac reconnects or restarts; presence expires after 120 seconds without delivery. Heartbeats require Hermes’ native `on_unload` API; older runtimes keep only the startup announcement and lifecycle events.
+Profile and session IDs are hashed. `instanceId` is the stable local profile identity; preserve it across upgrades and use a different one when cloning a profile to another machine. Display names are labels in si-notch. Input/approval events are notifications; decisions stay in Hermes. Delivery is bounded and fails open when the Mac is disconnected; lifecycle events are not queued or replayed. Numeric usage uses the durable queue described below. Plugin 1.8 announces profile presence every 30 seconds while loaded, using the same transport. The heartbeat creates no task, does not refresh task progress, and stops on plugin unload or reload. It restores presence after the Mac reconnects or restarts; presence expires after 120 seconds without delivery. Heartbeats require Hermes’ native `on_unload` API; older runtimes keep only the startup announcement and lifecycle events.
 
 ## Troubleshooting and recovery
 
@@ -89,3 +89,16 @@ Profile and session IDs are hashed. `instanceId` is the stable local profile ide
 Tested on remote macOS with si-notch 0.4.9-beta.1: three real API sessions in distinct profiles, overlapping tools, two sequential terminal calls per session, task/final text and Done in the actual UI. Automated tests cover privacy, hook mappings (including `task_id`), failed tools, profile isolation, relay round trips, idempotent settings, backups and stale-socket recovery. Linux/other Hermes releases and every entry point require their own real-turn check; native install/transport success is not a substitute.
 
 [Hermes plugin documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins) · [Hook contract](https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks) · [SSH configuration](../../docs/remote-connections.md) · [License](LICENSE).
+
+## Token usage (plugin 1.9)
+
+`post_api_request` and successful `post_auxiliary_call` observations send only normalized token counters and hashed request/turn identity. Input includes cache reads and writes; output includes reasoning. Replayed deliveries use the same request identity. Child hooks include the hashed child session identity so Usage can group descendants without adding their totals to the parent twice. No prices or raw provider response are sent. Older Hermes runtimes without these hooks leave usage unknown. Existing remote history is not imported; plugin 1.9 failed open while disconnected. Plugin 1.10 adds the bounded durable queue described below.
+
+The application collects these new events after the installed plugin is updated. Updating the bundled source alone does not change an already-running remote plugin.
+
+
+### Task usage and offline delivery (plugin 1.10)
+
+Each request carries a stable opaque ID and, when supplied by Hermes, its own turn and parent turn. A reused child retains the parent of its in-flight request. Only numeric usage, opaque IDs, model, profile label and timestamps enter the private `usage-outbox`; prompts, results and credentials are excluded. The queue keeps at most 2,000 records of 8 KiB, retries in the background and removes a record only after the application acknowledges a durable journal commit. Overflow marks subsequent records incomplete. Requests to the model are never retried by this plugin.
+
+Input includes Hermes's separately reported cache reads and writes. Reasoning is already part of output; it is never added twice. Missing historical remote requests are not reconstructed. The existing SSH Unix-socket transport and profile settings are retained.
