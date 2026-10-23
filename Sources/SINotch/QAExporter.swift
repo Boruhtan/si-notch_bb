@@ -577,7 +577,9 @@ enum QAExporter {
                 ("working", AgentStatus.working, AgentEventKind.working, "Review the next change"),
                 ("waiting", .waiting, .waiting, "Choose the update channel"),
                 ("failed", .failed, .failed, "Verify the release archive"),
-                ("memory", .completed, .completed, "Consolidate the supplied rollout summaries into `memory_summary.md` so another agent understands them.")
+                ("closed", .ended, .sessionEnded, "Review the archived task"),
+                ("memory-completed", .completed, .completed, "## Memory Writing Agent: Phase 2 (Consolidation) You are a Memory Writing Agent."),
+                ("memory", .ended, .sessionEnded, "Consolidate the supplied rollout summaries into `memory_summary.md` so another agent understands them.")
             ] {
                 let session = AgentSession(id: "qa-history-" + id, provider: "codex", title: prompt,
                     projectPath: "/work/si-notch", status: status)
@@ -597,12 +599,18 @@ enum QAExporter {
                 try await captureHosted(HistoryView(history: model.history, usage: model.usage, openUsage: { _ in }).preferredColorScheme(.dark).background(.black),
                     name: "history-narrow-\(language)", language: language, size: NSSize(width: 360, height: 480))
                 model.history.search = L10n.tr("history.memoryTitle")
-                check("history-memory-title-search-\(language)", model.history.matching.count == 1 && model.history.matching.first?.memoryService == true,
+                check("history-memory-title-search-\(language)", model.history.matching.count == 2 && model.history.matching.allSatisfy(\.memoryService),
                       "The compact localized memory title is searchable without knowing the original technical prompt.")
-                check("history-memory-source-\(language)", model.history.matching.first?.historyProviderName == "Codex",
+                check("history-memory-source-\(language)", model.history.matching.allSatisfy { $0.historyProviderName == "Codex" },
                       "Background memory records retain the originating agent name alongside their status.")
+                check("history-memory-identity-\(language)", Set(model.history.matching.map(\.status)) == [.completed, .ended] &&
+                      model.history.matching.allSatisfy { $0.historySymbol == "brain" } &&
+                      NSImage(systemSymbolName: "brain", accessibilityDescription: nil) != nil,
+                      "Completed and closed memory records share the brain identity without changing their terminal status.")
+                try await captureHosted(HistoryView(history: model.history, usage: model.usage, openUsage: { _ in }).preferredColorScheme(.dark).background(.black),
+                    name: "history-memory-\(language)", language: language, size: NSSize(width: 360, height: 360))
                 model.history.search = ""
-                if let id = model.history.records.first?.id {
+                if let id = model.history.records.first(where: { $0.memoryService && $0.status == .ended })?.id {
                     model.history.open(id); try await pause(0.15)
                     try capturePanel(name: "island-history-detail-\(language)", language: language)
                 }

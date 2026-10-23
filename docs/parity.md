@@ -2,7 +2,11 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.29 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.30 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+
+## Verification added in 0.4.30
+
+Memory updates use one brain symbol in History rows, record details and live task labels. Ordinary closed records use an archive symbol; status text and stored terminal states remain unchanged. The full test suite, release archive verification and DMG checks passed. Isolated native History and memory-card fixtures passed in English, Russian and Simplified Chinese; list, detail and 360 pt layouts were visually inspected. These checks use synthetic records and do not establish VoiceOver behavior or rendering on every supported macOS version.
 
 ## Verification added in 0.4.29
 

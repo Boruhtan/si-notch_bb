@@ -1,15 +1,7 @@
 {
-  "version": "0.4.29",
-  "build": "56",
+  "version": "0.4.30",
+  "build": "57",
   "repository": "eugeneb1ack/si-notch",
   "updatePublicKey": "elQVhD2kVKKYeCZ0yFusGF50I1JZSQCNd7H6xMovJAY=",
-  "pluginUpdates": [
-    {
-      "id": "hermes",
-      "name": "Hermes",
-      "version": "1.12",
-      "change": "updated",
-      "installURL": "https://github.com/eugeneb1ack/si-notch/tree/v0.4.29/plugins/hermes"
-    }
-  ]
+  "pluginUpdates": []
 }

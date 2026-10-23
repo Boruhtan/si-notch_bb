@@ -1,0 +1,2 @@
+- Give memory updates a consistent brain icon in History and task cards.
+- Use an archive icon for closed history records and simplify source labels.

@@ -370,8 +370,8 @@ struct SessionCard: View {
                 Text(session.status.label).font(.system(size: 10, weight: .medium)).contentTransition(.opacity)
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: session.status)
                 if info.isMemoryService {
-                    Label(L10n.tr("session.serviceMemory"), systemImage: "gearshape")
-                        .font(.system(size: 9, weight: .medium)).foregroundStyle(NotchDesign.secondary)
+                    Label(L10n.tr("session.serviceMemory"), systemImage: "brain")
+                        .font(.system(size: 9, weight: .medium)).foregroundStyle(NotchDesign.accent)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(.white.opacity(0.07), in: Capsule())
                         .help(L10n.tr("session.serviceMemoryHelp"))

@@ -25,10 +25,13 @@ struct HistoryView: View {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         Text(entry.summary.historyTitle).font(.system(size: 13, weight: .semibold)).textSelection(.enabled)
                         HStack(spacing: 10) {
-                            Label(entry.summary.status.historyLabel, systemImage: entry.summary.status.historySymbol)
-                                .foregroundStyle(entry.summary.status.tint)
+                            Label {
+                                Text(entry.summary.status.historyLabel).foregroundStyle(entry.summary.status.tint)
+                            } icon: {
+                                Image(systemName: entry.summary.historySymbol).foregroundStyle(entry.summary.historyTint)
+                            }
                             if entry.summary.memoryService {
-                                Label(entry.summary.historyProviderName, systemImage: "brain")
+                                Text(entry.summary.historyProviderName)
                                     .foregroundStyle(NotchDesign.secondary).help(L10n.tr("session.serviceMemoryHelp"))
                             } else {
                                 Text(entry.summary.historyProviderName).foregroundStyle(NotchDesign.secondary)
@@ -108,10 +111,10 @@ private struct HistoryRow: View {
     var partial = false
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: summary.status.historySymbol)
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(summary.status.tint)
+            Image(systemName: summary.historySymbol)
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(summary.historyTint)
                 .frame(width: 24, height: 24)
-                .background(summary.status.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+                .background(summary.historyTint.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top, spacing: 8) {
@@ -126,7 +129,7 @@ private struct HistoryRow: View {
                     Text(summary.status.historyLabel).foregroundStyle(summary.status.tint).fixedSize()
                     Text("·").foregroundStyle(NotchDesign.muted)
                     if summary.memoryService {
-                        Label(summary.historyProviderName, systemImage: "brain")
+                        Text(summary.historyProviderName)
                             .help(L10n.tr("session.serviceMemoryHelp")).fixedSize()
                     } else {
                         Text(summary.historyProviderName).lineLimit(1)
@@ -149,6 +152,8 @@ private struct HistoryRow: View {
 extension HistorySummary {
     var historyTitle: String { memoryService ? L10n.tr("history.memoryTitle") : title }
     var historyProviderName: String { SessionCardContent.providerName(provider) }
+    var historySymbol: String { memoryService ? "brain" : status.historySymbol }
+    var historyTint: Color { memoryService ? NotchDesign.accent : status.tint }
 }
 
 extension AgentStatus {
@@ -160,7 +165,7 @@ extension AgentStatus {
         case .approval: return "hand.raised"
         case .completed: return "checkmark"
         case .failed: return "xmark"
-        case .ended: return "stop.fill"
+        case .ended: return "archivebox"
         }
     }
     var historyLabel: String {
