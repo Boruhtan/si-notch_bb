@@ -8,7 +8,11 @@ Immutable runtime source: [`70fa311597d68a4f19de23e4c26eb39af7e6af46`](https://g
 hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 70fa311597d68a4f19de23e4c26eb39af7e6af46 --no-enable
 ```
 
-Lifecycle, configuration preservation, deadlines and socket acknowledgement cases have isolated regression tests. This revision has not been deployed to the user's remote profiles or verified with a new real model turn. Update the installed plugin separately; an app update does not replace a running remote plugin. The observer does not submit answers or approve tools.
+Lifecycle, configuration preservation, deadlines and socket acknowledgement cases have isolated regression tests.
+
+On 2026-10-23, app-managed setup updated eight already-enabled remote profiles and the shared relay from plugin 1.10 to 1.12. All 17 installed file hashes match the release sources; all 17 backups and the setup receipt were verified. Profile configurations and plugin settings remained byte-for-byte unchanged. The running gateway's `plugins.list` reported version 1.12, 15 hooks, enabled and no load error for every profile. All eight resumed presence in installed app 0.4.29. Plugin handlers were reloaded without restarting the gateway. No new model turn was submitted in this deployment check, so it does not add live turn or token-accounting coverage for 1.12.
+
+Update the installed plugin separately; an app update does not replace a running remote plugin. The observer does not submit answers or approve tools.
 
 | File | SHA-256 |
 | --- | --- |

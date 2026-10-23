@@ -14,6 +14,8 @@ Keyboard navigation is limited to visible sessions. The companion uses a native 
 
 Adapter fixtures cover explicit unsuccessful Hermes turns, exact Copilot event-name aliases, a single relay deadline, buffered acknowledgements after peer close and guarded socket recovery. The custom-agent example runs against isolated sockets. This audit did not change installed agent configurations or run new end-to-end model sessions for every provider. Plugin 1.12 must be installed separately in existing remote profiles; publishing the Mac app does not update those profiles.
 
+The subsequent deployment check on 2026-10-23 verified installed app 0.4.29 (build 56), its executable against the release archive and its code signature. The previously stopped goal record had reconciled to `completed` in the working History archive. The live History row was not visually inspected because native UI automation was unavailable. Plugin 1.12 was installed in eight remote profiles: running gateway versions, 15 registered hooks per profile, no load errors and fresh presence in the Mac app were verified. Configuration bytes were preserved; no new model turn was submitted. See [plugin verification](../plugins/hermes/REVISION.md).
+
 ## Feature matrix
 
 | Feature | Availability and verification |
