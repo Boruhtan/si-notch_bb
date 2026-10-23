@@ -28,7 +28,7 @@
 
 ## 其他远程代理
 
-可将 `scripts/remote-relay.py` 安装为 `~/.local/bin/si-notchctl`，权限设为 0700；创建权限为 0700 的 `~/.si-notch/run`，并在应用中填写绝对套接字路径。代理环境：
+可将 `plugins/hermes/relay.py` 安装为 `~/.local/bin/si-notchctl`，权限设为 0700；创建权限为 0700 的 `~/.si-notch/run`，并在应用中填写绝对套接字路径。代理环境：
 
 ```sh
 export SI_NOTCH_SOCKET="$HOME/.si-notch/run/events.sock"

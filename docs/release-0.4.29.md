@@ -1,0 +1,4 @@
+- Improve reliability of agent status updates and remote connections.
+- Correct completed goals that remained marked as stopped in History.
+- Fix keyboard navigation between task lists and other sections.
+- Improve companion interaction and login-at-startup error handling.

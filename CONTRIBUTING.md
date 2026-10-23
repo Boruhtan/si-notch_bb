@@ -14,7 +14,9 @@ scripts/build-app.sh release
 scripts/verify-release.sh
 ```
 
-`Sources/SINotch` contains the app, `SINotchCore` the session model and presentation policy, `SINotchTransport` local IPC, and `NotchCLI` the command-line helper. Agent adapters are in `scripts/adapters`.
+`Sources/SINotch` contains the app, `SINotchCore` the session model and presentation policy, `SINotchTransport` local IPC, and `NotchCLI` the command-line helper. Agent adapters are in `scripts/adapters`; the distributable Hermes plugin is in `plugins/hermes`.
+
+For a new producer, start with the [custom-agent contract](docs/custom-agents.md) and its [isolated Python example](docs/examples/custom-agent/agent.py). For Hermes callbacks, use the [plugin developer guide](docs/hermes-plugin-development.md). Run `python3 docs/examples/custom-agent/test_agent.py` to validate the example without a live account or app. Document whether an integration observes attention or actually owns a response channel; do not claim end-to-end verification from fixtures alone.
 
 Follow the surrounding Swift, Python or JavaScript style. Keep user-facing strings in all three localization catalogs. Preserve existing agent configuration when adding integrations. Approval responses must remain tied to the pending request and its deadline.
 

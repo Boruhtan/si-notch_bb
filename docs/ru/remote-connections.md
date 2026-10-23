@@ -28,7 +28,7 @@
 
 ## Другие удалённые агенты
 
-Установите `scripts/remote-relay.py` как `~/.local/bin/si-notchctl` с правами 0700. Создайте `~/.si-notch/run` с правами 0700, укажите абсолютный путь сокета в приложении. В окружении агента:
+Установите `plugins/hermes/relay.py` как `~/.local/bin/si-notchctl` с правами 0700. Создайте `~/.si-notch/run` с правами 0700, укажите абсолютный путь сокета в приложении. В окружении агента:
 
 ```sh
 export SI_NOTCH_SOCKET="$HOME/.si-notch/run/events.sock"

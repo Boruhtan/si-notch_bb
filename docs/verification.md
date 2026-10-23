@@ -12,7 +12,9 @@ scripts/build-app.sh release
 scripts/verify-release.sh
 ```
 
-The test script runs Swift tests, localization checks, CLI smoke tests and JavaScript/Python adapter tests. Build verification checks the ZIP inventory and the extracted app's code signature. [GitHub Actions](../.github/workflows/ci.yml) also builds the DMG.
+The test script runs Swift tests, localization checks, CLI smoke tests, JavaScript/Python adapter tests and the isolated custom-agent example. Build verification checks the ZIP inventory and the extracted app's code signature. [GitHub Actions](../.github/workflows/ci.yml) also builds the DMG.
+
+Goal History tests distinguish a stopped first turn from a goal completed after resuming. They require an exact session, original turn and goal identity, preserve ordinary cancellations, and reject prose, unrelated tool output and unsupported formats. The optional `SI_NOTCH_GOAL_LIVE_CHECK_ROLLOUT=/absolute/path/to/rollout.jsonl` test reads only that session's existing History metadata and local completion evidence; it never writes to the production archive.
 
 ## Interface checks
 

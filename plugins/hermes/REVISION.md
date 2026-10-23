@@ -1,5 +1,24 @@
 # Current revision
 
+Plugin **1.12**, bundled with app **0.4.29**, corrects unsuccessful turn status, bounds the complete relay exchange by one deadline, preserves a buffered acknowledgement after a peer closes, and refuses stale-socket recovery when the holder check is incomplete.
+
+Immutable runtime source: [`70fa311597d68a4f19de23e4c26eb39af7e6af46`](https://github.com/eugeneb1ack/si-notch/tree/70fa311597d68a4f19de23e4c26eb39af7e6af46/plugins/hermes). The native installer requires a full commit SHA, not a tag.
+
+```sh
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 70fa311597d68a4f19de23e4c26eb39af7e6af46 --no-enable
+```
+
+Lifecycle, configuration preservation, deadlines and socket acknowledgement cases have isolated regression tests. This revision has not been deployed to the user's remote profiles or verified with a new real model turn. Update the installed plugin separately; an app update does not replace a running remote plugin. The observer does not submit answers or approve tools.
+
+| File | SHA-256 |
+| --- | --- |
+| `__init__.py` | `2094332e3b2b4c67434947296d86cbb95d1fc3aa522571c84d57aa90a86ca241` |
+| `plugin.yaml` | `282b89089ffede7175c53389b0bb1f8d2de7a3ceca41979125cdde46f83cbe01` |
+| `relay.py` | `b387d9f5b6d22bd3a76cf51f4b44a845c3bb67d5b2e13cf2866123f173a24728` |
+| `configure.py` | `b003dd06592b7949887ac584fb39a9dd9ea8a60c059432a05ccbb0ccd484cc18` |
+
+# Previous plugin 1.11 verification
+
 Plugin **1.11**, bundled with app **0.4.27**, adds an opaque identity to human-input notifications. The app can distinguish a new question from an ordinary waiting status and show instructions for responding in the original chat or terminal. The observer does not approve actions or submit answers.
 
 Immutable runtime source: [`38e50861b6601aaf0c5acffa839c38c2be525a3e`](https://github.com/eugeneb1ack/si-notch/tree/38e50861b6601aaf0c5acffa839c38c2be525a3e/plugins/hermes).

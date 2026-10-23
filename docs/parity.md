@@ -2,7 +2,17 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.28 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.29 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+
+## Verification added in 0.4.29
+
+Goal History reconciliation follows an explicitly completed goal across resumed turns. It updates only the existing original `/goal` record, preserves its content and dates, and leaves ordinary cancelled turns unchanged. Native events and correlated completion receipts, chunked reads, late archive creation and malformed/symlinked input have regression coverage. A read-only check found the completion in the affected local rollout; it did not modify the production archive.
+
+Keyboard navigation is limited to visible sessions. The companion uses a native button, and a login-item failure no longer triggers a second service request. Navigation has regression coverage; physical keyboard/VoiceOver behavior and login-item failure UI still require manual validation.
+
+Adapter fixtures cover explicit unsuccessful Hermes turns, exact Copilot event-name aliases, a single relay deadline, buffered acknowledgements after peer close and guarded socket recovery. The custom-agent example runs against isolated sockets. This audit did not change installed agent configurations or run new end-to-end model sessions for every provider. Plugin 1.12 must be installed separately in existing remote profiles; publishing the Mac app does not update those profiles.
+
+## Feature matrix
 
 | Feature | Availability and verification |
 | --- | --- |

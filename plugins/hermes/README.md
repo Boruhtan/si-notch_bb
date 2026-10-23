@@ -2,103 +2,118 @@
 
 # si-notch for Hermes
 
-Show remote Hermes sessions in your Mac's notch: tasks, visible assistant messages, tool names and start/finish/failure events, completion, and separate profiles in Agents.
+Show Hermes tasks in your Mac's notch: session state, tools, subagents, optional assistant text, token usage and separate profile availability. Works locally on the Mac or through an existing SSH connection.
 
-Plugin **1.11**. Use **si-notch 0.4.27 or newer**, an existing trusted SSH login with Unix-socket forwarding, and Python 3.10+ on the Hermes machine. The plugin uses the standard library and the existing Hermes interpreter; no pip packages, model credentials, TCP listener or additional service are needed.
+Plugin **1.12**, bundled with **si-notch 0.4.29**. Use Python 3.10+ from the existing Hermes installation. The plugin needs no pip packages, model credentials, TCP listener or additional service. Remote use also requires trusted key-based SSH login and Unix-socket forwarding. [Revision and verification](REVISION.md).
 
-Model and reasoning are taken from the current native API request. The session project comes from Hermes’ session-cwd API. Structured todo_list results and subagent lifecycle hooks supply tasks and child status. Task titles follow the existing text-sharing choice; raw requests, reasoning text and other tool content are excluded. Each field is controlled independently in Display → Session details. Older Hermes versions may omit fields.
+The plugin is an observer. Human-input notifications direct you to the original Hermes chat or terminal; it does not approve actions or submit answers. Metadata and usage depend on hooks exposed by the installed Hermes version. [Developer guide](../../docs/hermes-plugin-development.md).
 
-## Recommended: configure from si-notch
+## Local Mac installation
 
-1. Install si-notch 0.4.11 or newer on the Mac, or update through **Settings → About**.
-2. Open **Settings → Remote SSH → Add connection**. Enter a name and SSH host/alias. **Check connection** verifies login only.
-3. Click **Check profiles**. Choose the profiles, edit their display names, and choose whether to share task/assistant text.
-4. **Preview changes → Apply plugin changes** installs the bundled observer and relay with remote backups. Check the result; a profile without a running gateway loads the plugin on its next start.
-5. Click **Connect**. A successful SSH check alone does not start forwarding. Keep the Mac app and connection running, then start a new Hermes task.
-6. Open **Sessions** for tasks and expand a card for tool history. **Agents → your connection** lists the configured profiles even when no task is running.
+1. Open **si-notch → Settings → Connection**, select Hermes and choose **Connect**. Review the destination profile/home.
+2. Enable the installed plugin with `hermes plugins enable si-notch`. For a named profile use `hermes -p PROFILE plugins enable si-notch`.
+3. Confirm activation, then start a new turn. If the running host did not reload, start a new Hermes session after the current turn finishes.
+4. Keep si-notch running. Check **Settings → Diagnostics** for received events and open **Sessions** for the task.
 
-Profile discovery reads the default Hermes home and existing named profile directories. No profile names or count are predefined. Choose only the profiles to connect; each keeps its own identity and text-sharing setting.
+The app records its helper's absolute installation path, including custom app locations. Manual copies also discover `/Applications/si-notch.app` and `~/Applications/si-notch.app`. `SI_NOTCH_CLI` overrides helper selection; a configured override must point to the intended executable. Finder does not inherit shell environment variables: review the destination shown by the app when using a custom `HERMES_HOME` or named profile.
 
-The app installs the adapter bundled with that app version. For a Git-pinned native installation, use the alternative below and manage its code with Hermes. Reapplying app-managed setup replaces the adapter with the app's bundled version; choose one code-update method per profile.
+## Remote installation from si-notch
+
+1. Update the Mac app to 0.4.29 or newer. Open **Settings → Remote SSH → Add connection** and enter a connection name and SSH host/alias.
+2. **Check connection** verifies login only. **Check profiles** discovers existing Hermes profiles; select the profiles and their display names.
+3. Choose whether each profile may share task/assistant text. Text sharing defaults to off.
+4. **Preview changes → Apply plugin changes** installs the bundled observer and relay with backups and asks Hermes to reload. Review the result; a profile without a running gateway loads it on its next start.
+5. Use the inspected absolute remote socket path and click **Connect**. A login check alone does not start forwarding.
+6. Start a new task. **Sessions** shows tasks; **Agents → your connection** shows each configured profile, including when idle.
+
+Profile names and count are discovered, not predefined. A connected tunnel proves transport only; Online requires a fresh profile event. The loaded plugin announces presence every 30 seconds, so reconnecting normally restores idle presence within one interval. Presence expires after 120 seconds without delivery.
+
+App-managed setup installs the plugin bundled with that app. A native Git installation below owns its selected revision. Reapplying app-managed setup replaces that code; choose one update method per profile.
 
 ## Native Hermes installation
 
-This directory is a complete Hermes plugin, named `si-notch`. Its own `relay.py` works without executable permission, using Hermes' Python. Install it in the profile that will run the tasks, not in a project-local `.hermes` directory.
-
-Use the tested immutable revision in [REVISION.md](REVISION.md):
+Install into the actual profile home, not a project-local `.hermes` directory. Use the release ref documented in [REVISION.md](REVISION.md):
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 38e50861b6601aaf0c5acffa839c38c2be525a3e --no-enable
-```
-
-For a named profile, put `-p PROFILE` before `plugins` in each Hermes command. The command pins the full tested revision. The source is this repository, not an entry in the Hermes plugin catalog. Review it before enabling; retain the normal installer checks and consent prompts.
-
-For the default Hermes home, configure the installed plugin:
-
-```sh
-python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "Remote Hermes" --hide-text
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 70fa311597d68a4f19de23e4c26eb39af7e6af46 --no-enable
+python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "My Hermes" --hide-text
 hermes plugins enable si-notch
+hermes plugins list
 ```
 
-For a custom or named profile, use its actual Hermes home in the `configure.py` path, and enable with `hermes -p PROFILE plugins enable si-notch`. Use a Python interpreter from your existing Hermes installation if `python3` is unavailable.
+For a named profile, put `-p PROFILE` before `plugins` and replace the `configure.py` path with that profile's actual home. Use the existing Hermes Python interpreter if `python3` is unavailable. Review the source and retain the installer's normal checks and consent prompts. The source is this repository, not a catalog entry.
 
-`setup` merges only that plugin's `si-notch.json`, creates a private socket directory if needed, and preserves the old settings in a backup before changing them. It does not edit Hermes `config.yaml`, hooks, `.env`, models, approval policy or services. Native `plugins enable` owns activation. Check its output for a successful reload; otherwise start a new Hermes session after the current turn finishes.
+`setup` merges only `si-notch.json`, preserves existing settings and `instanceId`, makes a backup before a change, and creates a private socket directory when needed. It does not edit Hermes `config.yaml`, hooks, `.env`, models, approval policy or services. Native `plugins enable` owns activation. Check its actual result; otherwise start a new session after the current turn.
 
-To share text, use `--show-text`; to turn it off, use `--hide-text`. `--socket /absolute/private/events.sock` selects another socket. Existing helper settings remain intact; `--bundled-relay` explicitly selects the included relay. `SI_NOTCH_CLI`, when set, remains an override and should point to the intended executable.
+Options:
 
-On the Mac, add the SSH host and the **absolute socket path printed by setup**, then click **Connect**. If this is a native install, **Check profiles** discovers its settings; applying app-managed changes is optional and can replace its pinned code.
+| Option | Effect |
+| --- | --- |
+| `--name "Name"` | Required display label. |
+| `--hide-text` / `--show-text` | Disable/enable public task and assistant excerpts. |
+| `--socket /absolute/private/events.sock` | Use an explicit endpoint; local Mac or remote forwarded socket. |
+| `--helper /absolute/executable` | Select a helper explicitly. |
+| `--bundled-relay` | Use the included Python relay instead of a previously configured helper. |
 
-## Check delivery and run a real task
+For a local native install, the default socket is the Mac application's `~/.si-notch/run/events.sock`; no SSH is needed. For a remote native install, enter the **absolute socket path printed by setup** in the Mac connection and click **Connect**. Applying app-managed changes after native installation is optional and can replace its code.
 
-For a native installation, with the Mac connected:
+## Diagnostics and smoke check
+
+For a native installation, after the Mac is connected:
 
 ```sh
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" check
 ```
 
-App-managed profiles may not contain `configure.py`; after Connect, use the new-session smoke test directly. The diagnostic CLI commands in this guide belong to the native package.
+`state: delivered` means the Mac acknowledged a presence event. This command sends one presence notification; it creates no task and proves no model/tool lifecycle. App-managed profiles may not include `configure.py`; use the app's receipts and the new-session smoke check instead.
 
-`state: delivered` means the Mac acknowledged a presence event. It creates no task and proves no model/tool lifecycle. Run the [smoke-test prompt](SMOKE_TEST_PROMPT.md) in a **new session** of the enabled profile. Verify the task description, `Working · terminal`, two completed tool calls in Activity, final text, and Done. Repeat in another profile; the cards and Agents rows should remain separate.
+Run the [smoke-test prompt](SMOKE_TEST_PROMPT.md) in a new session of the enabled profile. Verify task text when sharing is enabled, Working, two completed tools in Activity, final text and Done. Repeat in a second profile to check isolation. Newly observed request usage should appear when the runtime supplies its accounting hooks. Input questions must be answered in Hermes.
 
-The [installation prompt](INSTALL_PROMPT.md) can perform the remote half for you; [Russian version](INSTALL_PROMPT.ru.md). The agent reports remote checks and asks you to verify the Mac UI; it cannot infer UI success from a completed run.
+The [installation prompt](INSTALL_PROMPT.md) can guide the remote half; [Russian version](INSTALL_PROMPT.ru.md). Remote command success does not establish the state of the Mac UI. Report installation, activation, transport receipt and live UI behavior separately.
 
-## Privacy and behavior
+## Data and delivery
 
-Text sharing defaults to off. Enabled text includes a task excerpt (up to 1,600 characters), visible assistant updates and final answers (up to 4,000 each). Updates appear when Hermes emits their hooks; the plugin does not stream every token. Arguments, tool results, history, hidden reasoning and credentials are excluded. Tool outcome flags are inspected locally to classify failures; their content is never forwarded. Activity retains the app's most recent 12 entries.
+- Text sharing is off by default. When enabled, task excerpts are capped at 1,600 characters and visible assistant updates/final answers at 4,000 each. It does not stream every token.
+- Tool arguments/results, conversation history, hidden reasoning and credentials are not forwarded. Bounded result flags are inspected locally to classify tool failures; todo titles follow text sharing.
+- Current model/reasoning settings come from the API request. The project directory comes from Hermes's session-cwd API. Missing fields remain unknown.
+- Profile/session IDs are hashed. Preserve `instanceId` across upgrades; use a distinct identity for a profile cloned to another machine. Display names are labels, not identity.
+- Lifecycle delivery is bounded and fails open when disconnected. Those events are not queued or reconstructed. Presence does not create work or extend task progress. The worker stops on plugin unload/reload; older runtimes without `on_unload` retain startup presence only.
+- Numeric request usage uses the private `usage-outbox`: at most 2,000 records of 8 KiB, removed only after durable `usage_committed`. It contains numeric counts, opaque IDs, model/profile labels and timestamps, not prompts or results. Overflow marks subsequent data incomplete. The plugin never retries model requests.
+- Input already includes cache reads/writes; output already includes reasoning. A request's stable ID prevents duplicate totals after replay. Child requests preserve their parent turn. Old remote history is not imported. Updating app sources alone does not update an already-installed remote plugin.
 
-Profile and session IDs are hashed. `instanceId` is the stable local profile identity; preserve it across upgrades and use a different one when cloning a profile to another machine. Display names are labels in si-notch. Input/approval events are notifications; decisions stay in Hermes. Delivery is bounded and fails open when the Mac is disconnected; lifecycle events are not queued or replayed. Numeric usage uses the durable queue described below. Plugin 1.8 announces profile presence every 30 seconds while loaded, using the same transport. The heartbeat creates no task, does not refresh task progress, and stops on plugin unload or reload. It restores presence after the Mac reconnects or restarts; presence expires after 120 seconds without delivery. Heartbeats require Hermes’ native `on_unload` API; older runtimes keep only the startup announcement and lifecycle events.
+## Recovery
 
-## Troubleshooting and recovery
+| Symptom | Check |
+| --- | --- |
+| Missing socket / `not_connected` | Start si-notch; verify the local endpoint or click **Connect** for the selected SSH host and absolute remote path. |
+| `relay_failed` | Confirm helper/socket settings, plugin load and app pause state. Use the bounded diagnostic error; do not weaken permissions or host-key checks. |
+| Tools but no text | Enable sharing for this profile and start a new turn. Some runtimes provide no interim-message hook. |
+| Installed / Last seen | Plugin files exist but no recent event arrived. A tunnel alone does not establish profile activity. Allow one heartbeat interval after reconnect. |
+| Forwarding failure / stale socket | Disconnect the affected tunnel. Use guarded recovery below, or the app's recovery result. Do not remove a live/held socket. |
 
-- **No socket / `not_connected`:** open si-notch Remote SSH and click **Connect**, after checking the host and absolute path. SSH login and forwarding are separate checks.
-- **`stale_socket` / forwarding fails with exit 255 after restart:** si-notch 0.4.12 automatically preserves an unused private socket and retries after a rejected forward. This uses the configured remote Python path and requires `lsof`; active or unsafe sockets are left unchanged. For older versions, disconnect this connection on the Mac, then run:
+For a native package, preview stale-socket recovery before applying:
 
-  ```sh
-  python3 "$HOME/.hermes/plugins/si-notch/configure.py" repair-socket
-  python3 "$HOME/.hermes/plugins/si-notch/configure.py" repair-socket --apply
-  ```
+```sh
+python3 "$HOME/.hermes/plugins/si-notch/configure.py" repair-socket
+python3 "$HOME/.hermes/plugins/si-notch/configure.py" repair-socket --apply
+```
 
-  The first command previews. The second requires connection refusal, private ownership/permissions, no holder in `lsof`, and an unchanged inode. It renames the stale socket to a backup, preserving it. It refuses a live or held socket. If `lsof` is unavailable, it makes no change. Reconnect on the Mac and run `check` again. Never delete an occupied socket or enable `StreamLocalBindUnlink` globally.
-- **`relay_failed`:** inspect the bounded error, confirm the configured helper/socket, and check that si-notch is running and unpaused. Do not weaken SSH host-key checks or socket permissions.
-- **Tools appear but messages do not:** enable text for this profile and start a new turn. A silent model or a runtime that emits no interim-message hook will provide task/final text without interim updates.
-- **Configured profile is Installed/Last seen:** it is listed but has no fresh event. A connected tunnel does not prove a profile is active. With plugin 1.8 loaded, allow one heartbeat interval after reconnecting. The Agents group reports SSH state separately; profile rows distinguish presence from active work.
-- **Update or disable:** select a new full revision explicitly using the native installer; back up `si-notch.json` first and preserve its identity. `hermes plugins disable si-notch` stops new reporting after reload; it does not stop the Mac tunnel. Disconnect separately. Avoid forcing replacement from an unrelated source.
+Recovery requires a refused connection, private ownership/permissions, a successful `lsof` check with no holder, and unchanged socket identity. It renames the stale socket to a backup. Missing or failed diagnostics leave it intact. Reconnect and run `check`. Never enable `StreamLocalBindUnlink` globally to bypass this check.
 
-## Verification scope
+## Update, disable and remove
 
-Tested on remote macOS with si-notch 0.4.9-beta.1: three real API sessions in distinct profiles, overlapping tools, two sequential terminal calls per session, task/final text and Done in the actual UI. Automated tests cover privacy, hook mappings (including `task_id`), failed tools, profile isolation, relay round trips, idempotent settings, backups and stale-socket recovery. Linux/other Hermes releases and every entry point require their own real-turn check; native install/transport success is not a substitute.
+Choose a reviewed release ref explicitly. Back up `si-notch.json` and preserve its identity and any pending `usage-outbox`. Confirm the native installer’s activation/reload result; use a new session when necessary. Do not force replacement of a plugin from an unrelated source.
 
-[Hermes plugin documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins) · [Hook contract](https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks) · [SSH configuration](../../docs/remote-connections.md) · [License](LICENSE).
+```sh
+hermes plugins disable si-notch
+# To uninstall a native installation after reviewing its local settings/queue:
+hermes plugins remove si-notch
+```
 
-## Token usage (plugin 1.9)
+Add `-p PROFILE` for a named profile. These commands stop/remove the selected plugin through Hermes; they do not disconnect the Mac tunnel. Disconnect it separately. For app-managed remote profiles, deselect them and apply the previewed changes before removing the Mac connection. Removing the connection alone does not uninstall the remote plugin. Existing local History/Usage records remain unless cleared separately in the app.
 
-`post_api_request` and successful `post_auxiliary_call` observations send only normalized token counters and hashed request/turn identity. Input includes cache reads and writes; output includes reasoning. Replayed deliveries use the same request identity. Child hooks include the hashed child session identity so Usage can group descendants without adding their totals to the parent twice. No prices or raw provider response are sent. Older Hermes runtimes without these hooks leave usage unknown. Existing remote history is not imported; plugin 1.9 failed open while disconnected. Plugin 1.10 adds the bounded durable queue described below.
+## Compatibility and verification
 
-The application collects these new events after the installed plugin is updated. Updating the bundled source alone does not change an already-running remote plugin.
+The official [plugin API](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins) and [hook contract](https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks) can evolve. Missing hooks reduce available data; they do not grant response capabilities. Automated fixtures validate mappings, privacy, identity, numeric retries, transport and setup behavior. Live remote verification is revision-specific: see [REVISION.md](REVISION.md) and [feature status](../../docs/parity.md). Successful installation or presence delivery is not a substitute for a real turn on your Hermes version and entry point.
 
-
-### Task usage and offline delivery (plugin 1.10)
-
-Each request carries a stable opaque ID and, when supplied by Hermes, its own turn and parent turn. A reused child retains the parent of its in-flight request. Only numeric usage, opaque IDs, model, profile label and timestamps enter the private `usage-outbox`; prompts, results and credentials are excluded. The queue keeps at most 2,000 records of 8 KiB, retries in the background and removes a record only after the application acknowledges a durable journal commit. Overflow marks subsequent records incomplete. Requests to the model are never retried by this plugin.
-
-Input includes Hermes's separately reported cache reads and writes. Reasoning is already part of output; it is never added twice. Missing historical remote requests are not reconstructed. The existing SSH Unix-socket transport and profile settings are retained.
+[SSH guide](../../docs/remote-connections.md) · [Custom agent API](../../docs/custom-agents.md) · [Plugin development](../../docs/hermes-plugin-development.md) · [License](LICENSE).

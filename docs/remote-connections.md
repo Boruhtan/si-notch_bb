@@ -30,7 +30,7 @@ Profile identity and native session IDs are hashed to separate profiles and host
 
 ## Other remote agents
 
-The portable `scripts/remote-relay.py` can be installed as `~/.local/bin/si-notchctl` (mode 0700). Create `~/.si-notch/run` with mode 0700 and set the absolute remote socket path in the app. In the agent's environment:
+The portable `plugins/hermes/relay.py` can be installed as `~/.local/bin/si-notchctl` (mode 0700). Create `~/.si-notch/run` with mode 0700 and set the absolute remote socket path in the app. In the agent's environment:
 
 ```sh
 export SI_NOTCH_SOCKET="$HOME/.si-notch/run/events.sock"
