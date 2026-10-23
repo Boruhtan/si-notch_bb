@@ -710,3 +710,11 @@
 "interaction.failed" = "回复尚未确认。请先在 %@ 中检查请求，再重试。";
 "interaction.sending" = "正在等待 %@ 确认…";
 "interaction.openManually" = "请打开原来的 %@ 对话或运行此任务的终端。";
+
+"settings.search" = "搜索设置";
+"settings.clearSearch" = "清除搜索";
+"settings.noSearchResults" = "没有匹配的设置。请尝试其他搜索词。";
+"settings.startup" = "语言与启动";
+"settings.interaction" = "灵动岛行为";
+"settings.presentation" = "展开与收起";
+"settings.reminders" = "提醒";

@@ -46,6 +46,11 @@ struct SettingsView: View {
     @State var selectedProvider = "codex"
     @State var showAgentDiscovery = true
     @State var copied = false
+    @State private var searchQuery = ""
+    @State private var hoveredDestination: Int?
+    @FocusState private var searchFocused: Bool
+    @FocusState private var focusedDestination: Int?
+    @FocusState private var footerFocused: Bool
     @State var launchAtLogin = SMAppService.mainApp.status == .enabled
     var onSelectionChange: ((Int, String) -> Void)?
     var cliPath: String {
@@ -64,67 +69,40 @@ struct SettingsView: View {
         }
         return event("agent.working", title: L10n.tr("Моя задача"), message: L10n.tr("Работаю…")) + "\n\n" + event("agent.completed", message: L10n.tr("Готово"))
     }
+    private var destinations: [SettingsDestination] { SettingsDestination.all }
+    private var matchingDestinations: [SettingsDestination] { destinations.filter { $0.matches(searchQuery) } }
+    private var selectedDestination: SettingsDestination { destinations.first { $0.id == tab } ?? destinations[0] }
+
     var body: some View {
         let _ = appLanguage
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                SettingsBrandHeader()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 13) {
-                        sidebarGroup(L10n.tr("settings.sectionMain")) {
-                            sidebarItem(L10n.tr("settings.general"), icon: "gearshape.fill", color: .gray, tag: 0)
-                            sidebarItem(L10n.tr("Подключение"), icon: "point.3.connected.trianglepath.dotted", color: .cyan, tag: 1)
-                            sidebarItem(L10n.tr("settings.notifications"), icon: "bell.fill", color: .red, tag: 6)
-                            sidebarItem(L10n.tr("settings.display"), icon: "display", color: .indigo, tag: 5)
-                            sidebarItem(L10n.tr("sound.title"), icon: "speaker.wave.2.fill", color: .green, tag: 3)
-                            sidebarItem(L10n.tr("settings.usage"), icon: "chart.pie.fill", color: .pink, tag: 8)
-                        }
-                        sidebarGroup(L10n.tr("settings.sectionAdvanced")) {
-                            sidebarItem(L10n.tr("history.title"), icon: "clock.arrow.circlepath", color: .blue, tag: 11)
-                            sidebarItem(L10n.tr("settings.shortcuts"), icon: "keyboard.fill", color: .purple, tag: 7)
-                            sidebarItem(L10n.tr("remote.settingsTab"), icon: "network", color: .teal, tag: 10)
-                            sidebarItem(L10n.tr("companion.title"), icon: "pawprint.fill", color: .mint, tag: 4)
-                            sidebarItem(L10n.tr("Диагностика"), icon: "waveform.path.ecg", color: .orange, tag: 2)
-                        }
-                        sidebarGroup("si-notch") {
-                            sidebarItem(L10n.tr("about.title"), icon: "info.circle.fill", color: .blue, tag: 9)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 16)
-                }.scrollIndicators(.hidden)
-                Divider().overlay(SettingsPalette.border).padding(.horizontal, 16)
-                Link("Made by dis/root", destination: URL(string: "https://disroot.website/")!)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10))
-                    .foregroundStyle(SettingsPalette.secondary)
-                    .padding(.horizontal, 18).padding(.vertical, 14)
-            }
-            .frame(width: 220)
-            .background { SettingsSidebarBackground() }
+            sidebar
             Rectangle().fill(SettingsPalette.border).frame(width: 1)
             VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    SettingsIconTile(symbol: tabIcon, color: tabColor, size: 34)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(tabTitle).font(.system(size: 20, weight: .semibold))
-                        Text(tabSubtitle)
-                            .font(.system(size: 11))
+                HStack(spacing: 14) {
+                    SettingsIconTile(symbol: selectedDestination.symbol, color: selectedDestination.color, size: 38)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(selectedDestination.title).font(.system(size: 22, weight: .semibold))
+                        Text(selectedDestination.subtitle)
+                            .font(.system(size: 12))
                             .foregroundStyle(SettingsPalette.secondary)
-                            .lineLimit(1)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer()
-                    Button(L10n.tr("Готово")) { model.closeSettings?() }.buttonStyle(NotchActionButtonStyle()).keyboardShortcut(.cancelAction)
+                    Spacer(minLength: 12)
+                    Button(L10n.tr("Готово")) { model.closeSettings?() }
+                        .buttonStyle(.bordered)
+                        .keyboardShortcut(.cancelAction)
                 }
-                .padding(.horizontal, 23).padding(.vertical, 20)
+                .padding(.horizontal, 28).padding(.vertical, 24)
                 Rectangle().fill(SettingsPalette.border).frame(height: 1)
                 if let error = model.settingsError {
                     Label(error.text, systemImage: "exclamationmark.triangle")
-                        .font(.system(size: 11)).foregroundStyle(.orange)
-                        .padding(.horizontal, 24).padding(.top, 12)
+                        .font(.system(size: 12)).foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 28).padding(.top, 14)
                 }
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 17) {
+                    VStack(alignment: .leading, spacing: 24) {
                         if tab == 0 { general }
                         else if tab == 5 { display }
                         else if tab == 6 { notifications }
@@ -138,114 +116,147 @@ struct SettingsView: View {
                         else if tab == 9 { SettingsAboutView(model: model) }
                         else { diagnostics }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 23).padding(.vertical, 20)
-                }.scrollIndicators(.hidden)
+                    .frame(maxWidth: 760, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 28).padding(.vertical, 26)
+                }
+                .id(tab)
             }.frame(maxWidth: .infinity)
         }
-            .frame(width: 820, height: 660)
-            .background(SettingsPalette.background)
-            .preferredColorScheme(.dark)
-            .tint(NotchDesign.accent)
-            .toggleStyle(SettingsSwitchStyle())
-            .controlSize(.regular)
-            .groupBoxStyle(SettingsCardGroupBoxStyle())
-            .environment(\.locale, Locale(identifier: L10n.language))
-            .onChange(of: tab) { _, _ in onSelectionChange?(tab, selectedProvider) }
-            .onChange(of: selectedProvider) { _, _ in onSelectionChange?(tab, selectedProvider) }
+        .frame(minWidth: 820, minHeight: 660)
+        .background(SettingsPalette.background)
+        .preferredColorScheme(.dark)
+        .tint(.accentColor)
+        .toggleStyle(SettingsSwitchStyle())
+        .controlSize(.regular)
+        .groupBoxStyle(SettingsCardGroupBoxStyle())
+        .defaultAppStorage(model.defaults)
+        .environment(\.locale, Locale(identifier: L10n.language))
+        .onChange(of: tab) { _, _ in onSelectionChange?(tab, selectedProvider) }
+        .onChange(of: selectedProvider) { _, _ in onSelectionChange?(tab, selectedProvider) }
     }
-    func sidebarGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsBrandHeader()
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(SettingsPalette.secondary).accessibilityHidden(true)
+                TextField(L10n.tr("settings.search"), text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                    .focusEffectDisabled()
+                    .accessibilityIdentifier("settings-search")
+                    .onSubmit {
+                        if let first = matchingDestinations.first {
+                            tab = first.id
+                            focusedDestination = first.id
+                        }
+                    }
+                    .onExitCommand {
+                        searchQuery = ""
+                        searchFocused = false
+                    }
+                if !searchQuery.isEmpty {
+                    Button { searchQuery = ""; searchFocused = true } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(SettingsPalette.secondary)
+                    .accessibilityLabel(L10n.tr("settings.clearSearch"))
+                }
+            }
+            .font(.system(size: 13))
+            .padding(.horizontal, 11).padding(.vertical, 9)
+            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(searchFocused ? Color.accentColor : SettingsPalette.border, lineWidth: searchFocused ? 2 : 1))
+            .padding(.horizontal, 14).padding(.bottom, 20)
+            .background {
+                Button("") { searchFocused = true }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .hidden().accessibilityHidden(true)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if matchingDestinations.isEmpty {
+                        Text(L10n.tr("settings.noSearchResults"))
+                            .font(.system(size: 12))
+                            .foregroundStyle(SettingsPalette.secondary)
+                            .padding(.horizontal, 12)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    ForEach(0..<3) { group in
+                        let items = matchingDestinations.filter { $0.group == group }
+                        if !items.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(group == 0 ? L10n.tr("settings.sectionMain") : group == 1 ? L10n.tr("settings.sectionAdvanced") : "si-notch")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(SettingsPalette.secondary)
+                                    .padding(.horizontal, 11).padding(.bottom, 4)
+                                ForEach(items) { item in sidebarItem(item) }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 10).padding(.bottom, 20)
+            }
+            Rectangle().fill(SettingsPalette.border).frame(height: 0.5).padding(.horizontal, 20)
+            HStack {
+                Link(destination: URL(string: "https://disroot.website/")!) {
+                    HStack(spacing: 5) {
+                        Text("dis/root")
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 9, weight: .medium))
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.horizontal, 4).padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(SettingsPalette.secondary)
-                .padding(.horizontal, 9).padding(.bottom, 3)
-            content()
-        }
-    }
-    func sidebarItem(_ title: String, icon: String, color: Color, tag: Int) -> some View {
-        Button { tab = tag } label: {
-            HStack(spacing: 10) {
-                SettingsIconTile(symbol: icon, color: color, size: 24)
-                Text(title).font(.system(size: 12, weight: tab == tag ? .semibold : .medium))
+                .focused($footerFocused)
+                .focusEffectDisabled()
+                .overlay(RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(footerFocused ? Color.accentColor : .clear, lineWidth: 1))
+                .help("disroot.website")
                 Spacer(minLength: 0)
             }
-                .padding(.horizontal, 9).padding(.vertical, 4)
-                .background(tab == tag ? SettingsPalette.selected : .clear,
-                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(tab == tag ? SettingsPalette.border : .clear, lineWidth: 0.8))
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain)
-        .accessibilityAddTraits(tab == tag ? .isSelected : [])
-    }
-    var tabTitle: String {
-        switch tab {
-        case 11: return L10n.tr("history.title")
-        case 0: return L10n.tr("settings.general")
-        case 5: return L10n.tr("settings.display")
-        case 6: return L10n.tr("settings.notifications")
-        case 7: return L10n.tr("settings.shortcuts")
-        case 8: return L10n.tr("settings.usage")
-        case 1: return L10n.tr("Подключение агентов")
-        case 3: return L10n.tr("sound.title")
-        case 4: return L10n.tr("companion.title")
-        case 10: return L10n.tr("remote.settingsTab")
-        case 9: return L10n.tr("about.title")
-        default: return L10n.tr("Диагностика")
+            .padding(.horizontal, 16).padding(.vertical, 14)
         }
+        .frame(width: 236)
+        .background { SettingsSidebarBackground() }
     }
-    var tabSubtitle: String {
-        switch tab {
-        case 11: return L10n.tr("history.subtitle")
-        case 0: return L10n.tr("settings.subtitleGeneral")
-        case 1: return L10n.tr("settings.subtitleIntegrations")
-        case 6: return L10n.tr("settings.subtitleNotifications")
-        case 5: return L10n.tr("settings.subtitleDisplay")
-        case 3: return L10n.tr("settings.subtitleSound")
-        case 8: return L10n.tr("settings.subtitleUsage")
-        case 7: return L10n.tr("settings.subtitleShortcuts")
-        case 4: return L10n.tr("settings.subtitleCompanion")
-        case 10: return L10n.tr("settings.subtitleRemote")
-        case 9: return L10n.tr("settings.subtitleAbout")
-        default: return L10n.tr("settings.subtitleDiagnostics")
+
+    private func sidebarItem(_ item: SettingsDestination) -> some View {
+        let selected = tab == item.id
+        return Button { tab = item.id } label: {
+            HStack(spacing: 10) {
+                SettingsIconTile(symbol: item.symbol, color: item.color, size: 26)
+                Text(item.title)
+                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white.opacity(selected ? 1 : 0.9))
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(selected ? SettingsPalette.selected : Color.white.opacity(hoveredDestination == item.id ? 0.065 : 0),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(focusedDestination == item.id ? .white.opacity(0.8) : .clear, lineWidth: 2))
+            .contentShape(Rectangle())
         }
-    }
-    var tabIcon: String {
-        switch tab {
-        case 11: return "clock.arrow.circlepath"
-        case 0: return "gearshape.fill"
-        case 1: return "point.3.connected.trianglepath.dotted"
-        case 6: return "bell.fill"
-        case 5: return "display"
-        case 3: return "speaker.wave.2.fill"
-        case 8: return "chart.pie.fill"
-        case 7: return "keyboard.fill"
-        case 4: return "pawprint.fill"
-        case 10: return "network"
-        case 9: return "info.circle.fill"
-        default: return "waveform.path.ecg"
-        }
-    }
-    var tabColor: Color {
-        switch tab {
-        case 11: return .blue
-        case 0: return .gray
-        case 1: return .cyan
-        case 6: return .red
-        case 5: return .indigo
-        case 3: return .green
-        case 8: return .pink
-        case 7: return .purple
-        case 4: return .mint
-        case 10: return .teal
-        case 9: return .blue
-        default: return .orange
-        }
+        .buttonStyle(.plain)
+        .focused($focusedDestination, equals: item.id)
+        .focusEffectDisabled()
+        .onHover { hovering in hoveredDestination = hovering ? item.id : nil }
+        .accessibilityIdentifier("settings-section-\(item.id)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
     var general: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            GroupBox(L10n.tr("settings.general")) {
+        VStack(alignment: .leading, spacing: 24) {
+            GroupBox(L10n.tr("settings.startup")) {
                 VStack(alignment: .leading, spacing: 12) {
                     Picker(L10n.tr("language.title"), selection: $appLanguage) {
                         Text(L10n.tr("language.auto")).tag("auto")
@@ -257,6 +268,10 @@ struct SettingsView: View {
                         do { if value { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }; model.settingsError = nil }
                         catch { model.settingsError = .launchAtLogin(error.localizedDescription); launchAtLogin = SMAppService.mainApp.status == .enabled }
                     }
+                }
+            }
+            GroupBox(L10n.tr("settings.interaction")) {
+                VStack(alignment: .leading, spacing: 12) {
                     Toggle(L10n.tr("Раскрывать при наведении"), isOn: $hover)
                     HStack {
                         Text(L10n.tr("Задержка наведения"))
@@ -264,11 +279,13 @@ struct SettingsView: View {
                                in: IslandTiming.hoverEnter...0.8, step: 0.01)
                         Text(L10n.tr("%.2f с", HoverIntent.dwell(for: hoverDelay))).monospacedDigit()
                     }.disabled(!hover).help(L10n.tr("settings.hoverIntentHelp"))
+                    Divider()
                     Picker(L10n.tr("Считать неактивной через"), selection: $idleMinutes) { Text(L10n.tr("30 минут")).tag(30); Text(L10n.tr("2 часа")).tag(120); Text(L10n.tr("8 часов")).tag(480); Text(L10n.tr("Никогда")).tag(0) }
                     Toggle(L10n.tr("settings.hideWhenIdle"), isOn: $hideWhenIdle)
                     Text(L10n.tr("settings.hideWhenIdleHelp")).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Divider()
                     Toggle(L10n.tr("settings.disableClickJump"), isOn: $disableClickJump)
-                }.padding(10)
+                }
             }
             GroupBox(L10n.tr("settings.filters")) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -281,17 +298,17 @@ struct SettingsView: View {
                         .scrollContentBackground(.hidden).background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
                         .accessibilityLabel(L10n.tr("settings.blockedPromptPrefixes"))
                     Text(L10n.tr("settings.filterHelp")).font(.system(size: 11)).foregroundStyle(.secondary)
-                }.padding(10)
+                }
             }
             HStack {
                 Spacer()
                 Button(L10n.tr("Выйти из si-notch")) { NSApp.terminate(nil) }
                     .keyboardShortcut("q", modifiers: .command)
             }
-        }.font(.system(size: 12))
+        }.font(.system(size: 13))
     }
     var display: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .top, spacing: 16) {
                 Text(L10n.tr("settings.resetDisplayHelp"))
                     .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
@@ -311,7 +328,7 @@ struct SettingsView: View {
                     Text(L10n.tr("settings.hideInFullScreenHelp"))
                         .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                }.padding(10)
+                }
             }
             IslandPreviewSettingsView()
             GroupBox(L10n.tr("settings.display")) {
@@ -328,7 +345,7 @@ struct SettingsView: View {
                     HStack { Text(L10n.tr("Ширина")); Slider(value: $width, in: 380...720, step: 10); Text("\(Int(width))").monospacedDigit().frame(width: 35) }
                     HStack { Text(L10n.tr("Высота")); Slider(value: $height, in: 360...800, step: 10); Text("\(Int(height))").monospacedDigit().frame(width: 35) }
                     HStack { Text(L10n.tr("settings.fontSize")); Slider(value: $fontSize, in: 10...16, step: 1); Text(L10n.tr("settings.points", Int(fontSize))).monospacedDigit().frame(width: 48) }
-                }.padding(10)
+                }
             }
             GroupBox(L10n.tr("settings.cardDetails")) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -341,12 +358,12 @@ struct SettingsView: View {
                     Text(L10n.tr("settings.cardDetailsHelp"))
                         .font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                }.padding(10)
+                }
             }
-        }.font(.system(size: 12))
+        }.font(.system(size: 13))
     }
     var notifications: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 24) {
             GroupBox(L10n.tr("settings.notifications")) {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle(L10n.tr("Тихий режим: без звуков и автоматического раскрытия"), isOn: $quiet)
@@ -355,10 +372,18 @@ struct SettingsView: View {
                     Toggle(L10n.tr("settings.attentionReveal"), isOn: $attentionReveal).disabled(quiet || !autoExpand)
                     Toggle(L10n.tr("settings.suppressTargetFrontmost"), isOn: $suppressWhenTargetAppFrontmost).disabled(!autoExpand)
                     Text(L10n.tr("settings.suppressTargetHelp")).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+            GroupBox(L10n.tr("settings.presentation")) {
+                VStack(alignment: .leading, spacing: 12) {
                     Toggle(L10n.tr("settings.dismissOutside"), isOn: $dismissAutoRevealOnOutsideClick)
                     Toggle(L10n.tr("Оставлять раскрытой после ухода указателя"), isOn: $keepOpen)
                     Toggle(L10n.tr("settings.collapseOnLeave"), isOn: $collapseOnMouseLeave).disabled(keepOpen)
                     Picker(L10n.tr("Показ завершения"), selection: $revealDwell) { Text(L10n.tr("3 секунды")).tag(3.0); Text(L10n.tr("5 секунд")).tag(5.0); Text(L10n.tr("10 секунд")).tag(10.0) }
+                }
+            }
+            GroupBox(L10n.tr("settings.reminders")) {
+                VStack(alignment: .leading, spacing: 12) {
                     Picker(L10n.tr("settings.followupMinutes"), selection: $followupMinutes) {
                         Text(L10n.tr("Никогда")).tag(0)
                         Text(L10n.tr("settings.minutes5")).tag(5)
@@ -366,12 +391,12 @@ struct SettingsView: View {
                         Text(L10n.tr("settings.minutes30")).tag(30)
                     }
                     Toggle(L10n.tr("settings.followupCompleted"), isOn: $followupCompleted).disabled(followupMinutes == 0)
-                }.padding(10)
+                }
             }
-        }.font(.system(size: 12))
+        }.font(.system(size: 13))
     }
     var shortcuts: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 24) {
             GroupBox(L10n.tr("settings.shortcuts")) {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle(L10n.tr("settings.shortcutEnabled"), isOn: $shortcutEnabled)
@@ -381,18 +406,18 @@ struct SettingsView: View {
                     }.disabled(!shortcutEnabled)
                     Text(L10n.tr("settings.shortcutHelp")).font(.system(size: 11)).foregroundStyle(.secondary)
                     Text(L10n.tr("settings.panelKeys")).font(.system(size: 11)).foregroundStyle(.secondary)
-                }.padding(10)
+                }
             }
-        }.font(.system(size: 12))
+        }.font(.system(size: 13))
     }
     var companionSettings: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 24) {
             GroupBox(L10n.tr("companion.title")) {
-                Toggle(L10n.tr("Спутник в острове"), isOn: $companion).padding(10)
+                Toggle(L10n.tr("Спутник в острове"), isOn: $companion)
             }
             CompanionSettingsView()
             Text(L10n.tr("Спутник реагирует на работу, ожидание, завершение и ошибку. Нажмите на него в раскрытой панели, чтобы поздороваться. Системные «Уменьшение движения» и «Уменьшение прозрачности» учитываются автоматически.")).font(.system(size: 11)).foregroundStyle(.secondary)
-        }.font(.system(size: 12))
+        }.font(.system(size: 13))
     }
     var usage: some View { UsageView(usage: model.usage, quota: model.quota, history: model.history) }
     var integrations: some View {
@@ -418,7 +443,7 @@ struct SettingsView: View {
                     Image(systemName: "circle.dotted").foregroundStyle(.secondary)
                     Text(L10n.tr("connection.waiting")).foregroundStyle(.secondary)
                 }
-            }.font(.system(size: 12)).padding(.vertical, 8)
+            }.font(.system(size: 13)).padding(.vertical, 8)
             if model.providerReceipts[selectedProvider] == nil, selectedProvider == "pi" || selectedProvider == "codex" {
                 Text(L10n.tr(selectedProvider == "pi" ? "connection.piReload" : "connection.codexNextTurn"))
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -447,7 +472,7 @@ struct SettingsView: View {
                 }
                 DisclosureGroup(L10n.tr("Codex CLI · уведомление о завершении хода")) {
                     CodexSetupView(cliPath: cliPath)
-                }.font(.system(size: 12))
+                }.font(.system(size: 13))
             } else if selectedProvider == "pi" {
                 PiSetupView(cliPath: cliPath)
             } else if let provider = HarnessKind(rawValue: selectedProvider), provider != .custom {
@@ -501,6 +526,6 @@ struct SettingsView: View {
                     Text(L10n.tr("settings.privacySessionAndCLI"))
                 }.font(.system(size: 11)).foregroundStyle(SettingsPalette.secondary).lineSpacing(3)
             }
-        }.font(.system(size: 12))
+        }.font(.system(size: 13))
     }
 }

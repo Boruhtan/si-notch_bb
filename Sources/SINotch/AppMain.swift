@@ -895,7 +895,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var shortcutConfiguration: String?
 
     init(model: AppModel? = nil) {
-        self.model = model ?? AppModel(defaults: CommandLine.arguments.contains("--qa-interactions")
+        self.model = model ?? AppModel(defaults: CommandLine.arguments.contains(where: { ["--qa-interactions", "--qa-showcase-only"].contains($0) })
             ? UserDefaults(suiteName: "si-notch.interaction-qa.\(UUID().uuidString)")! : .standard)
         super.init()
     }
@@ -1182,12 +1182,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func showSettings() {
         settingsPresented = true
         if settingsWindow == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 660), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 720), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             w.title = L10n.tr("si-notch · Настройки"); w.isReleasedWhenClosed = false
+            w.contentMinSize = NSSize(width: 820, height: 660)
+            w.titlebarAppearsTransparent = true
+            w.backgroundColor = NSColor(white: 0.12, alpha: 1)
+            w.appearance = NSAppearance(named: .darkAqua)
             w.delegate = self
             w.center(); settingsWindow = w
+            setSettingsContent()
+        } else if settingsWindow?.contentView == nil {
+            setSettingsContent()
         }
-        if !(settingsWindow?.contentView is NSHostingView<SettingsView>) { setSettingsContent() }
         model.setExpanded(false, origin: .automatic, reason: "settings-opened")
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -1214,7 +1220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             tab: settingsTab, selectedProvider: settingsProvider, onSelectionChange: { [weak self] tab, provider in
                 self?.settingsTab = tab
                 self?.settingsProvider = provider
-            }))
+            }).defaultAppStorage(model.defaults))
     }
     func installMainMenu() {
         let root = NSMenu()

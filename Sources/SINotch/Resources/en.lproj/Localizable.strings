@@ -254,8 +254,8 @@
 "settings.shortcut.ctrlAlt" = "⌃⌥Space";
 "settings.shortcut.ctrlShiftAlt" = "⌃⇧⌥Space";
 "settings.sidebarSubtitle" = "Agent activity, at a glance";
-"settings.sectionMain" = "SETTINGS";
-"settings.sectionAdvanced" = "ADVANCED";
+"settings.sectionMain" = "Settings";
+"settings.sectionAdvanced" = "More";
 "settings.subtitleGeneral" = "Language, startup and behavior";
 "settings.subtitleIntegrations" = "Connect local agents to the island";
 "settings.subtitleNotifications" = "Choose when the island asks for attention";
@@ -710,3 +710,11 @@
 "interaction.failed" = "Response not confirmed. Check the request in %@ before trying again.";
 "interaction.sending" = "Waiting for confirmation from %@…";
 "interaction.openManually" = "Open the original %@ chat or the terminal where this task is running.";
+
+"settings.search" = "Search settings";
+"settings.clearSearch" = "Clear search";
+"settings.noSearchResults" = "No matching settings. Try another search.";
+"settings.startup" = "Language & startup";
+"settings.interaction" = "Island behavior";
+"settings.presentation" = "Opening & closing";
+"settings.reminders" = "Reminders";

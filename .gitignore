@@ -10,3 +10,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
+# ChatGPT Sites keeps its own source repository and publication history.
+sites/
+website-assets-work/

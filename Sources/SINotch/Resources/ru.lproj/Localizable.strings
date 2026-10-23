@@ -254,8 +254,8 @@
 "settings.shortcut.ctrlAlt" = "⌃⌥Пробел";
 "settings.shortcut.ctrlShiftAlt" = "⌃⇧⌥Пробел";
 "settings.sidebarSubtitle" = "Работа агентов рядом";
-"settings.sectionMain" = "НАСТРОЙКИ";
-"settings.sectionAdvanced" = "ДОПОЛНИТЕЛЬНО";
+"settings.sectionMain" = "Настройки";
+"settings.sectionAdvanced" = "Дополнительно";
 "settings.subtitleGeneral" = "Язык, запуск и поведение";
 "settings.subtitleIntegrations" = "Подключение локальных агентов";
 "settings.subtitleNotifications" = "Когда остров просит внимания";
@@ -710,3 +710,11 @@
 "interaction.failed" = "Ответ не подтверждён. Проверьте запрос в %@ перед повторной попыткой.";
 "interaction.sending" = "Ожидаем подтверждение от %@…";
 "interaction.openManually" = "Откройте исходный чат %@ или терминал, где запущена эта задача.";
+
+"settings.search" = "Поиск настроек";
+"settings.clearSearch" = "Очистить поиск";
+"settings.noSearchResults" = "Настройки не найдены. Попробуйте другой запрос.";
+"settings.startup" = "Язык и запуск";
+"settings.interaction" = "Поведение острова";
+"settings.presentation" = "Открытие и закрытие";
+"settings.reminders" = "Напоминания";

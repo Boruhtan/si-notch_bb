@@ -37,7 +37,7 @@ scripts/build-app.sh release
 scripts/build-dmg.sh
 ```
 
-Нужны Xcode 26+, Python 3 и Node.js. Результат: `build/si-notch-macos-arm64-0.4.6.dmg` и `build/si-notch.zip`.
+Нужны Xcode 26+, Python 3 и Node.js. Результат: `build/si-notch-macos-arm64-VERSION.dmg` и `build/si-notch.zip`, где `VERSION` — версия из `release.json`.
 
 ## Данные и лицензия
 

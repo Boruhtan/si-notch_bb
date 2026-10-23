@@ -37,7 +37,7 @@ scripts/build-app.sh release
 scripts/build-dmg.sh
 ```
 
-Requires Xcode 26+, Python 3 and Node.js. Output: `build/si-notch-macos-arm64-0.4.6.dmg` and `build/si-notch.zip`.
+Requires Xcode 26+, Python 3 and Node.js. Output: `build/si-notch-macos-arm64-VERSION.dmg` and `build/si-notch.zip`, where `VERSION` is the version in `release.json`.
 
 ## Data and license
 

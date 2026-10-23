@@ -1,0 +1,3 @@
+- Refreshed Settings with clearer sections and improved readability.
+- Find preferences faster with localized settings search.
+- Resize the Settings window to fit your workspace.
