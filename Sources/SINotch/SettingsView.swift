@@ -264,10 +264,13 @@ struct SettingsView: View {
                         Text(L10n.tr("language.ru")).tag("ru")
                         Text(L10n.tr("language.zh-Hans")).tag("zh-Hans")
                     }
-                    Toggle(L10n.tr("Запускать при входе в macOS"), isOn: $launchAtLogin).onChange(of: launchAtLogin) { _, value in
+                    Toggle(L10n.tr("Запускать при входе в macOS"), isOn: Binding(get: { launchAtLogin }, set: { value in
+                        launchAtLogin = value
                         do { if value { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }; model.settingsError = nil }
+                        // Reconcile the control after a failure without triggering
+                        // a second service request or clearing the original error.
                         catch { model.settingsError = .launchAtLogin(error.localizedDescription); launchAtLogin = SMAppService.mainApp.status == .enabled }
-                    }
+                    }))
                 }
             }
             GroupBox(L10n.tr("settings.interaction")) {

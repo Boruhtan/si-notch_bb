@@ -221,6 +221,28 @@ final class HistoryStore {
         return true
     }
 
+    /// A goal can resume in another turn after its original turn was stopped.
+    /// Only the goal scanner's correlated completion may replace that status;
+    /// ordinary late lifecycle events retain the terminal-turn protection.
+    func finishGoal(_ completion: CodexGoalHistoryCompletion) throws -> Bool {
+        guard policy.enabled,
+              completion.completedAt.timeIntervalSince1970.isFinite,
+              completion.createdAt.timeIntervalSince1970.isFinite,
+              completion.completedAt >= completion.createdAt,
+              let summary = summaries.values.first(where: {
+                  $0.provider.lowercased() == "codex" && $0.sessionKey == completion.sessionKey &&
+                  $0.turnID?.lowercased() == completion.originalTurnID.lowercased() &&
+                  CodexGoalHistoryScanner.title($0.title, matches: completion.objective) && $0.status != .completed
+              }), completion.completedAt >= summary.startedAt,
+              var record = try entry(summary.id) else { return false }
+        record.summary.status = .completed
+        cache[record.id] = record
+        summaries[record.id] = record.summary
+        dirty.insert(record.id)
+        indexDirty = true
+        return true
+    }
+
     static func sessionKey(_ event: AgentEvent) throws -> String {
         let data = try JSONEncoder().encode([event.provider.lowercased(), event.connectionID ?? "", event.sessionID])
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

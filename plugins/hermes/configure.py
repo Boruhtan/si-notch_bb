@@ -185,7 +185,7 @@ def repair_socket(args):
     if lsof is None:
         raise ValueError("lsof is required to prove that no process holds the socket; no change made")
     result = subprocess.run([lsof, "-nP", "-Fpfnt", "--", str(path)], capture_output=True, timeout=5)
-    if result.returncode != 1 or result.stdout.strip():
+    if result.returncode != 1 or result.stdout.strip() or result.stderr.strip():
         raise ValueError("Socket may be held by a process; no change made")
     if not args.apply:
         return {"ok": True, "state": "repair_preview", "socket_path": str(path),

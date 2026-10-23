@@ -16,3 +16,4 @@ python3 scripts/smoke-cli.py --helper "$bindir/si-notchctl"
 
 node --test Tests/adapters/adapters.test.mjs
 if [[ -f Tests/adapters/test_claude_permission.py ]]; then SI_NOTCH_HELPER="$bindir/si-notchctl" python3 -m unittest discover -s Tests/adapters -p "test_*.py"; fi
+python3 -m unittest discover -s docs/examples/custom-agent -p "test_*.py"

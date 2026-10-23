@@ -4,6 +4,57 @@ import SINotchCore
 
 final class HistoryIntegrationTests: XCTestCase {
     @MainActor
+    func testStartupRepairsStoppedGoalFromItsCorrelatedCompletionInALaterTurn() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("si-notch.history-goal." + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: path) }
+        let archivePath = path.appendingPathComponent("archive")
+        let sources = path.appendingPathComponent("sessions")
+        let folder = sources.appendingPathComponent("2026/10/23")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let sid = UUID().uuidString.lowercased(), firstTurn = UUID().uuidString.lowercased(), nextTurn = UUID().uuidString.lowercased()
+        let created = Date(timeIntervalSince1970: 1792761979)
+        let archive = try HistoryStore(directory: archivePath, policy: .init())
+        _ = try archive.accept(AgentEvent(sessionID: sid, provider: "codex", kind: .sessionEnded,
+            timestamp: created, firstPrompt: "/goal Ship the app", turnID: firstTurn),
+            session: AgentSession(id: sid, provider: "codex", title: "/goal Ship the app", status: .ended))
+        try archive.flush()
+        let before = try XCTUnwrap(archive.entry(archive.ordered[0].id))
+        func goal(_ status: String, at offset: Double) -> [String: Any] {
+            ["threadId": sid, "objective": "Ship the app", "status": status,
+             "createdAt": created.timeIntervalSince1970, "updatedAt": created.timeIntervalSince1970 + offset]
+        }
+        func row(_ type: String, _ payload: [String: Any], at offset: Double = 0) -> [String: Any] {
+            ["timestamp": ISO8601DateFormatter().string(from: created.addingTimeInterval(offset)), "type": type, "payload": payload]
+        }
+        let completed = String(decoding: try JSONSerialization.data(withJSONObject: ["goal": goal("complete", at: 90),
+            "remainingTokens": NSNull(), "completionBudgetReport": NSNull()]), as: UTF8.self)
+        let rows = [
+            row("session_meta", ["id": sid, "source": "cli"]),
+            row("event_msg", ["type": "task_started", "turn_id": firstTurn]),
+            row("event_msg", ["type": "thread_goal_updated", "threadId": sid, "goal": goal("active", at: 0)]),
+            row("event_msg", ["type": "turn_aborted", "turn_id": firstTurn, "reason": "interrupted"], at: 30),
+            row("event_msg", ["type": "task_started", "turn_id": nextTurn], at: 60),
+            row("response_item", ["type": "custom_tool_call", "name": "functions.exec", "call_id": "goal-complete",
+                                  "input": "text(await tools.update_goal({status:\"complete\"}));"], at: 90),
+            row("response_item", ["type": "custom_tool_call_output", "call_id": "goal-complete",
+                                  "output": [["type": "input_text", "text": completed]]], at: 90),
+            row("event_msg", ["type": "task_complete", "turn_id": nextTurn], at: 91)
+        ]
+        var data = Data()
+        for value in rows { data.append(try JSONSerialization.data(withJSONObject: value)); data.append(10) }
+        try data.write(to: folder.appendingPathComponent("rollout-test-\(sid).jsonl"))
+        let controller = HistoryController(policy: .init())
+        controller.start(directory: archivePath, codexSessionsRoot: sources)
+        controller.shutdown()
+        let reopened = try HistoryStore(directory: archivePath, policy: .init())
+        let after = try XCTUnwrap(reopened.entry(before.id))
+        XCTAssertEqual(after.summary.status, .completed)
+        XCTAssertEqual(after.items, before.items)
+        XCTAssertEqual(after.summary.updatedAt, before.summary.updatedAt)
+        XCTAssertEqual(reopened.ordered.count, 1)
+    }
+
+    @MainActor
     func testStartupRepairsAnOldRecordedTurnWithoutImportingOtherTurns() throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("si-notch.history-old." + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: path) }

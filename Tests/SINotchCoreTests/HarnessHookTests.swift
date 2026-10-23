@@ -3,6 +3,23 @@ import XCTest
 @testable import SINotchCore
 
 final class HarnessHookTests: XCTestCase {
+    func testCopilotDocumentedWireNamesAndLegacyPayloads() throws {
+        let aliases = ["sessionStart": "SessionStart", "userPromptSubmitted": "UserPromptSubmit",
+                       "agentStop": "Stop", "notification": "Notification", "sessionEnd": "SessionEnd"]
+        for (hook, alias) in aliases {
+            for supplied in [nil, hook, alias] as [String?] {
+                var raw: [String: Any] = ["session_id": "copilot-s", "notification_type": "permission_prompt"]
+                if let supplied { raw["hook_event_name"] = supplied }
+                let event = try XCTUnwrap(HarnessHook.observation(provider: "copilot", hook: hook, raw: raw))
+                XCTAssertEqual(event.kind, HarnessHook.events["copilot"]?[hook])
+            }
+        }
+        XCTAssertNil(try HarnessHook.observation(provider: "copilot", hook: "notification", raw: [
+            "sessionId": "copilot-s", "hook_event_name": "Stop", "notification_type": "permission_prompt"]))
+        XCTAssertNil(try HarnessHook.observation(provider: "cursor", hook: "sessionStart", raw: [
+            "session_id": "cursor-s", "hook_event_name": "SessionStart"]))
+    }
+
     func testSuppliedModelAndReasoningAreForwardedWithoutOtherRequestFields() throws {
         let event = try XCTUnwrap(HarnessHook.observation(provider: "gemini", hook: "BeforeAgent", raw: [
             "session_id": "s", "model": "model-name", "reasoning_effort": "high",

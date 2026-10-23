@@ -315,6 +315,18 @@ class HermesPluginTests(unittest.TestCase):
         self.assertEqual([event["event"] for event in output],
                          ["agent.failed", "agent.waiting", "agent.completed"])
 
+    def test_documented_unsuccessful_turn_is_failed_without_a_failed_flag(self):
+        output = []
+        with mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.on_session_end(session_id="s", completed=False, interrupted=False)
+        self.assertEqual([event["event"] for event in output], ["agent.failed"])
+
+    def test_missing_turn_outcome_does_not_guess_failure(self):
+        output = []
+        with mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+            plugin.on_session_end(session_id="s")
+        self.assertEqual([event["event"] for event in output], ["agent.waiting"])
+
     def test_real_helper_process_receives_only_bounded_json(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

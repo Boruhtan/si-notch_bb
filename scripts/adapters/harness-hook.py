@@ -42,12 +42,20 @@ EVENTS = {
     },
 }
 
+# Copilot's compatible payloads use PascalCase hook_event_name values even
+# when the installed event key uses its original lower-camel spelling.
+COPILOT_WIRE_NAMES = {
+    "sessionStart": "SessionStart", "userPromptSubmitted": "UserPromptSubmit",
+    "agentStop": "Stop", "notification": "Notification", "sessionEnd": "SessionEnd",
+}
+
 
 def normalized_event(source: str, hook: str, raw: object) -> dict | None:
     if not isinstance(raw, dict) or hook not in EVENTS[source]:
         return None
     actual_hook = raw.get("hook_event_name")
-    if actual_hook is not None and actual_hook != hook:
+    wire_name = COPILOT_WIRE_NAMES.get(hook) if source == "copilot" else hook
+    if actual_hook is not None and actual_hook not in (hook, wire_name):
         return None
     session_id = raw.get("conversation_id", raw.get("session_id")) if source == "cursor" else raw.get("sessionId", raw.get("session_id"))
     if not isinstance(session_id, str) or not session_id or len(session_id) > 256 or any(ord(c) < 32 for c in session_id):

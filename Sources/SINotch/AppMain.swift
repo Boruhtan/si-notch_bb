@@ -853,12 +853,35 @@ final class AppModel: ObservableObject {
         onLayout?()
     }
     func moveSelection(_ delta: Int) {
-        guard !showingHistory else { return }
+        guard !showAgents, !showingHistory else { return }
         let items = filtered
         guard !items.isEmpty else { return }
         let index = selectedID.flatMap { id in items.firstIndex { $0.id == id } } ?? (delta > 0 ? -1 : items.count)
         selectSession(items[min(items.count - 1, max(0, index + delta))].id)
     }
+    /// Task shortcuts only act on the currently visible list. A remembered
+    /// selection from another tab or filter must never launch a hidden task.
+    func handlePanelKey(_ keyCode: UInt16, characters: String?) -> Bool {
+        guard expanded else { return false }
+        if keyCode == 53 { setExpanded(false); return true }
+        guard !showAgents, !showingHistory else { return false }
+        let items = filtered
+        switch keyCode {
+        case 125, 126:
+            guard !items.isEmpty else { return false }
+            moveSelection(keyCode == 125 ? 1 : -1)
+        case 36, 76:
+            guard !defaults.bool(forKey: "disableClickJump"),
+                  let id = selectedID, let session = items.first(where: { $0.id == id }) else { return false }
+            jump(session)
+        default:
+            guard let characters, let number = Int(characters), (1...9).contains(number),
+                  items.indices.contains(number - 1) else { return false }
+            selectSession(items[number - 1].id)
+        }
+        return true
+    }
+
     func shutdown() {
         history.shutdown()
         usage.shutdown(); quota.stop()
@@ -977,19 +1000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, event.window === self.panel, self.model.expanded,
                   !(self.panel.firstResponder is NSTextView),
                   event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return event }
-            switch event.keyCode {
-            case 125: self.model.moveSelection(1)
-            case 126: self.model.moveSelection(-1)
-            case 53: self.model.setExpanded(false)
-            case 36, 76:
-                if let id = self.model.selectedID, let session = self.model.store.sessions[id] { self.model.jump(session) }
-                else { return event }
-            default:
-                guard let chars = event.charactersIgnoringModifiers, let number = Int(chars), (1...9).contains(number),
-                      self.model.filtered.indices.contains(number - 1) else { return event }
-                self.model.selectSession(self.model.filtered[number - 1].id)
-            }
-            return nil
+            return self.model.handlePanelKey(event.keyCode, characters: event.charactersIgnoringModifiers) ? nil : event
         }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.layout(allowAnimation: false) } })
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {

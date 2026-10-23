@@ -6,6 +6,7 @@ No TCP listener, credential storage, shell invocation, or automatic approval.
 """
 
 import argparse
+import errno
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ import re
 import socket
 import stat
 import sys
+import time
 import uuid
 
 
@@ -66,13 +68,30 @@ def exchange(event, path, timeout):
     encoded = json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode()
     if len(encoded) + 1 > MAX_BYTES:
         raise RelayError("event exceeds 128 KiB")
+    deadline = time.monotonic() + timeout
+
+    def remaining():
+        seconds = deadline - time.monotonic()
+        if seconds <= 0:
+            raise TimeoutError("relay deadline exceeded")
+        return seconds
+
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(timeout)
-        connection.connect(socket_path(path))
+        endpoint = socket_path(path)
+        connection.settimeout(remaining())
+        connection.connect(endpoint)
+        connection.settimeout(remaining())
         connection.sendall(encoded + b"\n")
-        connection.shutdown(socket.SHUT_WR)
+        try:
+            connection.shutdown(socket.SHUT_WR)
+        except OSError as error:
+            # The peer may already have sent its ACK and closed. On macOS,
+            # half-close then reports ENOTCONN while that reply is still readable.
+            if error.errno != errno.ENOTCONN:
+                raise
         response = bytearray()
         while b"\n" not in response:
+            connection.settimeout(remaining())
             chunk = connection.recv(8192)
             if not chunk:
                 raise RelayError("connection closed before acknowledgement")

@@ -114,5 +114,18 @@ class ConfigureTests(unittest.TestCase):
              mock.patch.object(configure.subprocess,'run',return_value=subprocess.CompletedProcess([],0,stdout=b'p123',stderr=b'')):
             code,_=self.call('repair-socket','--apply');self.assertEqual(code,1);self.assertTrue(self.endpoint.exists())
 
+    def test_repair_refuses_an_incomplete_lsof_inspection(self):
+        self.setup_plugin()
+        server = socket.socket(socket.AF_UNIX)
+        server.bind(str(self.endpoint)); server.close(); self.endpoint.chmod(0o600)
+        inode = self.endpoint.stat().st_ino
+        incomplete = subprocess.CompletedProcess([], 1, stdout=b'', stderr=b'lsof: cannot inspect process')
+        with mock.patch.object(configure.shutil, 'which', return_value='/fixture/lsof'), \
+             mock.patch.object(configure.subprocess, 'run', return_value=incomplete):
+            code, _ = self.call('repair-socket', '--apply')
+        self.assertEqual(code, 1)
+        self.assertEqual(self.endpoint.stat().st_ino, inode)
+        self.assertEqual(list(self.endpoint.parent.glob('*.stale-*')), [])
+
 
 if __name__=='__main__':unittest.main()

@@ -3,6 +3,38 @@ import SINotchCore
 @testable import SINotch
 
 final class HistoryStoreTests: XCTestCase {
+    func testGoalCompletionRepairsOnlyTheOriginalGoalAndPreservesItsContent() throws {
+        let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
+        let store = try HistoryStore(directory: path, policy: .init())
+        let created = Date(timeIntervalSince1970: 1000)
+        var goal = event("goal-turn", kind: .sessionEnded, items: [.init(id: "prompt", role: .user, text: "/goal Ship the app")])
+        goal.firstPrompt = "/goal Ship the app"; goal.timestamp = created
+        _ = try store.accept(goal, session: session(.ended))
+        var ordinary = event("other-turn", kind: .sessionEnded)
+        ordinary.timestamp = created
+        _ = try store.accept(ordinary, session: session(.ended))
+        try store.flush()
+        let before = try XCTUnwrap(store.ordered.first { $0.turnID == "goal-turn" }.flatMap { try store.entry($0.id) })
+        let key = try HistoryStore.sessionKey(goal)
+        func completion(_ turn: String = "goal-turn", objective: String = "Ship the app") -> CodexGoalHistoryCompletion {
+            .init(sessionKey: key, originalTurnID: turn, createdAt: created,
+                  completedAt: created.addingTimeInterval(60), objective: objective)
+        }
+        XCTAssertFalse(try store.finishGoal(completion("other-turn")))
+        XCTAssertFalse(try store.finishGoal(completion(objective: "Another goal")))
+        XCTAssertTrue(try store.finishGoal(completion()))
+        XCTAssertFalse(try store.finishGoal(completion()))
+        try store.flush()
+        let reopened = try HistoryStore(directory: path, policy: .init())
+        let after = try XCTUnwrap(reopened.entry(before.id))
+        XCTAssertEqual(after.summary.status, .completed)
+        XCTAssertEqual(after.items, before.items)
+        XCTAssertEqual(after.summary.startedAt, before.summary.startedAt)
+        XCTAssertEqual(after.summary.updatedAt, before.summary.updatedAt)
+        XCTAssertEqual(reopened.ordered.first { $0.turnID == "other-turn" }?.status, .ended)
+        XCTAssertEqual(reopened.ordered.count, 2)
+    }
+
     func testTurnCompletionDoesNotInheritTheNextTurnsWorkingStatus() throws {
         let path = directory(); defer { try? FileManager.default.removeItem(at: path) }
         let store = try HistoryStore(directory: path, policy: .init())
