@@ -12,6 +12,8 @@ Lifecycle, configuration preservation, deadlines and socket acknowledgement case
 
 On 2026-10-23, app-managed setup updated eight already-enabled remote profiles and the shared relay from plugin 1.10 to 1.12. All 17 installed file hashes match the release sources; all 17 backups and the setup receipt were verified. Profile configurations and plugin settings remained byte-for-byte unchanged. The running gateway's `plugins.list` reported version 1.12, 15 hooks, enabled and no load error for every profile. All eight resumed presence in installed app 0.4.29. Plugin handlers were reloaded without restarting the gateway. No new model turn was submitted in this deployment check, so it does not add live turn or token-accounting coverage for 1.12.
 
+A subsequent real API task on the same day completed two terminal calls with the expected markers and exit code 0. The installed app was observed showing Working, then Done, the final reply and a History row with a checkmark. Four unique model requests belonged to one completed task, without incomplete-data status. The saved usage matched the native per-model ledger: 74,232 input tokens (including 52,736 cached), 221 output tokens, 74,453 total. This includes 619 tokens for title generation in addition to the main run's 73,834. The task total was visible as 74.45K in both its card and History. Native automation disconnected while opening the separate Usage window, so its detailed screen was not visually verified. This check covers one real API turn in one profile, not every entry point or model.
+
 Update the installed plugin separately; an app update does not replace a running remote plugin. The observer does not submit answers or approve tools.
 
 | File | SHA-256 |

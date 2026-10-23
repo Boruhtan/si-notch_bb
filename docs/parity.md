@@ -16,6 +16,8 @@ Adapter fixtures cover explicit unsuccessful Hermes turns, exact Copilot event-n
 
 The subsequent deployment check on 2026-10-23 verified installed app 0.4.29 (build 56), its executable against the release archive and its code signature. The previously stopped goal record had reconciled to `completed` in the working History archive. The live History row was not visually inspected because native UI automation was unavailable. Plugin 1.12 was installed in eight remote profiles: running gateway versions, 15 registered hooks per profile, no load errors and fresh presence in the Mac app were verified. Configuration bytes were preserved; no new model turn was submitted. See [plugin verification](../plugins/hermes/REVISION.md).
 
+A later real API task with plugin 1.12 completed two terminal calls. Working, Done, the final reply and the completed History row were visually verified in the installed app. Four requests were assigned to one task; its 74,453 tokens matched the native ledger, including title generation and without adding cached input twice. The separate Usage detail window remained visually unverified after the automation connection failed. See the same plugin verification report for exact counts and scope.
+
 ## Feature matrix
 
 | Feature | Availability and verification |
