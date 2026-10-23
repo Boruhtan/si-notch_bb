@@ -470,6 +470,10 @@ enum QAExporter {
                 model.inject(["event": "agent.completed", "session_id": "qa-clear-\(index)", "provider": "custom",
                     "title": "Completed task \(index + 1)", "message": "Finished reviewing the change."])
             }
+            // Establish real pointer contact before opening. Leaving the
+            // fixture pointer below the panel arms dismissal during the wait,
+            // so the Clear checks would measure an already-collapsed window.
+            try move(CGPoint(x: region.midX, y: region.midY))
             model.setExpanded(true, origin: .hover)
             try await pause(0.7)
             let beforeClear = delegate.panel.frame
