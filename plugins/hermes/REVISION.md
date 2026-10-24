@@ -1,11 +1,11 @@
 # Current revision
 
-Plugin **1.13**, bundled with app **0.4.31**, uses the native Mac helper for delivery checks when available and adds an explicit `setup --new-instance` operation for a deliberately cloned profile. Ordinary setup and updates preserve the existing identity, text preference, helper/socket settings, unknown fields and pending usage queue. The lifecycle observer and its event format are unchanged from 1.12.
+Plugin **1.13**, bundled with app **0.4.31**, uses the native Mac helper for delivery checks when available and adds an explicit `setup --new-instance` operation for a deliberately cloned profile. A clone identity change is refused while its usage queue is nonempty. Ordinary setup and updates preserve the existing identity, text preference, helper/socket settings, unknown fields and pending usage queue. The lifecycle observer and its event format are unchanged from 1.12.
 
-Immutable runtime source: [`d9ef98034d7a91ab58cdaeb731451357fd322211`](https://github.com/eugeneb1ack/si-notch/tree/d9ef98034d7a91ab58cdaeb731451357fd322211/plugins/hermes). The native installer requires this full commit SHA, not a tag or branch.
+Immutable runtime source: [`0cc545064c5ff3dbd39f635d3fd9b1b46d51a3bd`](https://github.com/eugeneb1ack/si-notch/tree/0cc545064c5ff3dbd39f635d3fd9b1b46d51a3bd/plugins/hermes). The native installer requires this full commit SHA, not a tag or branch.
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref d9ef98034d7a91ab58cdaeb731451357fd322211 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 0cc545064c5ff3dbd39f635d3fd9b1b46d51a3bd --no-enable
 ```
 
 Automated checks cover 100 local profiles plus two SSH groups of 100 profiles, 900 task records, 100 concurrent IPC deliveries, separate heartbeat expiry, duplicate/out-of-order events, connector removal, local profile discovery, stable setup and upgrade preservation. These controlled fixtures do not represent 300 running model processes. Existing 1.12 observers remain compatible; the Mac update does not require rewriting their settings or changing remote socket paths.
@@ -15,7 +15,7 @@ Automated checks cover 100 local profiles plus two SSH groups of 100 profiles, 9
 | `__init__.py` | `2094332e3b2b4c67434947296d86cbb95d1fc3aa522571c84d57aa90a86ca241` |
 | `plugin.yaml` | `e6cd326df9e94b028c01672fdadab19596576f481f96b66bbf6ff6567198a734` |
 | `relay.py` | `b387d9f5b6d22bd3a76cf51f4b44a845c3bb67d5b2e13cf2866123f173a24728` |
-| `configure.py` | `323f2483a987585923b718bfedbdddc32220d17fd97d7460c2d0de345aa0f425` |
+| `configure.py` | `09bbe844a56d9085bd44d1aba4240f60f22f8634c78a82111cca47320d0d2fbc` |
 
 # Previous plugin 1.12 verification
 

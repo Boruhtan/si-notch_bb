@@ -43,7 +43,7 @@ App-managed setup installs the plugin bundled with that app. A native Git instal
 Install into the actual profile home, not a project-local `.hermes` directory. Read the full runtime SHA in the [release-specific REVISION.md](https://github.com/eugeneb1ack/si-notch/tree/v0.4.31/plugins/hermes/REVISION.md). The command below uses that immutable runtime commit:
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref d9ef98034d7a91ab58cdaeb731451357fd322211 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 0cc545064c5ff3dbd39f635d3fd9b1b46d51a3bd --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "My Hermes" --hide-text
 hermes plugins enable si-notch
 hermes plugins list
