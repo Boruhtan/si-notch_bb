@@ -22,6 +22,12 @@ Local Mac setup: **Settings → Connection → Hermes → Connect**, then `herme
 
 Do not enable two copies for the same profile. App-managed setup owns the installed bundled code; a native Git installation owns its chosen revision. Reapplying the first replaces the latter. Preserve `instanceId` when updating, but generate a distinct profile identity when cloning to another machine.
 
+## Profile identity and ingress
+
+Every local and remote profile needs its own stable `instanceId`. The observer hashes the profile identity into session IDs, so equal native session/turn/request IDs from different profiles stay independent. Preserve existing IDs on updates; use `configure.py setup --new-instance` only for an explicitly new clone and never move another profile's usage queue. App setup discovers the local default home and named profile homes, scopes installation/activation to the selected home, and retains existing plugin settings.
+
+The Mac records ingress origin separately from event metadata. App-managed SSH connectors own separate local sockets; the remote socket path and event envelope remain compatible. Local origin requires the bundled native helper's kernel-reported peer executable. Unknown sources do not suppress discovery. Profile receipts, independent unnamed-session receipts and provider-wide diagnostic receipts have separate roles. A task cannot move from an established legacy session to a named identity. The live app keeps bounded stores of 1,024 sessions and 1,024 profile observations; History has its own retention policy.
+
 ## Map lifecycle correctly
 
 The maintained mapping is based on its actual registered callbacks:

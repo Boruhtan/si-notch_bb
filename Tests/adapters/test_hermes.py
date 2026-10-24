@@ -504,6 +504,20 @@ class HermesPluginTests(unittest.TestCase):
         self.assertNotEqual(first["session_id"], output[-1]["session_id"])
         self.assertNotIn("shared-native-id", json.dumps(output))
 
+    def test_one_hundred_profiles_scope_identical_native_session_and_request_ids(self):
+        output = []
+        for index in range(100):
+            with mock.patch.object(plugin, "_settings", return_value={"instanceId": f"profile-{index}", "displayName": "Same name"}), \
+                 mock.patch.object(plugin, "_send", side_effect=lambda event: output.append(event) or True):
+                plugin.pre_api_request(session_id="shared-native-id", turn_id="same-turn")
+                plugin.post_api_request(session_id="shared-native-id", turn_id="same-turn", api_request_id="same-request",
+                                        usage={"input_tokens": index + 1, "output_tokens": 1})
+        calls = [event for event in output if event["event"] == "usage.update"]
+        self.assertEqual(len(calls), 100)
+        self.assertEqual(len({event["connection_id"] for event in calls}), 100)
+        self.assertEqual(len({event["session_id"] for event in calls}), 100)
+        self.assertEqual([event["usage"]["input_tokens"] for event in calls], list(range(1, 101)))
+
 
 if __name__ == "__main__":
     unittest.main()

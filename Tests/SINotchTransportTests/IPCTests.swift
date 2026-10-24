@@ -42,6 +42,42 @@ final class IPCTests: XCTestCase {
         wait(for: [received], timeout: 1)
     }
 
+    func testPeerExecutableComesFromTheLocalSocketRatherThanEventMetadata() throws {
+        let received = expectation(description: "kernel peer identity")
+        let endpoint = IPCServer(socketPath: socketPath, onPeerMessage: { _, executable, reply in
+            XCTAssertNotNil(executable)
+            XCTAssertEqual(executable.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() },
+                           Bundle.main.executableURL?.resolvingSymlinksInPath())
+            reply(Data("{\"ok\":true}".utf8))
+            received.fulfill()
+        })
+        try endpoint.start()
+        servers.append(endpoint)
+        _ = try IPCClient(socketPath: socketPath).send(Data("{\"peer_executable\":\"/usr/bin/ssh\"}".utf8), awaitReply: true)
+        wait(for: [received], timeout: 1)
+    }
+
+    func testOneHundredConcurrentObservationsReceiveTheirOwnAcknowledgements() throws {
+        let lock = NSLock()
+        var ids: Set<Int> = []
+        let endpoint = IPCServer(socketPath: socketPath, maxConnections: 128) { data, reply in
+            let id = (try? JSONSerialization.jsonObject(with: data) as? [String: Int])?["id"]
+            if let id { lock.lock(); ids.insert(id); lock.unlock() }
+            reply(data)
+        }
+        try endpoint.start()
+        servers.append(endpoint)
+        let path = socketPath
+        DispatchQueue.concurrentPerform(iterations: 100) { index in
+            do {
+                let data = Data("{\"id\":\(index)}".utf8)
+                let response = try IPCClient(socketPath: path).send(data, awaitReply: true, timeout: 5)
+                XCTAssertEqual(response, data)
+            } catch { XCTFail("Observation \(index) failed: \(error)") }
+        }
+        XCTAssertEqual(ids, Set(0..<100))
+    }
+
     func testServerCreatesPrivateDirectoriesAndSocketAndStopRemovesSocket() throws {
         let nested = directory + "/one/two/events.sock"
         let server = IPCServer(socketPath: nested) { _, reply in reply(nil) }

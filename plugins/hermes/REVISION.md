@@ -1,5 +1,20 @@
 # Current revision
 
+Plugin **1.13**, bundled with app **0.4.31**, uses the native Mac helper for delivery checks when available and adds an explicit `setup --new-instance` operation for a deliberately cloned profile. Ordinary setup and updates preserve the existing identity, text preference, helper/socket settings, unknown fields and pending usage queue. The lifecycle observer and its event format are unchanged from 1.12.
+
+The immutable runtime pin is recorded in the [release-specific revision page](https://github.com/eugeneb1ack/si-notch/tree/v0.4.31/plugins/hermes/REVISION.md). Use that full 40-character SHA with the native Hermes installer. Do not pass a tag or branch to `--ref`.
+
+Automated checks cover 100 local profiles plus two SSH groups of 100 profiles, 900 task records, 100 concurrent IPC deliveries, separate heartbeat expiry, duplicate/out-of-order events, connector removal, local profile discovery, stable setup and upgrade preservation. These controlled fixtures do not represent 300 running model processes. Existing 1.12 observers remain compatible; the Mac update does not require rewriting their settings or changing remote socket paths.
+
+| File | SHA-256 |
+| --- | --- |
+| `__init__.py` | `2094332e3b2b4c67434947296d86cbb95d1fc3aa522571c84d57aa90a86ca241` |
+| `plugin.yaml` | `e6cd326df9e94b028c01672fdadab19596576f481f96b66bbf6ff6567198a734` |
+| `relay.py` | `b387d9f5b6d22bd3a76cf51f4b44a845c3bb67d5b2e13cf2866123f173a24728` |
+| `configure.py` | `323f2483a987585923b718bfedbdddc32220d17fd97d7460c2d0de345aa0f425` |
+
+# Previous plugin 1.12 verification
+
 Plugin **1.12**, bundled with app **0.4.29**, corrects unsuccessful turn status, bounds the complete relay exchange by one deadline, preserves a buffered acknowledgement after a peer closes, and refuses stale-socket recovery when the holder check is incomplete.
 
 Immutable runtime source: [`70fa311597d68a4f19de23e4c26eb39af7e6af46`](https://github.com/eugeneb1ack/si-notch/tree/70fa311597d68a4f19de23e4c26eb39af7e6af46/plugins/hermes). The native installer requires a full commit SHA, not a tag.

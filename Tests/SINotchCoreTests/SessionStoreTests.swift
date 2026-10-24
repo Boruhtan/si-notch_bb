@@ -3,6 +3,14 @@ import XCTest
 @testable import SINotchCore
 
 final class SessionStoreTests: XCTestCase {
+    func testNamedProfileCannotAdoptAnExistingLegacySession() {
+        var store = SessionStore()
+        XCTAssertEqual(store.apply(AgentEvent(sessionID: "s", provider: "hermes", kind: .working)), .applied)
+        XCTAssertEqual(store.apply(AgentEvent(sessionID: "s", provider: "hermes", kind: .completed,
+            connectionID: "profile")), .invalid)
+        XCTAssertNil(store.sessions["s"]?.connectionID)
+        XCTAssertEqual(store.sessions["s"]?.status, .working)
+    }
     func testPresenceCannotCreateATaskAndProfileIdentityCannotChange() {
         var store = SessionStore()
         XCTAssertEqual(store.apply(AgentEvent(sessionID: "p", provider: "hermes", kind: .agentPresence,

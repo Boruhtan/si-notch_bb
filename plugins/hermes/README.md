@@ -4,22 +4,30 @@
 
 Show Hermes tasks in your Mac's notch: session state, tools, subagents, optional assistant text, token usage and separate profile availability. Works locally on the Mac or through an existing SSH connection.
 
-Plugin **1.12**, bundled with **si-notch 0.4.29**. Use Python 3.10+ from the existing Hermes installation. The plugin needs no pip packages, model credentials, TCP listener or additional service. Remote use also requires trusted key-based SSH login and Unix-socket forwarding. [Revision and verification](REVISION.md).
+Plugin **1.13**, bundled with **si-notch 0.4.31**. Use Python 3.10+ from the existing Hermes installation. The plugin needs no pip packages, model credentials, TCP listener or additional service. Remote use also requires trusted key-based SSH login and Unix-socket forwarding. [Revision and verification](REVISION.md).
 
 The plugin is an observer. Human-input notifications direct you to the original Hermes chat or terminal; it does not approve actions or submit answers. Metadata and usage depend on hooks exposed by the installed Hermes version. [Developer guide](../../docs/hermes-plugin-development.md).
 
 ## Local Mac installation
 
-1. Open **si-notch → Settings → Connection**, select Hermes and choose **Connect**. Review the destination profile/home.
+1. Open **si-notch → Settings → Connection**, select Hermes and choose **Connect**. Choose the existing local profile and review its destination home.
 2. Enable the installed plugin with `hermes plugins enable si-notch`. For a named profile use `hermes -p PROFILE plugins enable si-notch`.
 3. Confirm activation, then start a new turn. If the running host did not reload, start a new Hermes session after the current turn finishes.
 4. Keep si-notch running. Check **Settings → Diagnostics** for received events and open **Sessions** for the task.
 
 The app records its helper's absolute installation path, including custom app locations. Manual copies also discover `/Applications/si-notch.app` and `~/Applications/si-notch.app`. `SI_NOTCH_CLI` overrides helper selection; a configured override must point to the intended executable. Finder does not inherit shell environment variables: review the destination shown by the app when using a custom `HERMES_HOME` or named profile.
 
+## Independent local and remote profiles
+
+A profile is identified by its stable `instanceId`, not its display name or the fact that Hermes is installed. Any number of local profiles can coexist with profiles on multiple SSH hosts. Choose the local profile in **Settings → Connection → Hermes** before applying setup, or use native `hermes -p PROFILE plugins` commands and that profile's real home. The copied activation command includes the exact local home. Each loaded profile sends its own heartbeat; idle profiles remain listed.
+
+Use a different ID for every new profile. Keep the same ID when updating an existing profile. Native `configure.py setup` creates an ID only if missing; app setup creates one per local profile directory. If a newly cloned profile copied another profile's settings, run `configure.py setup --name "Clone name" --new-instance` only in the new clone. This backs up the clone's settings and leaves the original untouched. Do not copy another profile's pending usage queue or rotate a working profile's ID as an update step.
+
+The Mac binds app-managed SSH traffic to its connection's own endpoint. Keep using the same remote socket path; no plugin configuration migration is needed. Local identity is confirmed through the bundled native helper. Unknown/manual relay origins retain a conservative application fallback rather than hiding a possibly separate local agent. One profile's heartbeat never refreshes another profile or an independent unnamed session.
+
 ## Remote installation from si-notch
 
-1. Update the Mac app to 0.4.29 or newer. Open **Settings → Remote SSH → Add connection** and enter a connection name and SSH host/alias.
+1. Update the Mac app to 0.4.31 or newer. Open **Settings → Remote SSH → Add connection** and enter a connection name and SSH host/alias.
 2. **Check connection** verifies login only. **Check profiles** discovers existing Hermes profiles; select the profiles and their display names.
 3. Choose whether each profile may share task/assistant text. Text sharing defaults to off.
 4. **Preview changes → Apply plugin changes** installs the bundled observer and relay with backups and asks Hermes to reload. Review the result; a profile without a running gateway loads it on its next start.
@@ -32,10 +40,10 @@ App-managed setup installs the plugin bundled with that app. A native Git instal
 
 ## Native Hermes installation
 
-Install into the actual profile home, not a project-local `.hermes` directory. Use the release ref documented in [REVISION.md](REVISION.md):
+Install into the actual profile home, not a project-local `.hermes` directory. Read the full runtime SHA in the [release-specific REVISION.md](https://github.com/eugeneb1ack/si-notch/tree/v0.4.31/plugins/hermes/REVISION.md). Replace `TESTED_RUNTIME_SHA` below with that SHA:
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 70fa311597d68a4f19de23e4c26eb39af7e6af46 --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref TESTED_RUNTIME_SHA --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "My Hermes" --hide-text
 hermes plugins enable si-notch
 hermes plugins list
@@ -52,7 +60,8 @@ Options:
 | `--name "Name"` | Required display label. |
 | `--hide-text` / `--show-text` | Disable/enable public task and assistant excerpts. |
 | `--socket /absolute/private/events.sock` | Use an explicit endpoint; local Mac or remote forwarded socket. |
-| `--helper /absolute/executable` | Select a helper explicitly. |
+| `--helper /absolute/executable` | Select the installed Mac app’s native helper explicitly. |
+| `--new-instance` | Give only a newly cloned profile a separate ID, with a settings backup. Never use on an update. |
 | `--bundled-relay` | Use the included Python relay instead of a previously configured helper. |
 
 For a local native install, the default socket is the Mac application's `~/.si-notch/run/events.sock`; no SSH is needed. For a remote native install, enter the **absolute socket path printed by setup** in the Mac connection and click **Connect**. Applying app-managed changes after native installation is optional and can replace its code.
@@ -102,7 +111,7 @@ Recovery requires a refused connection, private ownership/permissions, a success
 
 ## Update, disable and remove
 
-Choose a reviewed release ref explicitly. Back up `si-notch.json` and preserve its identity and any pending `usage-outbox`. Confirm the native installer’s activation/reload result; use a new session when necessary. Do not force replacement of a plugin from an unrelated source.
+Choose the tested full release SHA explicitly. Back up `si-notch.json` and pending `usage-outbox` outside the plugin directory. Preserve `instanceId`, text/helper/socket settings and unknown fields. A pinned native install needs an explicit re-pin through the installed CLI; review its source/scan and use the same official source. Do not remove the plugin first or pass `--new-instance` during an update. Plugin 1.12 remains compatible with app 0.4.31, so an app update does not require changing existing remote plugins. Confirm the native installer’s activation/reload result; use a new session when necessary. Do not force replacement of a plugin from an unrelated source.
 
 ```sh
 hermes plugins disable si-notch

@@ -536,6 +536,7 @@
 "remote.removeHelp" = "隧道将关闭并删除已保存的连接。若要禁用远程插件，请先取消选择配置并应用更改。";
 "remote.cancel" = "取消";
 "remote.profiles" = "Hermes 配置";
+"agent.setup.hermesProfile" = "本地 Hermes 配置";
 "remote.checkProfiles" = "检查配置";
 "remote.profilesHelp" = "检查主机并选择配置，然后预览并应用插件更改。检查和预览不会修改远程配置。";
 "remote.selectAll" = "全选";

@@ -68,6 +68,22 @@ class ConfigureTests(unittest.TestCase):
         (self.plugin/'si-notch.json').symlink_to(self.root/'absent')
         code, _ = self.setup_plugin(); self.assertEqual(code,1)
 
+    def test_new_instance_is_explicit_backs_up_original_and_keeps_settings_and_outbox(self):
+        self.setup_plugin()
+        path = self.plugin / 'si-notch.json'
+        before = path.read_bytes()
+        original = json.loads(before)
+        outbox = self.plugin / 'usage-outbox'
+        outbox.mkdir(); (outbox / 'pending.json').write_text('keep pending accounting')
+        code, result = self.call('setup', '--name', original['displayName'], '--new-instance')
+        self.assertEqual(code, 0)
+        changed = json.loads(path.read_text())
+        self.assertNotEqual(changed['instanceId'], original['instanceId'])
+        self.assertEqual({k: v for k, v in changed.items() if k != 'instanceId'},
+                         {k: v for k, v in original.items() if k != 'instanceId'})
+        self.assertEqual(Path(result['backup']).read_bytes(), before)
+        self.assertEqual((outbox / 'pending.json').read_text(), 'keep pending accounting')
+
     def test_check_missing_socket_is_read_only_and_explains_connect(self):
         before = set(self.root.rglob('*'))
         code, result = self.call('check','--socket',str(self.endpoint))
@@ -88,11 +104,43 @@ class ConfigureTests(unittest.TestCase):
                 while b'\n' not in value:value+=connection.recv(8192)
                 seen.append(json.loads(value));connection.sendall(b'{"ok":true}\n')
         thread=threading.Thread(target=serve,daemon=True);thread.start()
-        code, result = self.call('check'); thread.join(3)
+        with mock.patch.object(configure, '_native_helper', return_value=None):
+            code, result = self.call('check')
+        thread.join(3)
         self.assertEqual(code,0); self.assertEqual(result['state'],'delivered')
         self.assertEqual(seen[0]['event'],'agent.presence')
         self.assertFalse((self.plugin/'relay.py').stat().st_mode & 0o111)
         self.assertNotIn('message', seen[0])
+
+    def test_check_uses_the_native_helper_when_available_without_changing_settings(self):
+        self.setup_plugin()
+        before = (self.plugin / 'si-notch.json').read_bytes()
+        native = self.root / 'si-notchctl'
+        native.write_bytes(b'native-binary'); native.chmod(0o700)
+        with mock.patch.object(configure, 'socket_state', return_value=('listening', None)), \
+             mock.patch.object(configure, '_native_helper', return_value=str(native)), \
+             mock.patch.object(configure.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run:
+            code, result = self.call('check')
+        self.assertEqual(code, 0)
+        self.assertEqual(result['state'], 'delivered')
+        self.assertEqual(run.call_args.args[0][:2], [str(native), 'emit'])
+        self.assertEqual((self.plugin / 'si-notch.json').read_bytes(), before)
+
+    def test_configuring_one_hundred_new_profiles_keeps_ids_distinct_and_repeats_stable(self):
+        identities = set()
+        for index in range(100):
+            directory = self.root / f'profile-{index}'
+            directory.mkdir(mode=0o700)
+            with mock.patch.object(configure, 'PLUGIN', directory):
+                code, first = self.call('setup', '--name', 'Same name', '--socket', str(self.endpoint))
+                self.assertEqual(code, 0)
+                identity = json.loads((directory / 'si-notch.json').read_text())['instanceId']
+                identities.add(identity)
+                code, repeated = self.call('setup', '--name', 'Same name', '--socket', str(self.endpoint))
+                self.assertEqual(code, 0)
+                self.assertFalse(repeated['changed'])
+                self.assertEqual(json.loads((directory / 'si-notch.json').read_text())['instanceId'], identity)
+        self.assertEqual(len(identities), 100)
 
     def test_repair_requires_explicit_apply_and_keeps_the_stale_socket(self):
         self.setup_plugin()

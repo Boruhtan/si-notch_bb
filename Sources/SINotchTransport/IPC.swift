@@ -36,8 +36,9 @@ public enum IPCError: Error, LocalizedError {
 /// One JSON object per connection. There are no network listeners or shell commands.
 public final class IPCServer {
     public typealias MessageHandler = (Data, @escaping (Data?) -> Void) -> Void
+    public typealias PeerMessageHandler = (Data, String?, @escaping (Data?) -> Void) -> Void
     public let socketPath: String
-    private let handler: MessageHandler
+    private let handler: PeerMessageHandler
     private let maximumConnections: Int
     private let clientTimeout: TimeInterval
     private let replyTimeout: TimeInterval
@@ -49,14 +50,22 @@ public final class IPCServer {
     private var generation: UInt64 = 0
     private var activeClients = [Int32: UInt64]()
 
-    public init(socketPath: String = IPCPaths.defaultSocketPath, maxConnections: Int = 16,
+    public convenience init(socketPath: String = IPCPaths.defaultSocketPath, maxConnections: Int = 16,
                 clientTimeout: TimeInterval = 2, replyTimeout: TimeInterval = 125,
                 onMessage: @escaping MessageHandler) {
+        self.init(socketPath: socketPath, maxConnections: maxConnections, clientTimeout: clientTimeout,
+                  replyTimeout: replyTimeout, onPeerMessage: { data, _, reply in onMessage(data, reply) })
+    }
+
+    /// The executable path comes from the kernel's socket peer, not JSON metadata.
+    public init(socketPath: String = IPCPaths.defaultSocketPath, maxConnections: Int = 16,
+                clientTimeout: TimeInterval = 2, replyTimeout: TimeInterval = 125,
+                onPeerMessage: @escaping PeerMessageHandler) {
         self.socketPath = socketPath
         self.maximumConnections = max(1, maxConnections)
         self.clientTimeout = max(0.05, clientTimeout)
         self.replyTimeout = max(0.05, replyTimeout)
-        self.handler = onMessage
+        self.handler = onPeerMessage
     }
 
     public func start() throws {
@@ -161,7 +170,7 @@ public final class IPCServer {
         do {
             let message = try SocketIO.readFrame(client, timeout: clientTimeout)
             let reply = PendingReply()
-            handler(message) { reply.finish($0) }
+            handler(message, SocketSecurity.peerExecutable(client)) { reply.finish($0) }
             // Polling permits stop() to cancel approval waits promptly.
             let deadline = ProcessInfo.processInfo.systemUptime + replyTimeout
             while reply.ready.wait(timeout: .now() + 0.1) == .timedOut {
@@ -212,6 +221,17 @@ private final class PendingReply {
 }
 
 private enum SocketSecurity {
+    static func peerExecutable(_ descriptor: Int32) -> String? {
+        var pid: pid_t = 0
+        var size = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0, pid > 0 else { return nil }
+        // PROC_PIDPATHINFO_MAXSIZE is the C expression 4 * MAXPATHLEN, which
+        // Swift does not import as a macro.
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+        return String(cString: path)
+    }
+
     static func prepareParent(for path: String) throws {
         let parent = try parentPath(path)
         var current = ""

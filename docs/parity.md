@@ -2,7 +2,12 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.30 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.31 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+
+## Changes in 0.4.31
+
+Agent identity now separates confirmed local profiles, SSH connector origins and unknown sources. Installation/running-app discovery is a fallback rather than an extra agent beside a fresh local profile. Independent unnamed sessions retain their own presence. Local setup includes a profile selector and a command scoped to its exact home. Automated fixtures passed for 100 local profiles plus two SSH groups of 100 profiles, 900 task records, 100 simultaneous IPC deliveries, source conflicts, connector removal, independent freshness and stable settings/identity preservation. This is controlled-input coverage, not 300 live model sessions. Plugin 1.13 keeps the 1.12 event format and adds native-helper checks and explicit clone identity setup. Live deployment and visual checks are recorded separately below when completed.
+
 
 ## Verification added in 0.4.30
 

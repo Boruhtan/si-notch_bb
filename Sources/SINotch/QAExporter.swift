@@ -637,6 +637,7 @@ enum QAExporter {
             model.activeFilter = "Все"
             model.showAgents = false
             model.providerReceipts.removeAll()
+            model.legacyProviderReceipts.removeAll()
         }
 
         func settle(expanded: Bool) async throws {

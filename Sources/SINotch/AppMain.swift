@@ -22,12 +22,15 @@ struct SINotchMain {
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var store = SessionStore()
+    // Retain multiple simultaneous tasks for at least a hundred profiles while
+    // keeping the live in-memory store bounded independently of History.
+    @Published var store = SessionStore(maximumSessions: 1024)
     @Published var expanded = false
     @Published var paused = false
     @Published var serverError: AppDisplayError?
     @Published var receivedCount = 0
     @Published var providerReceipts: [String: Date] = [:]
+    @Published var legacyProviderReceipts: [String: Date] = [:]
     @Published var connectionReceipts: [String: AgentConnection.Observation] = [:]
     @Published var activity: [String: [SessionActivity]] = [:]
     @Published var selectedID: String?
@@ -118,7 +121,8 @@ final class AppModel: ObservableObject {
     var sessions: [AgentSession] { store.orderedSessions.filter { AgentConnection.isTask($0) && !sessionFilter.hides(path: $0.projectPath, firstPrompt: $0.firstPrompt) } }
     var agents: [AgentConnection] {
         AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
-            receipts: providerReceipts, running: runningAgentProviders, now: presenceNow, connections: connectionReceipts, configurations: remoteConnections.agentConfigurations)
+            receipts: legacyProviderReceipts, running: runningAgentProviders, now: presenceNow, connections: connectionReceipts,
+            configurations: remoteConnections.agentConfigurations(for: connectionReceipts))
     }
     var agentsSectionHeight: CGFloat { 40 }
     func displayTitle(_ session: AgentSession) -> String {
@@ -229,6 +233,10 @@ final class AppModel: ObservableObject {
         remoteSubscription = remoteConnections.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.revision += 1; self?.onLayout?() }
         }
+        remoteConnections.onEvent = { [weak self] data, connectorID, reply in
+            guard let self else { reply(nil); return }
+            self.receive(data, origin: .remote(connectorID), reply: { reply($0) })
+        }
         defaults.register(defaults: ["codexAutoDetect": true, "updateBackgroundChecks": true])
         defaults.register(defaults: PresentationPolicy.registeredDefaults)
         defaults.register(defaults: DisplayPreferences.defaults)
@@ -248,8 +256,10 @@ final class AppModel: ObservableObject {
             })
         }
         do {
-            let ipc = IPCServer(socketPath: socketPath, onMessage: { [weak self] data, reply in
-                DispatchQueue.main.async { self?.receive(data, reply: { reply($0) }) }
+            let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/si-notchctl")
+            let ipc = IPCServer(socketPath: socketPath, maxConnections: 128, onPeerMessage: { [weak self] data, executable, reply in
+                let origin = AgentConnection.localOrigin(peerExecutable: executable, helperURL: helper)
+                DispatchQueue.main.async { self?.receive(data, origin: origin, reply: { reply($0) }) }
             })
             try ipc.start()
             server = ipc
@@ -327,7 +337,8 @@ final class AppModel: ObservableObject {
         receive(data, suppressPresentation: bootstrap, reply: { _ in })
     }
 
-    func receive(_ data: Data, suppressPresentation: Bool = false, reply: @escaping (Data) -> Void) {
+    func receive(_ data: Data, origin: AgentConnection.Origin = .unknown,
+                 suppressPresentation: Bool = false, reply: @escaping (Data) -> Void) {
         if let control = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            control.count == 2, control["command"] as? String == "status",
            control["protocol_version"] as? Int == 1 {
@@ -348,6 +359,16 @@ final class AppModel: ObservableObject {
         guard !paused else { reply(json(["ok": false, "error": "paused"])); return }
         do {
             var event = try AgentEvent.parse(data: data)
+            event.provider = event.provider.lowercased()
+            // Later hooks may omit profile metadata; the session's existing
+            // identity remains authoritative and cannot become a legacy receipt.
+            if event.connectionID == nil, let session = store.sessions[event.sessionID], session.provider == event.provider {
+                event.connectionID = session.connectionID
+                event.connectionName = session.connectionName
+            }
+            guard let connectionOrigin = connectionOrigin(for: event, from: origin) else {
+                reply(json(["ok": false, "error": "connection_origin_conflict"])); return
+            }
             // Tool hooks continue during asynchronous questions. Only the
             // authoritative Desktop stream may resolve a displayed request.
             if event.provider == "codex", let request = codexInteractions[event.sessionID]?.first,
@@ -389,7 +410,7 @@ final class AppModel: ObservableObject {
             if event.kind == .agentPresence {
                 guard !waitingForReply else { reply(json(["ok": false, "error": "invalid_presence"])); return }
                 presenceNow = Date()
-                let applied = noteConnection(event, at: presenceNow)
+                let applied = noteConnection(event, at: presenceNow, origin: connectionOrigin)
                 receivedCount += 1
                 if applied {
                     providerReceipts[event.provider.lowercased()] = presenceNow
@@ -457,7 +478,8 @@ final class AppModel: ObservableObject {
                 if !suppressPresentation {
                     presenceNow = Date()
                     providerReceipts[event.provider.lowercased()] = presenceNow
-                    _ = noteConnection(event, at: presenceNow)
+                    if event.connectionID == nil { legacyProviderReceipts[event.provider] = presenceNow }
+                    _ = noteConnection(event, at: presenceNow, origin: connectionOrigin)
                 }
                 if let item = SessionActivity(event) {
                     var history = activity[event.sessionID] ?? []
@@ -518,7 +540,32 @@ final class AppModel: ObservableObject {
         } catch { reply(json(["ok": false, "error": "invalid_event", "message": L10n.eventError(error)])) }
     }
 
-    private func noteConnection(_ event: AgentEvent, at receivedAt: Date) -> Bool {
+    private func connectionOrigin(for event: AgentEvent, from source: AgentConnection.Origin) -> AgentConnection.Origin? {
+        guard let id = event.connectionID else {
+            // SSH events need a profile identity; otherwise they could mutate a
+            // local legacy session or lend remote presence to a local app.
+            if case .remote = source { return nil }
+            return source
+        }
+        let configurations = remoteConnections.agentConfigurations.filter { $0.provider == event.provider && $0.connectionID == id }
+        guard configurations.count <= 1 else { return nil }
+        let owners = Set(configurations.map(\.connectorID))
+        switch source {
+        case .local:
+            guard owners.isEmpty else { return nil }
+        case .remote(let connectorID):
+            guard remoteConnections.connections.contains(where: { $0.id == connectorID }),
+                  owners.isEmpty || owners == [connectorID] else { return nil }
+        case .unknown:
+            guard owners.count <= 1 else { return nil }
+        }
+        if let previous = connectionReceipts[event.provider + "/" + id], previous.origin != .unknown {
+            guard previous.origin == source else { return nil }
+        }
+        return source
+    }
+
+    private func noteConnection(_ event: AgentEvent, at receivedAt: Date, origin: AgentConnection.Origin) -> Bool {
         guard let connectionID = event.connectionID else { return false }
         let provider = event.provider.lowercased()
         let key = provider + "/" + connectionID
@@ -526,14 +573,14 @@ final class AppModel: ObservableObject {
             guard event.timestamp >= previous.eventAt,
                   event.id == nil || event.id != previous.eventID else { return false }
         }
-        if connectionReceipts[key] == nil, connectionReceipts.count >= 256,
+        if connectionReceipts[key] == nil, connectionReceipts.count >= 1024,
            let oldest = connectionReceipts.min(by: { $0.value.lastSeen < $1.value.lastSeen })?.key {
             connectionReceipts.removeValue(forKey: oldest)
         }
         let name = event.connectionName?.trimmingCharacters(in: .whitespacesAndNewlines)
         connectionReceipts[key] = AgentConnection.Observation(provider: provider, connectionID: connectionID,
-            name: name.flatMap { $0.isEmpty ? nil : $0 } ?? provider, lastSeen: receivedAt,
-            eventAt: event.timestamp, eventID: event.id)
+            name: name.flatMap { $0.isEmpty ? nil : $0 } ?? connectionReceipts[key]?.name ?? provider, lastSeen: receivedAt,
+            eventAt: event.timestamp, eventID: event.id, origin: origin)
         return true
     }
 
@@ -542,7 +589,8 @@ final class AppModel: ObservableObject {
         let visibleBefore = sessions.map { $0.id }
         let now = Date()
         let currentAgents = AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
-            receipts: providerReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts, configurations: remoteConnections.agentConfigurations)
+            receipts: legacyProviderReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts,
+            configurations: remoteConnections.agentConfigurations(for: connectionReceipts))
         if currentAgents != agents { presenceNow = now }
         let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let foreground = Set(sessions.filter { $0.terminalBundleID != nil && $0.terminalBundleID == frontBundle }.map(\.id))

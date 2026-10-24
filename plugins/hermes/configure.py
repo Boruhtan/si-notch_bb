@@ -87,7 +87,7 @@ def setup(args):
     path = endpoint(args.socket or value.get("socketPath"))
     value.update(displayName=name, socketPath=str(path))
     instance = value.get("instanceId")
-    if not isinstance(instance, str) or not instance or len(instance) > 4096:
+    if args.new_instance or not isinstance(instance, str) or not instance or len(instance) > 4096:
         value["instanceId"] = uuid.uuid4().hex
     if args.show_text is not None:
         value["showSessionText"] = args.show_text
@@ -118,7 +118,7 @@ def setup(args):
     return {"ok": True, "state": "configured", "changed": changed, "settings_path": str(target),
             "backup": str(backup) if backup else None, "socket_path": str(path),
             "display_name": name, "show_session_text": value["showSessionText"],
-            "next": "Enable si-notch in the chosen Hermes profile, then connect Remote SSH on your Mac and run check."}
+            "next": "Enable si-notch in this Hermes profile. Keep the local Mac app running, or click Connect for a remote SSH profile, then run check."}
 
 
 def socket_state(path: Path):
@@ -136,6 +136,13 @@ def socket_state(path: Path):
     return "listening", info
 
 
+def _native_helper():
+    return next((str(path) for path in (
+        Path('/Applications/si-notch.app/Contents/Helpers/si-notchctl'),
+        Path.home() / 'Applications/si-notch.app/Contents/Helpers/si-notchctl',
+    ) if path.is_file() and os.access(path, os.X_OK)), None)
+
+
 def check(args):
     value = settings()
     path = endpoint(args.socket or value.get("socketPath"))
@@ -143,7 +150,7 @@ def check(args):
         state, _ = socket_state(path)
     except FileNotFoundError:
         return {"ok": False, "state": "not_connected", "socket_path": str(path),
-                "next": "Click Connect in si-notch Remote SSH. Check connection verifies SSH login only."}
+                "next": "Start si-notch for a local profile, or click Connect in Remote SSH for a remote profile. Check connection verifies SSH login only."}
     if state == "refused":
         return {"ok": False, "state": "stale_socket", "socket_path": str(path),
                 "next": "Disconnect in si-notch, then preview repair-socket. It preserves an unused stale socket under a backup name."}
@@ -156,13 +163,18 @@ def check(args):
                "connection_id": "hermes-instance-" + hashlib.sha256(instance.encode()).hexdigest()[:32]}
     explicit_helper = "SI_NOTCH_CLI" in os.environ or "helperPath" in value
     helper = os.environ.get("SI_NOTCH_CLI") if "SI_NOTCH_CLI" in os.environ else value.get("helperPath")
-    if explicit_helper:
+    if not explicit_helper:
+        helper = _native_helper()
+    if explicit_helper or helper is not None:
         if not isinstance(helper, str) or not helper:
             raise ValueError("Configured helper is invalid")
         helper_path = safe(Path(helper))
         if not helper_path.is_file() or not os.access(helper_path, os.X_OK):
             raise ValueError("Configured helper is not executable")
         command = [str(helper_path)]
+        with helper_path.open('rb') as stream:
+            if stream.read(128).startswith(b'#!/usr/bin/env python3\n"""Portable remote-side si-notchctl subset'):
+                command.insert(0, sys.executable)
     else:
         command = [sys.executable, str(safe(PLUGIN / "relay.py"))]
     env = dict(os.environ)
@@ -205,6 +217,7 @@ def main(argv=None):
     configure = commands.add_parser("setup", help="Merge only si-notch.json; preserve other settings and hooks")
     configure.add_argument("--name", required=True)
     configure.add_argument("--socket")
+    configure.add_argument("--new-instance", action="store_true", help="Give an intentionally cloned profile a new identity; never use for an update")
     text = configure.add_mutually_exclusive_group()
     text.add_argument("--show-text", dest="show_text", action="store_true")
     text.add_argument("--hide-text", dest="show_text", action="store_false")

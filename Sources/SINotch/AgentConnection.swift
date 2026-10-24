@@ -3,6 +3,10 @@ import SINotchCore
 
 /// Provider availability is independent of the tasks shown in the island.
 struct AgentConnection: Identifiable, Equatable {
+    /// Assigned by the receiving endpoint, never by event-supplied display metadata.
+    enum Origin: Equatable {
+        case unknown, local, remote(UUID)
+    }
     struct Observation: Equatable {
         let provider: String
         let connectionID: String
@@ -10,6 +14,7 @@ struct AgentConnection: Identifiable, Equatable {
         let lastSeen: Date
         let eventAt: Date
         let eventID: String?
+        var origin: Origin = .unknown
         var id: String { provider + "/" + connectionID }
     }
     struct Configuration {
@@ -18,6 +23,8 @@ struct AgentConnection: Identifiable, Equatable {
         let connectorID: UUID
         let visible: Bool
         var transportState: RemoteConnectionState? = nil
+        var provider: String = "hermes"
+        var id: String { provider + "/" + connectionID }
     }
     enum State: String {
         case online, lastSeen, installed, offline
@@ -51,6 +58,12 @@ struct AgentConnection: Identifiable, Equatable {
     var activeTaskCount = 0
     var name: String { displayName ?? HarnessKind(rawValue: provider)?.displayName ?? provider }
 
+    static func localOrigin(peerExecutable: String?, helperURL: URL) -> Origin {
+        guard let peerExecutable,
+              URL(fileURLWithPath: peerExecutable).resolvingSymlinksInPath() == helperURL.resolvingSymlinksInPath() else { return .unknown }
+        return .local
+    }
+
     static func runningProviders(detected: [HarnessDetection], applicationPaths: Set<String>,
                                  bundleIdentifiers: Set<String>) -> Set<String> {
         var providers = Set(detected.filter { detection in
@@ -77,54 +90,65 @@ struct AgentConnection: Identifiable, Equatable {
                         connections: [String: Observation] = [:],
                         configurations: [Configuration] = []) -> [Self] {
         let installed = Set(detected.filter(\.isDetected).map(\.id))
-        let namedProviders = Set(connections.values.map(\.provider))
         let legacySessions = sessions.filter { $0.connectionID == nil }
-        let providers = installed.union(legacySessions.map(\.provider))
-            .union(receipts.keys.filter { !namedProviders.contains($0) }).union(running)
+        let legacyByProvider = Dictionary(grouping: legacySessions, by: \.provider)
+        let configured = Dictionary(configurations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let localProviders = Set(connections.values.filter {
+            $0.origin == .local && configured[$0.id] == nil && isFresh($0.lastSeen, at: now)
+        }.map(\.provider))
+        // Discovery is a fallback for an application, not another profile. Only
+        // independent legacy activity may coexist with a confirmed local profile.
+        let independentLegacy = Set(legacySessions.filter { $0.status.isActive || $0.status == .idle || $0.status == .failed }.map(\.provider))
+            .union(receipts.filter { isFresh($0.value, at: now) }.keys)
+        let providers = installed.union(legacyByProvider.keys).union(receipts.keys).union(running)
+            .filter { !localProviders.contains($0) || independentLegacy.contains($0) }
         let legacy = providers.map { provider in
-            let observations = legacySessions.filter { $0.provider == provider }
+            let observations = legacyByProvider[provider] ?? []
             let latest = observations.max { $0.lastEventAt < $1.lastEventAt }
             let seen = receipts[provider] ?? latest?.lastEventAt
             // A quiet hook cannot prove that its process is still running. Only
             // fresh events or an observed native app establish online presence.
-            let fresh = receipts[provider].map { now.timeIntervalSince($0) >= -5 && now.timeIntervalSince($0) <= 120 } ?? false
+            let fresh = receipts[provider].map { isFresh($0, at: now) } ?? false
             let ended = !observations.isEmpty && observations.allSatisfy { $0.status == .ended }
-            let state: State = running.contains(provider) || (fresh && !ended) ? .online :
+            let state: State = (running.contains(provider) && !localProviders.contains(provider)) || (fresh && !ended) ? .online :
                 ended ? .offline : seen != nil ? .lastSeen : .installed
             return Self(id: provider, provider: provider, displayName: nil, state: state, lastSeen: seen)
         }
         // Local configuration owns grouping and display names. Incoming events cannot
         // impersonate another saved SSH connector by supplying a group name.
-        let configured = Dictionary(configurations.map { ($0.connectionID, $0) }, uniquingKeysWith: { first, _ in first })
-        let observedIDs = Set(connections.values.map(\.connectionID))
+        let observedIDs = Set(connections.values.map(\.id))
         let named = connections.values.compactMap { observation -> Self? in
-            let config = configured[observation.connectionID]
+            let config = configured[observation.id]
+            if case .remote = observation.origin, config == nil { return nil }
             if config?.visible == false { return nil }
-            let age = now.timeIntervalSince(observation.lastSeen)
             let connected = config?.transportState.map { $0 == .connected } ?? true
             return Self(id: observation.id, provider: observation.provider, displayName: config?.name ?? observation.name,
-                        state: connected && age >= -5 && age <= 120 ? .online : .lastSeen, lastSeen: observation.lastSeen,
+                        state: connected && isFresh(observation.lastSeen, at: now) ? .online : .lastSeen, lastSeen: observation.lastSeen,
                         connectorID: config?.connectorID)
         }
-        let quiet = configured.values.filter { $0.visible && !observedIDs.contains($0.connectionID) }.map {
-            Self(id: "hermes/" + $0.connectionID, provider: "hermes", displayName: $0.name,
+        let quiet = configured.values.filter { $0.visible && !observedIDs.contains($0.id) }.map {
+            Self(id: $0.id, provider: $0.provider, displayName: $0.name,
                  state: .installed, lastSeen: nil, connectorID: $0.connectorID)
         }
+        let activeByIdentity = Dictionary(grouping: sessions.filter {
+            Self.isTask($0) && [.working, .waiting, .approval, .failed].contains($0.status)
+        }, by: { session in session.connectionID.map { session.provider + "/" + $0 } ?? session.provider })
         return (legacy + named + quiet).map { agent in
             var agent = agent
             guard agent.state == .online else { return agent }
-            let active = sessions.filter { session in
-                let identity = session.connectionID.map { session.provider + "/" + $0 } ?? session.provider
-                return identity == agent.id && Self.isTask(session) &&
-                    [.working, .waiting, .approval, .failed].contains(session.status)
-            }
+            let active = activeByIdentity[agent.id] ?? []
             agent.activeTaskCount = active.count
             agent.activity = active.contains { [.waiting, .approval, .failed].contains($0.status) } ? .attention :
                 active.isEmpty ? .idle : .working
             return agent
         }.sorted {
             if ($0.state == .online) != ($1.state == .online) { return $0.state == .online }
-            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            let names = $0.name.localizedStandardCompare($1.name)
+            return names == .orderedSame ? $0.id < $1.id : names == .orderedAscending
         }
+    }
+
+    static func isFresh(_ seen: Date, at now: Date) -> Bool {
+        (-5...120).contains(now.timeIntervalSince(seen))
     }
 }

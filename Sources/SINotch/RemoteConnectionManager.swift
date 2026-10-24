@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SINotchTransport
 
 struct RemoteSSHConnection: Identifiable, Codable, Equatable {
     var id = UUID()
@@ -27,6 +28,10 @@ final class RemoteConnectionManager: ObservableObject {
     private var subscriptions: [UUID: AnyCancellable] = [:]
     private var loadFailed = false
     private var retiredIDs: Set<String> = []
+    /// A separate endpoint binds incoming events to the SSH connector we own.
+    var onEvent: ((Data, UUID, @escaping (Data?) -> Void) -> Void)?
+    private var eventServers: [UUID: IPCServer] = [:]
+    private var eventGenerations: [UUID: UUID] = [:]
     @Published private var reconnectIDs: Set<UUID>
 
     init(defaults: UserDefaults = .standard, makeController: (() -> RemoteConnectionController)? = nil) {
@@ -92,6 +97,41 @@ final class RemoteConnectionManager: ObservableObject {
         }
     }
 
+    func agentConfigurations(for observations: [String: AgentConnection.Observation]) -> [AgentConnection.Configuration] {
+        let saved = agentConfigurations
+        let savedIDs = Set(saved.map(\.id))
+        return saved + observations.values.compactMap { observation in
+            guard !savedIDs.contains(observation.id),
+                  case .remote(let id) = observation.origin else { return nil }
+            let connection = connections.first(where: { $0.id == id })
+            return AgentConnection.Configuration(connectionID: observation.connectionID, name: observation.name,
+                connectorID: id, visible: connection?.showInAgents ?? false, transportState: state(id), provider: observation.provider)
+        }
+    }
+
+    static func eventSocketPath(for id: UUID, beside localSocketPath: String) -> String {
+        URL(fileURLWithPath: localSocketPath).deletingLastPathComponent()
+            .appendingPathComponent("ssh-" + id.uuidString.replacingOccurrences(of: "-", with: "") + ".sock").path
+    }
+
+    private func eventSocket(for id: UUID, beside localSocketPath: String) throws -> String {
+        guard let onEvent else { return localSocketPath }
+        let path = Self.eventSocketPath(for: id, beside: localSocketPath)
+        if let existing = eventServers[id], existing.socketPath == path { return path }
+        eventServers.removeValue(forKey: id)?.stop()
+        let generation = UUID()
+        let server = IPCServer(socketPath: path, maxConnections: 128) { [weak self] data, reply in
+            DispatchQueue.main.async {
+                guard self?.eventGenerations[id] == generation else { reply(nil); return }
+                onEvent(data, id, reply)
+            }
+        }
+        try server.start()
+        eventServers[id] = server
+        eventGenerations[id] = generation
+        return path
+    }
+
     func remove(_ id: UUID) {
         guard !loadFailed else { return }
         if let connection = connections.first(where: { $0.id == id }) {
@@ -125,6 +165,9 @@ final class RemoteConnectionManager: ObservableObject {
             return
         }
         error = nil
+        let endpoint: String
+        do { endpoint = try eventSocket(for: id, beside: localSocketPath) }
+        catch { self.error = L10n.tr("remote.error.localSocketUnavailable"); return }
         let controller: RemoteConnectionController
         if let existing = controllers[id] { controller = existing }
         else {
@@ -135,7 +178,7 @@ final class RemoteConnectionManager: ObservableObject {
         controller.host = host
         controller.remoteSocketPath = path
         controller.pythonPath = connection.pythonPath
-        controller.connect(localSocketPath: localSocketPath)
+        controller.connect(localSocketPath: endpoint)
         if isActive(id) { remember(id, reconnect: true) }
     }
 
@@ -155,10 +198,17 @@ final class RemoteConnectionManager: ObservableObject {
     func disconnect(_ id: UUID) {
         remember(id, reconnect: false)
         controllers[id]?.disconnect()
+        eventServers.removeValue(forKey: id)?.stop()
+        eventGenerations.removeValue(forKey: id)
     }
 
     /// Shutdown stops tunnels without changing the user's saved connection intent.
-    func disconnectAll() { controllers.values.forEach { $0.disconnect() } }
+    func disconnectAll() {
+        controllers.values.forEach { $0.disconnect() }
+        eventServers.values.forEach { $0.stop() }
+        eventServers.removeAll()
+        eventGenerations.removeAll()
+    }
 
     private func remember(_ id: UUID, reconnect: Bool) {
         guard reconnectIDs.contains(id) != reconnect else { return }

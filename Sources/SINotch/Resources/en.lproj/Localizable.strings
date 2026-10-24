@@ -536,6 +536,7 @@
 "remote.removeHelp" = "The tunnel will close and the saved connection will be removed. To disable the remote plugin, deselect its profiles and apply the changes first.";
 "remote.cancel" = "Cancel";
 "remote.profiles" = "Hermes profiles";
+"agent.setup.hermesProfile" = "Local Hermes profile";
 "remote.checkProfiles" = "Check profiles";
 "remote.profilesHelp" = "Check the host, choose profiles, then review and apply the plugin changes. Checking and previewing do not change the remote configuration.";
 "remote.selectAll" = "Select all";
