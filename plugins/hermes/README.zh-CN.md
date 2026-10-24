@@ -14,7 +14,7 @@
 
 每个新配置都需要独立 `instanceId`，同一 Mac 上也一样；安装器自动创建它。更新时保留现有 ID、文本偏好、socket/helper 和 `usage-outbox`，不要先删除插件。不要复制其他配置的设置或待发送用量。只有明确新建的克隆误用了原 ID 时，才在克隆中运行 `configure.py setup --name "Clone" --new-instance`；原设置会备份。普通更新不要使用这个选项。
 
-将 `TESTED_RUNTIME_SHA` 替换为[本次发布的 REVISION.md](https://github.com/eugeneb1ack/si-notch/tree/v0.4.31/plugins/hermes/REVISION.md) 中的完整 SHA。现有插件 1.12 与应用 0.4.31 兼容，Mac 更新不要求重装远程配置。
+使用[本次发布的 REVISION.md](https://github.com/eugeneb1ack/si-notch/tree/v0.4.31/plugins/hermes/REVISION.md) 中的完整 SHA 进行原生安装。现有插件 1.12 与应用 0.4.31 兼容，Mac 更新不要求重装远程配置。
 
 ## 推荐：通过 si-notch 设置
 
@@ -34,7 +34,7 @@
 此目录是名为 `si-notch` 的完整插件。内置 `relay.py` 通过 Python 运行，不依赖可执行权限。使用 [REVISION.md](REVISION.md) 中经验证的 40 位提交 SHA：
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref TESTED_RUNTIME_SHA --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref d9ef98034d7a91ab58cdaeb731451357fd322211 --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "Remote Hermes" --hide-text
 hermes plugins enable si-notch
 ```

@@ -2,7 +2,11 @@
 
 Plugin **1.13**, bundled with app **0.4.31**, uses the native Mac helper for delivery checks when available and adds an explicit `setup --new-instance` operation for a deliberately cloned profile. Ordinary setup and updates preserve the existing identity, text preference, helper/socket settings, unknown fields and pending usage queue. The lifecycle observer and its event format are unchanged from 1.12.
 
-The immutable runtime pin is recorded in the [release-specific revision page](https://github.com/eugeneb1ack/si-notch/tree/v0.4.31/plugins/hermes/REVISION.md). Use that full 40-character SHA with the native Hermes installer. Do not pass a tag or branch to `--ref`.
+Immutable runtime source: [`d9ef98034d7a91ab58cdaeb731451357fd322211`](https://github.com/eugeneb1ack/si-notch/tree/d9ef98034d7a91ab58cdaeb731451357fd322211/plugins/hermes). The native installer requires this full commit SHA, not a tag or branch.
+
+```sh
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref d9ef98034d7a91ab58cdaeb731451357fd322211 --no-enable
+```
 
 Automated checks cover 100 local profiles plus two SSH groups of 100 profiles, 900 task records, 100 concurrent IPC deliveries, separate heartbeat expiry, duplicate/out-of-order events, connector removal, local profile discovery, stable setup and upgrade preservation. These controlled fixtures do not represent 300 running model processes. Existing 1.12 observers remain compatible; the Mac update does not require rewriting their settings or changing remote socket paths.
 

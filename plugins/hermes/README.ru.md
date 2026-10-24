@@ -14,7 +14,7 @@
 
 Каждому новому профилю нужен свой `instanceId`, даже на одном Mac. Установщики создают его автоматически; одинаковые отображаемые имена допустимы. При обновлении ID, настройки текста, socket/helper и очередь `usage-outbox` сохраняются. Не удаляйте плагин перед обновлением и не копируйте настройки/очередь другого профиля. Для явно выбранного нового клона со скопированным ID используйте `configure.py setup --name "Имя клона" --new-instance` только на клоне: прежний файл настроек сохраняется в резервной копии. В обычном обновлении этот флаг не нужен.
 
-Для нативной установки возьмите полный SHA из [REVISION.md этого релиза](https://github.com/eugeneb1ack/si-notch/tree/v0.4.31/plugins/hermes/REVISION.md) и подставьте вместо `TESTED_RUNTIME_SHA`. Подробный [промпт установки и обновления](INSTALL_PROMPT.ru.md) подходит как для локального Mac, так и для SSH-хоста. Существующий плагин 1.12 совместим с приложением 0.4.31; обновление Mac не требует переустановки работающих удалённых профилей.
+Для нативной установки возьмите полный SHA из [REVISION.md этого релиза](https://github.com/eugeneb1ack/si-notch/tree/v0.4.31/plugins/hermes/REVISION.md) и используйте его в нативной команде установки. Подробный [промпт установки и обновления](INSTALL_PROMPT.ru.md) подходит как для локального Mac, так и для SSH-хоста. Существующий плагин 1.12 совместим с приложением 0.4.31; обновление Mac не требует переустановки работающих удалённых профилей.
 
 ## Рекомендуемый способ: настройки si-notch
 
@@ -36,7 +36,7 @@
 Возьмите проверенный полный SHA из [REVISION.md](REVISION.md):
 
 ```sh
-hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref TESTED_RUNTIME_SHA --no-enable
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref d9ef98034d7a91ab58cdaeb731451357fd322211 --no-enable
 python3 "$HOME/.hermes/plugins/si-notch/configure.py" setup --name "Мой Hermes" --hide-text
 hermes plugins enable si-notch
 ```
