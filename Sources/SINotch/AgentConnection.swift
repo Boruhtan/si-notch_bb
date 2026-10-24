@@ -3,6 +3,10 @@ import SINotchCore
 
 /// Provider availability is independent of the tasks shown in the island.
 struct AgentConnection: Identifiable, Equatable {
+    struct LocalIdentity: Hashable {
+        let provider: String
+        let connectionID: String
+    }
     struct Observation: Equatable {
         let provider: String
         let connectionID: String
@@ -75,27 +79,54 @@ struct AgentConnection: Identifiable, Equatable {
     static func project(detected: [HarnessDetection], sessions: [AgentSession],
                         receipts: [String: Date], running: Set<String>, now: Date,
                         connections: [String: Observation] = [:],
-                        configurations: [Configuration] = []) -> [Self] {
+                        configurations: [Configuration] = [],
+                        localDisplayNames: [String: String] = [:],
+                        localIdentities: Set<LocalIdentity> = []) -> [Self] {
         let installed = Set(detected.filter(\.isDetected).map(\.id))
-        let namedProviders = Set(connections.values.map(\.provider))
         let legacySessions = sessions.filter { $0.connectionID == nil }
+        let configured = Dictionary(configurations.map { ($0.connectionID, $0) }, uniquingKeysWith: { first, _ in first })
+        func isFresh(_ date: Date) -> Bool {
+            let age = now.timeIntervalSince(date)
+            return age >= -5 && age <= 120
+        }
+        // An unconfigured announcement is not proof of locality: it can arrive
+        // through SSH too. Only identities read from this Mac's plugin settings
+        // can represent its installed/running app. Saved SSH ownership wins.
+        let representedLocally = Set(connections.values.filter {
+            localIdentities.contains(LocalIdentity(provider: $0.provider, connectionID: $0.connectionID)) &&
+                configured[$0.connectionID] == nil && isFresh($0.lastSeen)
+        }.map(\.provider))
         let providers = installed.union(legacySessions.map(\.provider))
-            .union(receipts.keys.filter { !namedProviders.contains($0) }).union(running)
-        let legacy = providers.map { provider in
+            .union(receipts.keys).union(running)
+        let legacy = providers.filter { provider in
+            // Completed/idle historical sessions must not resurrect an app-only
+            // duplicate. Independent unscoped work keeps its own row and tasks.
+            !representedLocally.contains(provider) || legacySessions.contains {
+                $0.provider == provider && isTask($0) &&
+                    [.working, .waiting, .approval, .failed].contains($0.status)
+            }
+        }.map { provider in
             let observations = legacySessions.filter { $0.provider == provider }
             let latest = observations.max { $0.lastEventAt < $1.lastEventAt }
             let seen = receipts[provider] ?? latest?.lastEventAt
             // A quiet hook cannot prove that its process is still running. Only
             // fresh events or an observed native app establish online presence.
-            let fresh = receipts[provider].map { now.timeIntervalSince($0) >= -5 && now.timeIntervalSince($0) <= 120 } ?? false
+            let fresh = receipts[provider].map(isFresh) ?? false
             let ended = !observations.isEmpty && observations.allSatisfy { $0.status == .ended }
-            let state: State = running.contains(provider) || (fresh && !ended) ? .online :
+            let appOnlyPresence = running.contains(provider) && !representedLocally.contains(provider)
+            let state: State = appOnlyPresence || (fresh && !ended) ? .online :
                 ended ? .offline : seen != nil ? .lastSeen : .installed
-            return Self(id: provider, provider: provider, displayName: nil, state: state, lastSeen: seen)
+            // Local labels affect only the legacy provider row, never named/SSH profiles.
+            let displayName = localDisplayNames[provider].flatMap { value -> String? in
+                let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, name.count <= 128,
+                      !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return nil }
+                return name
+            }
+            return Self(id: provider, provider: provider, displayName: displayName, state: state, lastSeen: seen)
         }
         // Local configuration owns grouping and display names. Incoming events cannot
         // impersonate another saved SSH connector by supplying a group name.
-        let configured = Dictionary(configurations.map { ($0.connectionID, $0) }, uniquingKeysWith: { first, _ in first })
         let observedIDs = Set(connections.values.map(\.connectionID))
         let named = connections.values.compactMap { observation -> Self? in
             let config = configured[observation.connectionID]

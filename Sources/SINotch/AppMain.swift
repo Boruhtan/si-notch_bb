@@ -9,6 +9,10 @@ import SINotchTransport
 @main
 struct SINotchMain {
     static func main() {
+        if CommandLine.arguments.contains("--verify-local-alias") {
+            LocalAliasVerification.run()
+            return
+        }
         if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--install-update" {
             exit(UpdateInstaller.run(receipt: URL(fileURLWithPath: CommandLine.arguments[2])))
         }
@@ -27,8 +31,11 @@ final class AppModel: ObservableObject {
     @Published var paused = false
     @Published var serverError: AppDisplayError?
     @Published var receivedCount = 0
+    // Unscoped events only; named profiles have independent connectionReceipts.
     @Published var providerReceipts: [String: Date] = [:]
     @Published var connectionReceipts: [String: AgentConnection.Observation] = [:]
+    @Published var localAgentIdentities: Set<AgentConnection.LocalIdentity> = []
+    let localIdentityDiscovery: LocalHermesIdentityDiscovery
     @Published var activity: [String: [SessionActivity]] = [:]
     @Published var selectedID: String?
     @Published var pending: [String: PendingRequest] = [:]
@@ -116,9 +123,14 @@ final class AppModel: ObservableObject {
 
     var sessionFilter: SessionFilter { SessionFilter(directories: defaults.string(forKey: "blockedDirectories") ?? "", promptPrefixes: defaults.string(forKey: "blockedPromptPrefixes") ?? "") }
     var sessions: [AgentSession] { store.orderedSessions.filter { AgentConnection.isTask($0) && !sessionFilter.hides(path: $0.projectPath, firstPrompt: $0.firstPrompt) } }
+    var localAgentDisplayNames: [String: String] {
+        defaults.dictionary(forKey: "localAgentDisplayNames.v1") as? [String: String] ?? [:]
+    }
     var agents: [AgentConnection] {
         AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
-            receipts: providerReceipts, running: runningAgentProviders, now: presenceNow, connections: connectionReceipts, configurations: remoteConnections.agentConfigurations)
+            receipts: providerReceipts, running: runningAgentProviders, now: presenceNow, connections: connectionReceipts,
+            configurations: remoteConnections.agentConfigurations, localDisplayNames: localAgentDisplayNames,
+            localIdentities: localAgentIdentities)
     }
     var agentsSectionHeight: CGFloat { 40 }
     func displayTitle(_ session: AgentSession) -> String {
@@ -218,8 +230,10 @@ final class AppModel: ObservableObject {
     var quiet: Bool { defaults.bool(forKey: "quiet") }
     var socketPath: String { ProcessInfo.processInfo.environment["SI_NOTCH_SOCKET"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".si-notch/run/events.sock").path }
 
-    init(defaults: UserDefaults = .standard, soundPlayer: EventSoundPlayer? = nil) {
+    init(defaults: UserDefaults = .standard, soundPlayer: EventSoundPlayer? = nil,
+         localIdentityDiscovery: LocalHermesIdentityDiscovery = LocalHermesIdentityDiscovery()) {
         self.defaults = defaults
+        self.localIdentityDiscovery = localIdentityDiscovery
         self.quota = CodexQuotaController(defaults: defaults)
         self.remoteConnections = RemoteConnectionManager(defaults: defaults)
         self.soundPlayer = soundPlayer ?? EventSoundPlayer(defaults: defaults)
@@ -241,6 +255,7 @@ final class AppModel: ObservableObject {
         history.start(codexSessionsRoot: defaults.bool(forKey: "codexAutoDetect") ?
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions", isDirectory: true) : nil)
         detectedHarnesses = HarnessDiscoveryService().scan().detected
+        localAgentIdentities = localIdentityDiscovery.scan(socketPath: socketPath)
         refreshAgentPresence()
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             presenceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -392,7 +407,6 @@ final class AppModel: ObservableObject {
                 let applied = noteConnection(event, at: presenceNow)
                 receivedCount += 1
                 if applied {
-                    providerReceipts[event.provider.lowercased()] = presenceNow
                     revision += 1
                     onLayout?()
                 }
@@ -456,7 +470,9 @@ final class AppModel: ObservableObject {
                 }
                 if !suppressPresentation {
                     presenceNow = Date()
-                    providerReceipts[event.provider.lowercased()] = presenceNow
+                    // Provider receipts belong only to unscoped sessions. A
+                    // profile's task/heartbeat must never refresh another row.
+                    if event.connectionID == nil { providerReceipts[event.provider.lowercased()] = presenceNow }
                     _ = noteConnection(event, at: presenceNow)
                 }
                 if let item = SessionActivity(event) {
@@ -526,6 +542,10 @@ final class AppModel: ObservableObject {
             guard event.timestamp >= previous.eventAt,
                   event.id == nil || event.id != previous.eventID else { return false }
         }
+        if provider == "hermes", connectionReceipts[key] == nil ||
+            event.kind == .agentPresence || event.kind == .sessionStarted {
+            localAgentIdentities = localIdentityDiscovery.scan(socketPath: socketPath)
+        }
         if connectionReceipts[key] == nil, connectionReceipts.count >= 256,
            let oldest = connectionReceipts.min(by: { $0.value.lastSeen < $1.value.lastSeen })?.key {
             connectionReceipts.removeValue(forKey: oldest)
@@ -542,7 +562,9 @@ final class AppModel: ObservableObject {
         let visibleBefore = sessions.map { $0.id }
         let now = Date()
         let currentAgents = AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
-            receipts: providerReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts, configurations: remoteConnections.agentConfigurations)
+            receipts: providerReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts,
+            configurations: remoteConnections.agentConfigurations, localDisplayNames: localAgentDisplayNames,
+            localIdentities: localAgentIdentities)
         if currentAgents != agents { presenceNow = now }
         let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let foreground = Set(sessions.filter { $0.terminalBundleID != nil && $0.terminalBundleID == frontBundle }.map(\.id))
