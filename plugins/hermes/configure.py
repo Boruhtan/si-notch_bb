@@ -87,6 +87,10 @@ def setup(args):
     path = endpoint(args.socket or value.get("socketPath"))
     value.update(displayName=name, socketPath=str(path))
     instance = value.get("instanceId")
+    if args.new_instance:
+        outbox = safe(PLUGIN / "usage-outbox")
+        if outbox.exists() and (not outbox.is_dir() or any(outbox.iterdir())):
+            raise ValueError("Pending usage belongs to the existing identity. Deliver it with that identity before assigning a new one; do not copy another profile's usage-outbox into a clone.")
     if args.new_instance or not isinstance(instance, str) or not instance or len(instance) > 4096:
         value["instanceId"] = uuid.uuid4().hex
     if args.show_text is not None:

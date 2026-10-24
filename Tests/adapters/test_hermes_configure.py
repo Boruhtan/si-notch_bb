@@ -68,13 +68,11 @@ class ConfigureTests(unittest.TestCase):
         (self.plugin/'si-notch.json').symlink_to(self.root/'absent')
         code, _ = self.setup_plugin(); self.assertEqual(code,1)
 
-    def test_new_instance_is_explicit_backs_up_original_and_keeps_settings_and_outbox(self):
+    def test_new_instance_is_explicit_backs_up_original_and_keeps_other_settings(self):
         self.setup_plugin()
         path = self.plugin / 'si-notch.json'
         before = path.read_bytes()
         original = json.loads(before)
-        outbox = self.plugin / 'usage-outbox'
-        outbox.mkdir(); (outbox / 'pending.json').write_text('keep pending accounting')
         code, result = self.call('setup', '--name', original['displayName'], '--new-instance')
         self.assertEqual(code, 0)
         changed = json.loads(path.read_text())
@@ -82,7 +80,19 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual({k: v for k, v in changed.items() if k != 'instanceId'},
                          {k: v for k, v in original.items() if k != 'instanceId'})
         self.assertEqual(Path(result['backup']).read_bytes(), before)
+
+    def test_new_instance_refuses_pending_accounting_without_mutating_anything(self):
+        self.setup_plugin()
+        path = self.plugin / 'si-notch.json'
+        before = path.read_bytes()
+        outbox = self.plugin / 'usage-outbox'
+        outbox.mkdir(); (outbox / 'pending.json').write_text('keep pending accounting')
+        code, result = self.call('setup', '--name', 'Clone', '--new-instance')
+        self.assertEqual(code, 1)
+        self.assertIn('existing identity', result['detail'])
+        self.assertEqual(path.read_bytes(), before)
         self.assertEqual((outbox / 'pending.json').read_text(), 'keep pending accounting')
+        self.assertEqual(list(self.plugin.glob('si-notch.backup-*')), [])
 
     def test_check_missing_socket_is_read_only_and_explains_connect(self):
         before = set(self.root.rglob('*'))
