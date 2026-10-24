@@ -19,7 +19,7 @@ The app records its helper's absolute installation path, including custom app lo
 
 ## Independent local and remote profiles
 
-A profile is identified by its stable `instanceId`, not its display name or the fact that Hermes is installed. Any number of local profiles can coexist with profiles on multiple SSH hosts. Choose the local profile in **Settings → Connection → Hermes** before applying setup, or use native `hermes -p PROFILE plugins` commands and that profile's real home. The copied activation command includes the exact local home. Each loaded profile sends its own heartbeat; idle profiles remain listed.
+A profile is identified by its stable `instanceId`, not its display name or the fact that Hermes is installed. Local profiles can coexist with profiles on multiple SSH hosts. Choose the local profile in **Settings → Connection → Hermes** before applying setup, or use native `hermes -p PROFILE plugins` commands and that profile's real home. The copied activation command includes the exact local home. Each loaded profile sends its own heartbeat; idle profiles remain listed.
 
 Use a different ID for every new profile. Keep the same ID when updating an existing profile. Native `configure.py setup` creates an ID only if missing; app setup creates one per local profile directory. If a newly cloned profile copied another profile's settings, run `configure.py setup --name "Clone name" --new-instance` only in the new clone. This backs up the clone's settings and leaves the original untouched. Do not copy another profile's pending usage queue or rotate a working profile's ID as an update step.
 
@@ -78,7 +78,7 @@ python3 "$HOME/.hermes/plugins/si-notch/configure.py" check
 
 Run the [smoke-test prompt](SMOKE_TEST_PROMPT.md) in a new session of the enabled profile. Verify task text when sharing is enabled, Working, two completed tools in Activity, final text and Done. Repeat in a second profile to check isolation. Newly observed request usage should appear when the runtime supplies its accounting hooks. Input questions must be answered in Hermes.
 
-The [installation prompt](INSTALL_PROMPT.md) can guide the remote half; [Russian version](INSTALL_PROMPT.ru.md). Remote command success does not establish the state of the Mac UI. Report installation, activation, transport receipt and live UI behavior separately.
+The native package includes [after-install.md](after-install.md) for agent-led connection steps. The [installation/update prompt](INSTALL_PROMPT.md) covers local and remote profiles; [Russian version](INSTALL_PROMPT.ru.md). Remote command success does not establish the state of the Mac UI. Report installation, activation, transport receipt and live UI behavior separately.
 
 ## Data and delivery
 
