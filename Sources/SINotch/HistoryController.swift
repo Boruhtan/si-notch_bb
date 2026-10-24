@@ -69,6 +69,9 @@ private final class HistoryWorker {
     private var store: HistoryStore?
     private var scheduled: DispatchWorkItem?
     private var snapshots: [String: (AgentEvent, AgentSession)] = [:]
+    private var goalScanner: CodexGoalHistoryScanner?
+    private var goalScanScheduled: DispatchWorkItem?
+    private var stopped = false
     func start(directory: URL, policy: HistoryPolicy, codexSessionsRoot: URL?) {
         queue.async { [self] in
             do {
@@ -76,6 +79,7 @@ private final class HistoryWorker {
                 store = archive
                 publish()
                 if policy.enabled, let codexSessionsRoot {
+                    goalScanner = CodexGoalHistoryScanner(sessionsRoot: codexSessionsRoot)
                     let keys = Set(archive.ordered.filter {
                         $0.provider.lowercased() == "codex" && $0.turnID != nil &&
                             ![.completed, .failed, .ended].contains($0.status)
@@ -91,6 +95,7 @@ private final class HistoryWorker {
                         }
                         if changed { try archive.flush(); publish() }
                     }
+                    try reconcileGoals()
                 }
             }
             catch { publish(error: true) }
@@ -140,12 +145,15 @@ private final class HistoryWorker {
     func clear() {
         queue.async { [self] in
             scheduled?.cancel(); scheduled = nil
+            goalScanScheduled?.cancel(); goalScanScheduled = nil
             do { try drainSnapshots(); try store?.clear(); publish() } catch { publish(error: true) }
         }
     }
     func shutdown() {
         // No synchronous worker→main hop exists. Drain buffered text on quit.
         queue.sync { [self] in
+            stopped = true
+            goalScanScheduled?.cancel(); goalScanScheduled = nil
             scheduled?.cancel(); scheduled = nil
             do { try drainSnapshots(); try store?.flush() } catch { publish(error: true) }
         }
@@ -155,6 +163,30 @@ private final class HistoryWorker {
         snapshots.removeAll(keepingCapacity: true)
         for (event, session) in pending { _ = try store?.accept(event, session: session) }
     }
-    private func flush() throws { scheduled?.cancel(); scheduled = nil; try drainSnapshots(); try store?.flush(); publish() }
+    private func flush() throws {
+        scheduled?.cancel(); scheduled = nil
+        try drainSnapshots(); try store?.flush(); publish()
+        if goalScanScheduled == nil { try reconcileGoals() }
+    }
+    private func reconcileGoals() throws {
+        guard !stopped, let store, store.policy.enabled, var scanner = goalScanner else { return }
+        let completions = scanner.poll(targets: store.ordered)
+        goalScanner = scanner
+        var changed = false
+        for completion in completions {
+            if try store.finishGoal(completion) { changed = true }
+        }
+        if changed { try store.flush(); publish() }
+        if scanner.hasPendingBytes {
+            // Yield between bounded chunks so long goal transcripts cannot
+            // monopolize history writes or delay shutdown.
+            let work = DispatchWorkItem { [self] in
+                goalScanScheduled = nil
+                do { try reconcileGoals() } catch { publish(error: true) }
+            }
+            goalScanScheduled = work
+            queue.asyncAfter(deadline: .now() + 0.05, execute: work)
+        }
+    }
     private func publish(error: Bool = false) { onChange?(store?.ordered ?? [], store?.bytes ?? 0, error) }
 }

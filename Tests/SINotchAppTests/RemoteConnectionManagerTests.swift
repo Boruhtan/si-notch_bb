@@ -1,8 +1,82 @@
 import Foundation
 import XCTest
+import SINotchTransport
+import SINotchCore
 @testable import SINotch
 
 final class RemoteConnectionManagerTests: XCTestCase {
+    @MainActor func testUnlistedRemoteProfileKeepsItsGroupVisibilityAndCannotOutliveRemovedConnector() throws {
+        let suite = "si-notch.remote-observed." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let manager = RemoteConnectionManager(defaults: defaults)
+        let id = try XCTUnwrap(manager.add()), now = Date()
+        let observation = AgentConnection.Observation(provider: "hermes", connectionID: "new-profile", name: "Discovered",
+            lastSeen: now, eventAt: now, eventID: "presence", origin: .remote(id))
+        func rows() -> [AgentConnection] {
+            AgentConnection.project(detected: [], sessions: [], receipts: [:], running: [], now: now,
+                connections: [observation.id: observation], configurations: manager.agentConfigurations(for: [observation.id: observation]))
+        }
+        XCTAssertEqual(rows().first?.connectorID, id)
+        XCTAssertEqual(rows().first?.state, .lastSeen, "A disconnected connector cannot borrow fresh presence")
+        var connection = try XCTUnwrap(manager.connections.first)
+        connection.showInAgents = false
+        manager.update(connection)
+        XCTAssertTrue(rows().isEmpty)
+        connection.showInAgents = true
+        manager.update(connection)
+        XCTAssertEqual(rows().count, 1)
+        manager.remove(id)
+        XCTAssertTrue(rows().isEmpty, "Removing an unlisted profile's connector cannot turn it into a local agent")
+    }
+    @MainActor
+    func testConnectorEndpointsBindEventsToTheirOwnerAndDisconnectIndependently() async throws {
+        let suite = "si-notch.remote-ingress." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = URL(fileURLWithPath: "/private/tmp/sn-" + UUID().uuidString.prefix(8))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ssh = try fakeSSH(in: directory)
+        let manager = RemoteConnectionManager(defaults: defaults, makeController: {
+            RemoteConnectionController(defaults: nil, sshExecutable: ssh, retryDelays: [], socketAvailable: { _ in true })
+        })
+        defer { manager.disconnectAll() }
+        var received: [UUID] = []
+        manager.onEvent = { _, connector, reply in received.append(connector); reply(Data("{\"ok\":true}".utf8)) }
+        let first = try XCTUnwrap(manager.add()), second = try XCTUnwrap(manager.add())
+        for (index, var connection) in manager.connections.enumerated() {
+            connection.host = "fixture-\(index)"
+            connection.remoteSocketPath = "/home/fixture/events.sock"
+            manager.update(connection)
+        }
+        let local = directory.appendingPathComponent("events.sock").path
+        manager.connect(first, localSocketPath: local)
+        manager.connect(second, localSocketPath: local)
+        try await waitForConnection(manager, first)
+        try await waitForConnection(manager, second)
+        let a = RemoteConnectionManager.eventSocketPath(for: first, beside: local)
+        let b = RemoteConnectionManager.eventSocketPath(for: second, beside: local)
+        XCTAssertNotEqual(a, b)
+        XCTAssertNotEqual(a, local)
+        for path in [a, b] {
+            let response = try await Task.detached {
+                try IPCClient(socketPath: path).send(Data("{}".utf8), awaitReply: true)
+            }.value
+            XCTAssertNotNil(response)
+        }
+        XCTAssertEqual(received, [first, second])
+        manager.disconnect(first)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: a))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: b))
+        let response = try await Task.detached {
+            try IPCClient(socketPath: b).send(Data("{}".utf8), awaitReply: true)
+        }.value
+        XCTAssertNotNil(response)
+        XCTAssertEqual(received, [first, second, second])
+        manager.disconnectAll()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: b))
+    }
     @MainActor
     func testLegacyMigrationDoesNotConnectAndNamesPersistIndependently() throws {
         let suite = "si-notch.remote-manager." + UUID().uuidString

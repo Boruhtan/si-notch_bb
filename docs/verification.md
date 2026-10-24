@@ -12,7 +12,9 @@ scripts/build-app.sh release
 scripts/verify-release.sh
 ```
 
-The test script runs Swift tests, localization checks, CLI smoke tests and JavaScript/Python adapter tests. Build verification checks the ZIP inventory and the extracted app's code signature. [GitHub Actions](../.github/workflows/ci.yml) also builds the DMG.
+The test script runs Swift tests, localization checks, CLI smoke tests, JavaScript/Python adapter tests and the isolated custom-agent example. Build verification checks the ZIP inventory and the extracted app's code signature. [GitHub Actions](../.github/workflows/ci.yml) also builds the DMG.
+
+Goal History tests distinguish a stopped first turn from a goal completed after resuming. They require an exact session, original turn and goal identity, preserve ordinary cancellations, and reject prose, unrelated tool output and unsupported formats. The optional `SI_NOTCH_GOAL_LIVE_CHECK_ROLLOUT=/absolute/path/to/rollout.jsonl` test reads only that session's existing History metadata and local completion evidence; it never writes to the production archive.
 
 ## Interface checks
 
@@ -43,6 +45,10 @@ For fullscreen, check a native fullscreen window and a fullscreen video player s
 The implementation uses Apple's [system presentation options](https://developer.apple.com/documentation/appkit/nsapplication/currentsystempresentationoptions), public window bounds for players that do not set fullscreen flags, [SwiftUI Spring](https://developer.apple.com/documentation/swiftui/spring), and a [window display link](https://developer.apple.com/documentation/appkit/nswindow/displaylink(target:selector:)). Window titles and screen pixels are not read by the detector. Hover-to-open and hiding in fullscreen are also established options in [Droppy](https://getdroppy.app/docs/notch).
 
 Static captures do not measure animation smoothness or compositor frame rate. Check hover activation, dismissal, Mission Control, fullscreen apps and display changes manually. Play sound previews through the intended audio output.
+
+For the 0.4.28 Settings redesign, verify the first opening, closing and reopening, section selection, search and scrolling at the 820 × 660 pt minimum and larger window sizes. Check English, Russian and Simplified Chinese; exercise Command-F, Return, Escape, keyboard focus and VoiceOver separately. Inspect the actual window with Reduce Transparency and Increase Contrast, and on macOS 14–15 as well as macOS 26. Ordinary NSView bitmap captures do not validate glass backdrop sampling; neither bitmap nor native window screenshots prove interactive accessibility.
+
+`--qa-showcase-only` with `--qa-export` renders synthetic session and Settings views without starting normal agent services. On macOS 14.4+, Settings screenshots use ScreenCaptureKit's current-process window list and match both the process ID and exact window ID before capturing one window. They do not use desktop-wide capture or include other applications. Session images retain the existing NSView bitmap path. Adding `--qa-settings-preview` leaves an interactive Settings window open for five minutes. Its private preferences suite does not isolate every existing control: login items, sound imports, update actions and integration setup can still affect real system or application state. Keep preview checks to navigation, search, resizing, scrolling and companion interaction unless those side effects are explicitly intended. Screenshot export alone is not a release validation record.
 
 Add `--qa-interaction-only` to check native tracking below the edge, transparent shoulders, dragging, brief contact, continuous crossing, deliberate dwell, panel geometry and the Settings audio sink without posting input to the desktop. Add `--qa-service-only` to render the two observed memory-job signatures beside an ordinary task in all three languages. These controlled fixtures do not establish subjective hover feel on physical hardware.
 
@@ -145,3 +151,9 @@ Regression coverage includes offered decisions and exact command rules, full mul
 Final local gates passed: 455 Swift tests (two existing private-data opt-in skips), 77 Python tests, nine Node adapter tests and 683 matching localization keys. `scripts/build-app.sh release` produced a verified ZIP and bundle. The installed executable has the same SHA-256 as the packaged executable; codesign verification passed. The previous installation is retained as a dated .backup.
 
 Computer use verified the restarted installation with both current Codex sessions and the existing Hermes connection restored. A real `si-notchctl request` to the installed app automatically expanded the collapsed island and displayed the shared Allow once/Deny controls. Clicking Deny returned `ok: true`, `decision: deny` and the matching one-shot request ID to the waiting helper; the helper exited 1 as specified. No requested command existed or was run. The temporary test session was then ended. This verifies the installed local request/reply channel, independently of the Desktop protocol fixture.
+
+### Settings 0.4.28 validation (2026-10-23)
+
+The final `scripts/test.sh` run completed 459 Swift tests across the transport, core and app bundles, with two existing private-data opt-in skips and zero failures. All 77 Python tests, nine Node adapter tests, CLI smoke checks and 690 matching localization keys passed. This includes localized search and first-open/reopen Settings regressions. `scripts/build-app.sh release` and `scripts/verify-release.sh` passed for 0.4.28/build 55; the ARM64 ZIP inventory and ad hoc code signature were verified. Notarization is still pending.
+
+The release-bundle showcase report passed: four synthetic session bitmaps and six native Settings window screenshots in English and Russian. Every Settings capture verified the current process ID and exact window ID; no desktop-wide capture or live agent services were used. Screenshot generation does not verify pointer actions, keyboard navigation, scrolling or VoiceOver. The native computer-use pipe was unavailable, so those interactive checks and older macOS rendering remain unverified.

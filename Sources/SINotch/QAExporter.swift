@@ -1,12 +1,14 @@
 import AppKit
 import Foundation
 import SwiftUI
+import ScreenCaptureKit
 import SINotchCore
 import SINotchTransport
 import Darwin
 
-/// Development-only inspection of this process's own NSView backing and NSWindow
-/// geometry. This is not a desktop/compositor capture or a hardware notch test.
+/// Development-only inspection of this process's own views and windows.
+/// Standard QA uses NSView backing; showcase Settings uses current-process-only
+/// window capture. Neither path captures other apps or tests the hardware notch.
 @MainActor
 enum QAExporter {
     private static var running = false
@@ -96,7 +98,7 @@ enum QAExporter {
 
     private struct Report: Encodable {
         let schemaVersion = 1
-        let evidenceKind = "own-app NSView backing and native NSWindow geometry"
+        let evidenceKind = "own-app NSView backing and native NSWindow geometry; showcase Settings uses current-process window capture"
         let createdAt = ISO8601DateFormatter().string(from: Date())
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -104,8 +106,8 @@ enum QAExporter {
         let reduceMotion: Bool
         let reduceTransparency: Bool
         let limitations = [
-            "PNG files cache this application's own NSView; they are not desktop screenshots or compositor frames.",
-            "Glass backdrop sampling, hardware camera occlusion, compositor presentation, and other apps are not validated.",
+            "Regular QA PNG files cache this application's own NSView. Showcase Settings PNG files use ScreenCaptureKit for a single window owned by this process.",
+            "Hardware camera occlusion and other apps are not validated. Bitmap captures do not validate glass backdrop sampling or compositor presentation.",
             "Display-link timestamps measure callbacks and frame-setting cost, not presented compositor FPS.",
             "Bitmap export runs on the main thread and can perturb animation timing; actual timestamps and capture costs are retained.",
             "Static settings captures cover the initial viewport. Scroll positions and control activation are not exercised.",
@@ -231,9 +233,11 @@ enum QAExporter {
                     report.screenFrame = Frame(screen.frame)
                     report.screenMaximumFramesPerSecond = screen.maximumFramesPerSecond
                 }
-                if CommandLine.arguments.contains("--qa-plugin-updates-only") {
+                if CommandLine.arguments.contains("--qa-showcase-only") {
+                    try await exportShowcase()
+                } else if CommandLine.arguments.contains("--qa-plugin-updates-only") {
                     let plugins = PluginUpdateCatalog.bundled()
-                    check("bundled-plugin-announcements", plugins.count == 1 && PluginUpdate.validList(plugins), "Bundled plugin metadata is valid.")
+                    check("bundled-plugin-announcements", PluginUpdate.validList(plugins), "Bundled plugin metadata is valid; releases without plugin changes may have no announcements.")
                     for language in ["en", "ru", "zh-Hans"] {
                         overrides["appLanguage"] = language; applyOverrides()
                         try await captureHosted(PluginUpdatesView(updates: plugins).padding(24)
@@ -276,6 +280,14 @@ enum QAExporter {
             }
             log("QA export \(report.outcome): \(directory.path)" + (report.fatalError.map { " — \($0)" } ?? ""),
                 error: report.outcome == "failed")
+            if report.outcome == "passed", CommandLine.arguments.contains("--qa-showcase-only"),
+               CommandLine.arguments.contains("--qa-settings-preview") {
+                // Opt-in inspection of the isolated preview model. No IPC, observers,
+                // remote connections, update checker, or global shortcut is started.
+                delegate.showSettings()
+                log("Isolated settings preview; closes after 5 minutes.")
+                try? await pause(300)
+            }
             if report.outcome == "passed", CommandLine.arguments.contains("--qa-screens-only"),
                let index = CommandLine.arguments.firstIndex(of: "--qa-preview-screen"),
                CommandLine.arguments.indices.contains(index + 1),
@@ -313,6 +325,9 @@ enum QAExporter {
             var arguments = previousArguments ?? [:]
             for (key, value) in overrides { arguments[key] = value }
             defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            if delegate.model.defaults !== defaults {
+                delegate.model.defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            }
             NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
             delegate.model.revision += 1
         }
@@ -455,6 +470,10 @@ enum QAExporter {
                 model.inject(["event": "agent.completed", "session_id": "qa-clear-\(index)", "provider": "custom",
                     "title": "Completed task \(index + 1)", "message": "Finished reviewing the change."])
             }
+            // Establish real pointer contact before opening. Leaving the
+            // fixture pointer below the panel arms dismissal during the wait,
+            // so the Clear checks would measure an already-collapsed window.
+            try move(CGPoint(x: region.midX, y: region.midY))
             model.setExpanded(true, origin: .hover)
             try await pause(0.7)
             let beforeClear = delegate.panel.frame
@@ -558,7 +577,9 @@ enum QAExporter {
                 ("working", AgentStatus.working, AgentEventKind.working, "Review the next change"),
                 ("waiting", .waiting, .waiting, "Choose the update channel"),
                 ("failed", .failed, .failed, "Verify the release archive"),
-                ("memory", .completed, .completed, "Consolidate the supplied rollout summaries into `memory_summary.md` so another agent understands them.")
+                ("closed", .ended, .sessionEnded, "Review the archived task"),
+                ("memory-completed", .completed, .completed, "## Memory Writing Agent: Phase 2 (Consolidation) You are a Memory Writing Agent."),
+                ("memory", .ended, .sessionEnded, "Consolidate the supplied rollout summaries into `memory_summary.md` so another agent understands them.")
             ] {
                 let session = AgentSession(id: "qa-history-" + id, provider: "codex", title: prompt,
                     projectPath: "/work/si-notch", status: status)
@@ -578,12 +599,18 @@ enum QAExporter {
                 try await captureHosted(HistoryView(history: model.history, usage: model.usage, openUsage: { _ in }).preferredColorScheme(.dark).background(.black),
                     name: "history-narrow-\(language)", language: language, size: NSSize(width: 360, height: 480))
                 model.history.search = L10n.tr("history.memoryTitle")
-                check("history-memory-title-search-\(language)", model.history.matching.count == 1 && model.history.matching.first?.memoryService == true,
+                check("history-memory-title-search-\(language)", model.history.matching.count == 2 && model.history.matching.allSatisfy(\.memoryService),
                       "The compact localized memory title is searchable without knowing the original technical prompt.")
-                check("history-memory-source-\(language)", model.history.matching.first?.historyProviderName == "Codex",
+                check("history-memory-source-\(language)", model.history.matching.allSatisfy { $0.historyProviderName == "Codex" },
                       "Background memory records retain the originating agent name alongside their status.")
+                check("history-memory-identity-\(language)", Set(model.history.matching.map(\.status)) == [.completed, .ended] &&
+                      model.history.matching.allSatisfy { $0.historySymbol == "brain" } &&
+                      NSImage(systemSymbolName: "brain", accessibilityDescription: nil) != nil,
+                      "Completed and closed memory records share the brain identity without changing their terminal status.")
+                try await captureHosted(HistoryView(history: model.history, usage: model.usage, openUsage: { _ in }).preferredColorScheme(.dark).background(.black),
+                    name: "history-memory-\(language)", language: language, size: NSSize(width: 360, height: 360))
                 model.history.search = ""
-                if let id = model.history.records.first?.id {
+                if let id = model.history.records.first(where: { $0.memoryService && $0.status == .ended })?.id {
                     model.history.open(id); try await pause(0.15)
                     try capturePanel(name: "island-history-detail-\(language)", language: language)
                 }
@@ -610,6 +637,7 @@ enum QAExporter {
             model.activeFilter = "Все"
             model.showAgents = false
             model.providerReceipts.removeAll()
+            model.legacyProviderReceipts.removeAll()
         }
 
         func settle(expanded: Bool) async throws {
@@ -1039,6 +1067,47 @@ enum QAExporter {
             }
         }
 
+        /// Real application views with explicitly synthetic, non-private content.
+        /// Used by the product site; never captures the user's sessions or desktop.
+        func exportShowcase() async throws {
+            let model = delegate.model
+            overrides["panelWidth"] = 680.0
+            overrides["panelHeight"] = 560.0
+            overrides["companionStyle"] = "cat"
+            applyOverrides()
+            for language in ["en", "ru"] {
+                overrides["appLanguage"] = language
+                applyOverrides()
+                clearFixtures()
+                let russian = language == "ru"
+                model.inject(["event": "agent.completed", "session_id": "showcase-docs", "provider": "claude",
+                    "title": russian ? "Обновить документацию" : "Polish the documentation",
+                    "message": russian ? "Все примеры проверены. Готово." : "Every example checked. Ready to ship."])
+                model.inject(["event": "agent.working", "session_id": "showcase-design", "provider": "codex",
+                    "title": russian ? "Немного магии для интерфейса" : "A little polish for the interface",
+                    "message": russian ? "Проверяю отступы и плавность переходов." : "Checking spacing and refining the transitions.",
+                    "tool_name": "swift build"])
+                model.inject(["event": "agent.working", "session_id": "showcase-research", "provider": "hermes",
+                    "title": russian ? "Собрать идеи для следующего релиза" : "Gather ideas for the next release",
+                    "message": russian ? "Изучаю заметки и готовлю краткое резюме." : "Reading the notes and preparing a short summary."])
+                try await settle(expanded: true)
+                try capturePanel(name: "showcase-sessions-\(language)", language: language)
+                model.selectedID = "showcase-design"
+                try await settle(expanded: true)
+                try capturePanel(name: "showcase-detail-\(language)", language: language)
+                for (tab, name) in [(0, "general"), (4, "companions"), (5, "display")] {
+                    try await captureShowcaseWindow(SettingsView(model: model, tab: tab).defaultAppStorage(model.defaults),
+                        name: "showcase-settings-\(name)-\(language)", language: language,
+                        size: NSSize(width: 920, height: 720))
+                }
+                clearFixtures()
+            }
+            overrides["appLanguage"] = "en"
+            applyOverrides()
+            check("showcase-isolated", model.server == nil && model.timer == nil && model.sessions.isEmpty,
+                  "Only synthetic in-memory sessions were rendered; live services were not started.")
+        }
+
         func exportStaticViews() async throws {
             for language in ["en", "ru", "zh-Hans"] {
                 overrides["appLanguage"] = language
@@ -1199,6 +1268,59 @@ enum QAExporter {
             }
             check("island-clear-side-bands", samples > 0 && maximumAlpha <= 1.0 / 255,
                   "\(samples) exterior pixels sampled; maximum alpha=\(maximumAlpha).")
+        }
+
+        /// Captures only the synthetic window created here. The current-process
+        /// API does not request broad Screen Recording access or enumerate other
+        /// apps' unredacted windows. Fail instead of substituting a bitmap capture.
+        func captureShowcaseWindow<Content: View>(_ content: Content, name: String, language: String,
+                                                  size: NSSize) async throws {
+            guard #available(macOS 14.4, *) else { throw ExportError.unavailableView }
+            let host = NSHostingView(rootView: content.environment(\.locale, Locale(identifier: language)))
+            host.sizingOptions = []
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.title = L10n.tr("si-notch · Настройки")
+            window.titlebarAppearsTransparent = true
+            window.backgroundColor = NSColor(white: 0.12, alpha: 1)
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.contentView = host
+            window.setContentSize(size)
+            host.frame = NSRect(origin: .zero, size: size)
+            defer { window.close() }
+            window.center()
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            host.layoutSubtreeIfNeeded()
+            try await pause(0.35)
+
+            let available = try await SCShareableContent.currentProcess
+            guard let ownWindow = available.windows.first(where: {
+                $0.windowID == CGWindowID(window.windowNumber) &&
+                $0.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier
+            }) else { throw ExportError.unavailableView }
+            let filter = SCContentFilter(desktopIndependentWindow: ownWindow)
+            let config = SCStreamConfiguration()
+            config.width = Int(filter.contentRect.width * CGFloat(filter.pointPixelScale))
+            config.height = Int(filter.contentRect.height * CGFloat(filter.pointPixelScale))
+            config.showsCursor = false
+            config.ignoreShadowsSingleWindow = true
+            config.includeChildWindows = false
+            config.captureResolution = .best
+            let start = ProcessInfo.processInfo.systemUptime
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            guard let png = bitmap.representation(using: .png, properties: [:]) else { throw ExportError.cannotEncodePNG }
+            let path = "static/\(name).png"
+            try png.write(to: directory.appendingPathComponent(path), options: .withoutOverwriting)
+            report.staticCaptures.append(StaticCapture(name: name, png: path, language: language,
+                viewWidth: window.frame.width, viewHeight: window.frame.height,
+                pixelWidth: image.width, pixelHeight: image.height,
+                captureSeconds: ProcessInfo.processInfo.systemUptime - start))
+            check("\(name)-own-window", true,
+                  "ScreenCaptureKit captured only the synthetic Settings window matching this process and its exact window ID.")
         }
 
         func captureHosted<Content: View>(_ content: Content, name: String, language: String, size: NSSize,

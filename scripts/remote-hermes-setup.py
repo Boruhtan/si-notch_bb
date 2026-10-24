@@ -74,6 +74,7 @@ def inspect(home, relay, socket_path):
         roots += [(p.name, safe(p)) for p in sorted(profiles_dir.iterdir())
                   if p.is_dir() and (p / "config.yaml").is_file()]
     profiles, files = [], {}
+    identities = set()
     for identifier, root in roots:
         if not identifier or len(identifier) > 80 or not all(c.isascii() and (c.isalnum() or c in "-_") for c in identifier):
             raise ValueError("Unsupported profile identifier")
@@ -88,6 +89,9 @@ def inspect(home, relay, socket_path):
         if not isinstance(instance, str) or not instance or len(instance) > 4096:
             instance = sha((platform.node() + ":" + str(root)).encode())
         connection_id = "hermes-instance-" + sha(instance.encode())[:32]
+        if connection_id in identities:
+            raise ValueError("Hermes profiles share an instanceId. Give only the new clone a distinct identity with configure.py setup --new-instance; preserve existing profile IDs.")
+        identities.add(connection_id)
         profiles.append({"connection_id": connection_id, "id": identifier, "home": str(root), "display_name": name,
                          "enabled": plugin_enabled(config), "show_session_text": settings.get("showSessionText") is True,
                          "plugin_installed": (plugin / "__init__.py").is_file()})

@@ -62,3 +62,5 @@ hermes plugins enable si-notch
 ```
 
 [测试范围](parity.md)。协议文档：[Claude](https://code.claude.com/docs/en/hooks)、[Pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md)、[OpenCode](https://opencode.ai/docs/plugins/)、[Hermes](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)、[Gemini](https://geminicli.com/docs/hooks/)、[Copilot](https://docs.github.com/en/copilot/reference/hooks-reference)、[Cursor](https://cursor.com/docs/hooks)。
+
+开发指南：[自定义智能体（英文）](../custom-agents.md) · [俄文](../ru/custom-agents.md) · [Hermes 插件开发（英文）](../hermes-plugin-development.md)。包含生命周期、身份、用量、请求期限和隔离的套接字测试。

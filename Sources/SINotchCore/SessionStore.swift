@@ -40,8 +40,9 @@ public struct SessionStore: Sendable {
         if let dedupeKey, rememberedIDs.contains(dedupeKey) { return .duplicate }
         if let existing = sessions[event.sessionID] {
             guard existing.provider == event.provider else { return .invalid }
-            if let connectionID = event.connectionID, let current = existing.connectionID,
-               connectionID != current { return .invalid }
+            // An established legacy session is a distinct identity too. A later
+            // named event cannot adopt its tasks, history or pending request.
+            if let connectionID = event.connectionID, connectionID != existing.connectionID { return .invalid }
             if let sequence = event.sequence, let previous = existing.lastSequence {
                 guard sequence > previous else { return .outOfOrder }
             } else if event.timestamp < existing.lastEventAt {

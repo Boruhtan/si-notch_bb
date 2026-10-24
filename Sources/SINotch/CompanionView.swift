@@ -40,16 +40,21 @@ struct CompanionView: View {
     var body: some View {
         let _ = appLanguage
         let selectedStyle = style ?? CompanionStyle(rawValue: storedStyle) ?? .robot
-        CompanionArtwork(configuration: .init(status: status, style: selectedStyle, motion: motion,
+        let artwork = CompanionArtwork(configuration: .init(status: status, style: selectedStyle, motion: motion,
             greetingStartedAt: greetingStartedAt, reduceMotion: reduceMotion,
             previewTime: previewTime, displayScale: displayScale))
+        Group {
+            if interactive {
+                Button(action: greet) { artwork.frame(width: size, height: size).contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+            } else { artwork }
+        }
         .frame(width: size, height: size)
         .contentShape(Rectangle())
         .onAppear { motion = CompanionPoseTransition(status: status, at: Date().timeIntervalSinceReferenceDate) }
         .onChange(of: status) { _, newStatus in
             motion.retarget(to: newStatus, at: Date().timeIntervalSinceReferenceDate, reduceMotion: reduceMotion)
         }
-        .onTapGesture { greet() }
         .task(id: greetingStartedAt) {
             guard greetingStartedAt != nil else { return }
             try? await Task.sleep(for: .milliseconds(900))

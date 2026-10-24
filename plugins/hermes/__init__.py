@@ -492,8 +492,8 @@ def on_human_input_resolved(session_id=None, **kwargs) -> None:
     _emit("agent.working", session_id)
 
 
-def on_session_end(session_id=None, completed=False, failed=False,
-                   interrupted=False, turn_id=None, **kwargs) -> None:
+def on_session_end(session_id=None, completed=None, failed=False,
+                   interrupted=None, turn_id=None, **kwargs) -> None:
     # Hermes fires this once per turn; only finalize closes the durable session.
     if failed:
         kind = "agent.failed"
@@ -501,6 +501,10 @@ def on_session_end(session_id=None, completed=False, failed=False,
         kind = "agent.waiting"
     elif completed:
         kind = "agent.completed"
+    elif completed is False and interrupted is False:
+        # The documented hook has no failed flag: an unsuccessful,
+        # uninterrupted turn is terminal. Missing outcome fields stay unknown.
+        kind = "agent.failed"
     else:
         kind = "agent.waiting"
     _emit(kind, session_id, turn_id=turn_id)

@@ -9,10 +9,6 @@ import SINotchTransport
 @main
 struct SINotchMain {
     static func main() {
-        if CommandLine.arguments.contains("--verify-local-alias") {
-            LocalAliasVerification.run()
-            return
-        }
         if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--install-update" {
             exit(UpdateInstaller.run(receipt: URL(fileURLWithPath: CommandLine.arguments[2])))
         }
@@ -26,16 +22,16 @@ struct SINotchMain {
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var store = SessionStore()
+    // Retain multiple simultaneous tasks for at least a hundred profiles while
+    // keeping the live in-memory store bounded independently of History.
+    @Published var store = SessionStore(maximumSessions: 1024)
     @Published var expanded = false
     @Published var paused = false
     @Published var serverError: AppDisplayError?
     @Published var receivedCount = 0
-    // Unscoped events only; named profiles have independent connectionReceipts.
     @Published var providerReceipts: [String: Date] = [:]
+    @Published var legacyProviderReceipts: [String: Date] = [:]
     @Published var connectionReceipts: [String: AgentConnection.Observation] = [:]
-    @Published var localAgentIdentities: Set<AgentConnection.LocalIdentity> = []
-    let localIdentityDiscovery: LocalHermesIdentityDiscovery
     @Published var activity: [String: [SessionActivity]] = [:]
     @Published var selectedID: String?
     @Published var pending: [String: PendingRequest] = [:]
@@ -128,9 +124,8 @@ final class AppModel: ObservableObject {
     }
     var agents: [AgentConnection] {
         AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
-            receipts: providerReceipts, running: runningAgentProviders, now: presenceNow, connections: connectionReceipts,
-            configurations: remoteConnections.agentConfigurations, localDisplayNames: localAgentDisplayNames,
-            localIdentities: localAgentIdentities)
+            receipts: legacyProviderReceipts, running: runningAgentProviders, now: presenceNow, connections: connectionReceipts,
+            configurations: remoteConnections.agentConfigurations(for: connectionReceipts), localDisplayNames: localAgentDisplayNames)
     }
     var agentsSectionHeight: CGFloat { 40 }
     func displayTitle(_ session: AgentSession) -> String {
@@ -230,10 +225,8 @@ final class AppModel: ObservableObject {
     var quiet: Bool { defaults.bool(forKey: "quiet") }
     var socketPath: String { ProcessInfo.processInfo.environment["SI_NOTCH_SOCKET"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".si-notch/run/events.sock").path }
 
-    init(defaults: UserDefaults = .standard, soundPlayer: EventSoundPlayer? = nil,
-         localIdentityDiscovery: LocalHermesIdentityDiscovery = LocalHermesIdentityDiscovery()) {
+    init(defaults: UserDefaults = .standard, soundPlayer: EventSoundPlayer? = nil) {
         self.defaults = defaults
-        self.localIdentityDiscovery = localIdentityDiscovery
         self.quota = CodexQuotaController(defaults: defaults)
         self.remoteConnections = RemoteConnectionManager(defaults: defaults)
         self.soundPlayer = soundPlayer ?? EventSoundPlayer(defaults: defaults)
@@ -242,6 +235,10 @@ final class AppModel: ObservableObject {
         historySubscription = history.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         remoteSubscription = remoteConnections.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.revision += 1; self?.onLayout?() }
+        }
+        remoteConnections.onEvent = { [weak self] data, connectorID, reply in
+            guard let self else { reply(nil); return }
+            self.receive(data, origin: .remote(connectorID), reply: { reply($0) })
         }
         defaults.register(defaults: ["codexAutoDetect": true, "updateBackgroundChecks": true])
         defaults.register(defaults: PresentationPolicy.registeredDefaults)
@@ -255,7 +252,6 @@ final class AppModel: ObservableObject {
         history.start(codexSessionsRoot: defaults.bool(forKey: "codexAutoDetect") ?
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions", isDirectory: true) : nil)
         detectedHarnesses = HarnessDiscoveryService().scan().detected
-        localAgentIdentities = localIdentityDiscovery.scan(socketPath: socketPath)
         refreshAgentPresence()
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             presenceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -263,8 +259,10 @@ final class AppModel: ObservableObject {
             })
         }
         do {
-            let ipc = IPCServer(socketPath: socketPath, onMessage: { [weak self] data, reply in
-                DispatchQueue.main.async { self?.receive(data, reply: { reply($0) }) }
+            let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/si-notchctl")
+            let ipc = IPCServer(socketPath: socketPath, maxConnections: 128, onPeerMessage: { [weak self] data, executable, reply in
+                let origin = AgentConnection.localOrigin(peerExecutable: executable, helperURL: helper)
+                DispatchQueue.main.async { self?.receive(data, origin: origin, reply: { reply($0) }) }
             })
             try ipc.start()
             server = ipc
@@ -342,7 +340,8 @@ final class AppModel: ObservableObject {
         receive(data, suppressPresentation: bootstrap, reply: { _ in })
     }
 
-    func receive(_ data: Data, suppressPresentation: Bool = false, reply: @escaping (Data) -> Void) {
+    func receive(_ data: Data, origin: AgentConnection.Origin = .unknown,
+                 suppressPresentation: Bool = false, reply: @escaping (Data) -> Void) {
         if let control = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            control.count == 2, control["command"] as? String == "status",
            control["protocol_version"] as? Int == 1 {
@@ -363,6 +362,16 @@ final class AppModel: ObservableObject {
         guard !paused else { reply(json(["ok": false, "error": "paused"])); return }
         do {
             var event = try AgentEvent.parse(data: data)
+            event.provider = event.provider.lowercased()
+            // Later hooks may omit profile metadata; the session's existing
+            // identity remains authoritative and cannot become a legacy receipt.
+            if event.connectionID == nil, let session = store.sessions[event.sessionID], session.provider == event.provider {
+                event.connectionID = session.connectionID
+                event.connectionName = session.connectionName
+            }
+            guard let connectionOrigin = connectionOrigin(for: event, from: origin) else {
+                reply(json(["ok": false, "error": "connection_origin_conflict"])); return
+            }
             // Tool hooks continue during asynchronous questions. Only the
             // authoritative Desktop stream may resolve a displayed request.
             if event.provider == "codex", let request = codexInteractions[event.sessionID]?.first,
@@ -404,9 +413,10 @@ final class AppModel: ObservableObject {
             if event.kind == .agentPresence {
                 guard !waitingForReply else { reply(json(["ok": false, "error": "invalid_presence"])); return }
                 presenceNow = Date()
-                let applied = noteConnection(event, at: presenceNow)
+                let applied = noteConnection(event, at: presenceNow, origin: connectionOrigin)
                 receivedCount += 1
                 if applied {
+                    providerReceipts[event.provider.lowercased()] = presenceNow
                     revision += 1
                     onLayout?()
                 }
@@ -470,10 +480,9 @@ final class AppModel: ObservableObject {
                 }
                 if !suppressPresentation {
                     presenceNow = Date()
-                    // Provider receipts belong only to unscoped sessions. A
-                    // profile's task/heartbeat must never refresh another row.
-                    if event.connectionID == nil { providerReceipts[event.provider.lowercased()] = presenceNow }
-                    _ = noteConnection(event, at: presenceNow)
+                    providerReceipts[event.provider.lowercased()] = presenceNow
+                    if event.connectionID == nil { legacyProviderReceipts[event.provider] = presenceNow }
+                    _ = noteConnection(event, at: presenceNow, origin: connectionOrigin)
                 }
                 if let item = SessionActivity(event) {
                     var history = activity[event.sessionID] ?? []
@@ -534,7 +543,32 @@ final class AppModel: ObservableObject {
         } catch { reply(json(["ok": false, "error": "invalid_event", "message": L10n.eventError(error)])) }
     }
 
-    private func noteConnection(_ event: AgentEvent, at receivedAt: Date) -> Bool {
+    private func connectionOrigin(for event: AgentEvent, from source: AgentConnection.Origin) -> AgentConnection.Origin? {
+        guard let id = event.connectionID else {
+            // SSH events need a profile identity; otherwise they could mutate a
+            // local legacy session or lend remote presence to a local app.
+            if case .remote = source { return nil }
+            return source
+        }
+        let configurations = remoteConnections.agentConfigurations.filter { $0.provider == event.provider && $0.connectionID == id }
+        guard configurations.count <= 1 else { return nil }
+        let owners = Set(configurations.map(\.connectorID))
+        switch source {
+        case .local:
+            guard owners.isEmpty else { return nil }
+        case .remote(let connectorID):
+            guard remoteConnections.connections.contains(where: { $0.id == connectorID }),
+                  owners.isEmpty || owners == [connectorID] else { return nil }
+        case .unknown:
+            guard owners.count <= 1 else { return nil }
+        }
+        if let previous = connectionReceipts[event.provider + "/" + id], previous.origin != .unknown {
+            guard previous.origin == source else { return nil }
+        }
+        return source
+    }
+
+    private func noteConnection(_ event: AgentEvent, at receivedAt: Date, origin: AgentConnection.Origin) -> Bool {
         guard let connectionID = event.connectionID else { return false }
         let provider = event.provider.lowercased()
         let key = provider + "/" + connectionID
@@ -542,18 +576,14 @@ final class AppModel: ObservableObject {
             guard event.timestamp >= previous.eventAt,
                   event.id == nil || event.id != previous.eventID else { return false }
         }
-        if provider == "hermes", connectionReceipts[key] == nil ||
-            event.kind == .agentPresence || event.kind == .sessionStarted {
-            localAgentIdentities = localIdentityDiscovery.scan(socketPath: socketPath)
-        }
-        if connectionReceipts[key] == nil, connectionReceipts.count >= 256,
+        if connectionReceipts[key] == nil, connectionReceipts.count >= 1024,
            let oldest = connectionReceipts.min(by: { $0.value.lastSeen < $1.value.lastSeen })?.key {
             connectionReceipts.removeValue(forKey: oldest)
         }
         let name = event.connectionName?.trimmingCharacters(in: .whitespacesAndNewlines)
         connectionReceipts[key] = AgentConnection.Observation(provider: provider, connectionID: connectionID,
-            name: name.flatMap { $0.isEmpty ? nil : $0 } ?? provider, lastSeen: receivedAt,
-            eventAt: event.timestamp, eventID: event.id)
+            name: name.flatMap { $0.isEmpty ? nil : $0 } ?? connectionReceipts[key]?.name ?? provider, lastSeen: receivedAt,
+            eventAt: event.timestamp, eventID: event.id, origin: origin)
         return true
     }
 
@@ -562,9 +592,8 @@ final class AppModel: ObservableObject {
         let visibleBefore = sessions.map { $0.id }
         let now = Date()
         let currentAgents = AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
-            receipts: providerReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts,
-            configurations: remoteConnections.agentConfigurations, localDisplayNames: localAgentDisplayNames,
-            localIdentities: localAgentIdentities)
+            receipts: legacyProviderReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts,
+            configurations: remoteConnections.agentConfigurations(for: connectionReceipts), localDisplayNames: localAgentDisplayNames)
         if currentAgents != agents { presenceNow = now }
         let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let foreground = Set(sessions.filter { $0.terminalBundleID != nil && $0.terminalBundleID == frontBundle }.map(\.id))
@@ -875,12 +904,35 @@ final class AppModel: ObservableObject {
         onLayout?()
     }
     func moveSelection(_ delta: Int) {
-        guard !showingHistory else { return }
+        guard !showAgents, !showingHistory else { return }
         let items = filtered
         guard !items.isEmpty else { return }
         let index = selectedID.flatMap { id in items.firstIndex { $0.id == id } } ?? (delta > 0 ? -1 : items.count)
         selectSession(items[min(items.count - 1, max(0, index + delta))].id)
     }
+    /// Task shortcuts only act on the currently visible list. A remembered
+    /// selection from another tab or filter must never launch a hidden task.
+    func handlePanelKey(_ keyCode: UInt16, characters: String?) -> Bool {
+        guard expanded else { return false }
+        if keyCode == 53 { setExpanded(false); return true }
+        guard !showAgents, !showingHistory else { return false }
+        let items = filtered
+        switch keyCode {
+        case 125, 126:
+            guard !items.isEmpty else { return false }
+            moveSelection(keyCode == 125 ? 1 : -1)
+        case 36, 76:
+            guard !defaults.bool(forKey: "disableClickJump"),
+                  let id = selectedID, let session = items.first(where: { $0.id == id }) else { return false }
+            jump(session)
+        default:
+            guard let characters, let number = Int(characters), (1...9).contains(number),
+                  items.indices.contains(number - 1) else { return false }
+            selectSession(items[number - 1].id)
+        }
+        return true
+    }
+
     func shutdown() {
         history.shutdown()
         usage.shutdown(); quota.stop()
@@ -917,7 +969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var shortcutConfiguration: String?
 
     init(model: AppModel? = nil) {
-        self.model = model ?? AppModel(defaults: CommandLine.arguments.contains("--qa-interactions")
+        self.model = model ?? AppModel(defaults: CommandLine.arguments.contains(where: { ["--qa-interactions", "--qa-showcase-only"].contains($0) })
             ? UserDefaults(suiteName: "si-notch.interaction-qa.\(UUID().uuidString)")! : .standard)
         super.init()
     }
@@ -999,19 +1051,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, event.window === self.panel, self.model.expanded,
                   !(self.panel.firstResponder is NSTextView),
                   event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return event }
-            switch event.keyCode {
-            case 125: self.model.moveSelection(1)
-            case 126: self.model.moveSelection(-1)
-            case 53: self.model.setExpanded(false)
-            case 36, 76:
-                if let id = self.model.selectedID, let session = self.model.store.sessions[id] { self.model.jump(session) }
-                else { return event }
-            default:
-                guard let chars = event.charactersIgnoringModifiers, let number = Int(chars), (1...9).contains(number),
-                      self.model.filtered.indices.contains(number - 1) else { return event }
-                self.model.selectSession(self.model.filtered[number - 1].id)
-            }
-            return nil
+            return self.model.handlePanelKey(event.keyCode, characters: event.charactersIgnoringModifiers) ? nil : event
         }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.layout(allowAnimation: false) } })
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
@@ -1204,12 +1244,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func showSettings() {
         settingsPresented = true
         if settingsWindow == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 660), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 720), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             w.title = L10n.tr("si-notch · Настройки"); w.isReleasedWhenClosed = false
+            w.contentMinSize = NSSize(width: 820, height: 660)
+            w.titlebarAppearsTransparent = true
+            w.backgroundColor = NSColor(white: 0.12, alpha: 1)
+            w.appearance = NSAppearance(named: .darkAqua)
             w.delegate = self
             w.center(); settingsWindow = w
+            setSettingsContent()
+        } else if settingsWindow?.contentView == nil {
+            setSettingsContent()
         }
-        if !(settingsWindow?.contentView is NSHostingView<SettingsView>) { setSettingsContent() }
         model.setExpanded(false, origin: .automatic, reason: "settings-opened")
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -1236,7 +1282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             tab: settingsTab, selectedProvider: settingsProvider, onSelectionChange: { [weak self] tab, provider in
                 self?.settingsTab = tab
                 self?.settingsProvider = provider
-            }))
+            }).defaultAppStorage(model.defaults))
     }
     func installMainMenu() {
         let root = NSMenu()

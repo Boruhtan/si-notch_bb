@@ -4,12 +4,47 @@ import SINotchCore
 @testable import SINotch
 
 final class AgentConnectionTests: XCTestCase {
+    func testStaleIdleLegacySessionDoesNotResurrectAppOnlyDuplicate() {
+        let now = Date(), old = now.addingTimeInterval(-300), local = presence("local", at: Date())
+        let idle = AgentSession(id: "old-idle", provider: "hermes", status: .idle, createdAt: old)
+        for receipt in [nil, old] as [Date?] {
+            let rows = AgentConnection.project(detected: [hermesDetection()], sessions: [idle],
+                receipts: receipt.map { ["hermes": $0] } ?? [:], running: ["hermes"], now: now,
+                connections: [local.id: local])
+            XCTAssertEqual(rows.map(\.id), [local.id])
+        }
+        let independent = AgentConnection.project(detected: [hermesDetection()], sessions: [idle],
+            receipts: ["hermes": now], running: ["hermes"], now: now, connections: [local.id: local])
+        XCTAssertEqual(Set(independent.map(\.id)), ["hermes", local.id], "A fresh unscoped event proves a separate agent")
+    }
+
+    @MainActor func testOneHundredPiProfilesKeepTasksAndSubagentsSeparate() throws {
+        let suite = "si-notch.pi-profile-tests." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let model = AppModel(defaults: defaults)
+        defer { model.shutdown(); defaults.removePersistentDomain(forName: suite) }
+        for index in 0..<100 {
+            let id = "pi-\(index)", session = "parent-\(index)"
+            let work = AgentEvent(sessionID: session, provider: "pi", kind: .working,
+                connectionID: id, connectionName: "Pi")
+            let child = AgentEvent(sessionID: session, provider: "pi", kind: .subagentStarted,
+                subagent: AgentSubagent(id: "child-\(index)", name: "Worker"), connectionID: id)
+            for event in [work, child] {
+                model.receive(try JSONEncoder().encode(event), origin: .local) { _ in }
+            }
+        }
+        XCTAssertEqual(model.agents.count, 100)
+        XCTAssertEqual(model.store.sessions.count, 100)
+        XCTAssertTrue(model.agents.allSatisfy { $0.state == .online && $0.activeTaskCount == 1 && $0.activity == .working })
+        for index in 0..<100 {
+            let session = model.store.sessions["parent-\(index)"]
+            XCTAssertEqual(session?.connectionID, "pi-\(index)")
+            XCTAssertEqual(session?.subagents.map(\.id), ["child-\(index)"])
+        }
+    }
+
     private let hermesApp = HarnessDetection(kind: .hermes, locations: [HarnessLocation(kind: .application,
         url: URL(fileURLWithPath: "/fixture/Hermes.app"), resolvedURL: URL(fileURLWithPath: "/fixture/Hermes.app"))])
-
-    private func presence(_ id: String, at date: Date) -> AgentConnection.Observation {
-        .init(provider: "hermes", connectionID: id, name: id, lastSeen: date, eventAt: date, eventID: id)
-    }
 
     func testConfirmedLocalProfileReplacesInstalledAndRunningAppOnlyRow() {
         let now = Date(), local = presence("local", at: Date())
@@ -17,8 +52,7 @@ final class AgentConnectionTests: XCTestCase {
             let historical = AgentSession(id: "old", provider: "hermes", status: status,
                 createdAt: now.addingTimeInterval(-300))
             let rows = AgentConnection.project(detected: [hermesApp], sessions: [historical], receipts: [:],
-                running: ["hermes"], now: now, connections: [local.id: local],
-                localIdentities: [.init(provider: "hermes", connectionID: "local")])
+                running: ["hermes"], now: now, connections: [local.id: local])
             XCTAssertEqual(rows.map(\.id), [local.id], "Historical \(status) must not recreate a duplicate")
             XCTAssertEqual(rows.filter { $0.state == .online }.count, 1)
         }
@@ -30,22 +64,21 @@ final class AgentConnectionTests: XCTestCase {
             visible: true, transportState: .connected)
         // Even an identity collision must not override saved SSH ownership.
         let rows = AgentConnection.project(detected: [hermesApp], sessions: [], receipts: [:], running: ["hermes"],
-            now: now, connections: [remote.id: remote], configurations: [saved],
-            localIdentities: [.init(provider: "hermes", connectionID: "remote")])
+            now: now, connections: [remote.id: remote], configurations: [saved])
         XCTAssertEqual(Set(rows.map(\.id)), ["hermes", remote.id])
         XCTAssertNil(rows.first { $0.id == "hermes" }?.connectorID)
         XCTAssertEqual(rows.first { $0.id == remote.id }?.connectorID, connector)
     }
 
     func testUnverifiedNamedAnnouncementDoesNotClaimTheLocalApplication() {
-        let now = Date(), unverified = presence("unknown-origin", at: Date())
+        let now = Date(), unverified = presence("unknown-origin", at: Date(), origin: .unknown)
         let rows = AgentConnection.project(detected: [hermesApp], sessions: [], receipts: [:], running: ["hermes"],
             now: now, connections: [unverified.id: unverified])
         XCTAssertEqual(Set(rows.map(\.id)), ["hermes", unverified.id])
     }
 
     func testIndependentProviderReceiptSurvivesAnUnrelatedRemoteProfile() {
-        let now = Date(), remote = presence("ssh", at: Date())
+        let now = Date(), remote = presence("ssh", at: Date(), origin: .unknown)
         let rows = AgentConnection.project(detected: [], sessions: [], receipts: ["hermes": now], running: [],
             now: now, connections: [remote.id: remote])
         XCTAssertEqual(Set(rows.map(\.id)), ["hermes", remote.id])
@@ -61,8 +94,7 @@ final class AgentConnectionTests: XCTestCase {
         let rows = AgentConnection.project(detected: [hermesApp], sessions: [a, b, ssh], receipts: [:],
             running: ["hermes"], now: now, connections: Dictionary(uniqueKeysWithValues: observations.map { ($0.id, $0) }),
             configurations: [.init(connectionID: "ssh", name: "Don David", connectorID: connector,
-                visible: true, transportState: .connected)],
-            localIdentities: [.init(provider: "hermes", connectionID: "a"), .init(provider: "hermes", connectionID: "b")])
+                visible: true, transportState: .connected)])
         XCTAssertEqual(rows.count, 3)
         XCTAssertEqual(Set(rows.map(\.id)).count, 3)
         XCTAssertEqual(rows.filter { $0.state == .online }.count, 3)
@@ -78,8 +110,7 @@ final class AgentConnectionTests: XCTestCase {
         for status: AgentStatus in [.working, .waiting, .approval, .failed] {
             let separate = AgentSession(id: "unscoped", provider: "hermes", status: status)
             let rows = AgentConnection.project(detected: [hermesApp], sessions: [separate], receipts: ["hermes": now],
-                running: ["hermes"], now: now, connections: [local.id: local],
-                localIdentities: [.init(provider: "hermes", connectionID: "local")])
+                running: ["hermes"], now: now, connections: [local.id: local])
             XCTAssertEqual(rows.count, 2)
             XCTAssertEqual(rows.first { $0.id == "hermes" }?.activeTaskCount, 1)
             XCTAssertEqual(rows.first { $0.id == local.id }?.activeTaskCount, 0)
@@ -90,8 +121,7 @@ final class AgentConnectionTests: XCTestCase {
         let now = Date(), old = now.addingTimeInterval(-121), local = presence("local", at: Date())
         let separate = AgentSession(id: "unscoped", provider: "hermes", status: .working, createdAt: old)
         let rows = AgentConnection.project(detected: [hermesApp], sessions: [separate], receipts: ["hermes": old],
-            running: ["hermes"], now: now, connections: [local.id: local],
-            localIdentities: [.init(provider: "hermes", connectionID: "local")])
+            running: ["hermes"], now: now, connections: [local.id: local])
         XCTAssertEqual(rows.first { $0.id == "hermes" }?.state, .lastSeen)
         XCTAssertEqual(rows.first { $0.id == "hermes" }?.lastSeen, old)
         XCTAssertEqual(rows.first { $0.id == local.id }?.state, .online)
@@ -102,7 +132,7 @@ final class AgentConnectionTests: XCTestCase {
         for date in [now.addingTimeInterval(-121), now.addingTimeInterval(6)] {
             let local = presence("local", at: date)
             let rows = AgentConnection.project(detected: [hermesApp], sessions: [], receipts: [:], running: ["hermes"],
-                now: now, connections: [local.id: local], localIdentities: [.init(provider: "hermes", connectionID: "local")])
+                now: now, connections: [local.id: local])
             XCTAssertEqual(rows.first { $0.id == "hermes" }?.state, .online)
             XCTAssertEqual(rows.first { $0.id == local.id }?.state, .lastSeen)
         }
@@ -111,78 +141,44 @@ final class AgentConnectionTests: XCTestCase {
             let saved = AgentConnection.Configuration(connectionID: "local", name: "disabled", connectorID: UUID(),
                 visible: visible, transportState: .disconnected)
             let rows = AgentConnection.project(detected: [hermesApp], sessions: [], receipts: [:], running: ["hermes"],
-                now: now, connections: [local.id: local], configurations: [saved],
-                localIdentities: [.init(provider: "hermes", connectionID: "local")])
+                now: now, connections: [local.id: local], configurations: [saved])
             XCTAssertEqual(rows.first { $0.id == "hermes" }?.state, .online)
             XCTAssertEqual(rows.contains { $0.id == local.id }, visible)
         }
     }
 
-    func testIdentityFileAloneDoesNotSuppressTheLocalApp() {
-        let rows = AgentConnection.project(detected: [hermesApp], sessions: [], receipts: [:], running: ["hermes"],
-            now: Date(), localIdentities: [.init(provider: "hermes", connectionID: "not-observed")])
-        XCTAssertEqual(rows.map(\.id), ["hermes"])
-    }
-
-    func testLocalIdentityDiscoveryUsesStableInstanceAndMatchingSocketNotDisplayName() throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let settings = home.appendingPathComponent(".hermes/plugins/si-notch/si-notch.json")
-        try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
-        func write(_ object: [String: Any]) throws { try JSONSerialization.data(withJSONObject: object).write(to: settings) }
-        let discovery = LocalHermesIdentityDiscovery(home: home, environment: [:])
-        let socket = home.appendingPathComponent(".si-notch/run/events.sock").path
-        try write(["instanceId": "test", "displayName": "Don Digidon"])
-        let expected: Set<AgentConnection.LocalIdentity> = [.init(provider: "hermes",
-            connectionID: "hermes-instance-9f86d081884c7d659a2feaa0c55ad015")]
-        XCTAssertEqual(discovery.scan(socketPath: socket), expected)
-        try write(["instanceId": "test", "displayName": "Changed label"])
-        XCTAssertEqual(discovery.scan(socketPath: socket), expected)
-        try write(["instanceId": "test", "socketPath": "/different/events.sock"])
-        XCTAssertTrue(discovery.scan(socketPath: socket).isEmpty)
-        try write(["displayName": "Don Digidon"])
-        XCTAssertTrue(discovery.scan(socketPath: socket).isEmpty)
-        try write(["instanceId": ""])
-        XCTAssertTrue(discovery.scan(socketPath: socket).isEmpty)
-    }
-
     @MainActor func testProfileEventsCannotRefreshProviderReceiptOrAnotherProfile() throws {
         let suite = "si-notch.identity-tests." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let model = AppModel(defaults: defaults, localIdentityDiscovery: .init(home: home, environment: [:]))
+        let model = AppModel(defaults: defaults)
         defer { model.shutdown(); defaults.removePersistentDomain(forName: suite) }
         let old = Date().addingTimeInterval(-121)
-        model.providerReceipts["hermes"] = old
+        model.legacyProviderReceipts["hermes"] = old
         let other = presence("other", at: old)
         model.connectionReceipts[other.id] = other
         for kind: AgentEventKind in [.agentPresence, .working, .completed] {
             let event = AgentEvent(sessionID: "one", provider: "hermes", kind: kind,
                 connectionID: "one", connectionName: "One")
             model.receive(try JSONEncoder().encode(event)) { _ in }
-            XCTAssertEqual(model.providerReceipts["hermes"], old)
+            XCTAssertEqual(model.legacyProviderReceipts["hermes"], old)
             XCTAssertEqual(model.connectionReceipts[other.id]?.lastSeen, old)
             XCTAssertEqual(model.agents.first { $0.id == other.id }?.state, .lastSeen)
         }
         let unscoped = AgentEvent(sessionID: "independent", provider: "hermes", kind: .working)
         model.receive(try JSONEncoder().encode(unscoped)) { _ in }
-        XCTAssertGreaterThan(try XCTUnwrap(model.providerReceipts["hermes"]), old)
+        XCTAssertGreaterThan(try XCTUnwrap(model.legacyProviderReceipts["hermes"]), old)
     }
 
-    @MainActor func testAppModelLoadsConfirmedLocalIdentityAndDeduplicatesProjectionAndTick() throws {
-        let suite = "si-notch.local-identity-tests." + UUID().uuidString
+    @MainActor func testAppModelConfirmedLocalOriginDeduplicatesProjectionAndTick() throws {
+        let suite = "si-notch.local-origin-tests." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let settings = home.appendingPathComponent(".hermes/plugins/si-notch/si-notch.json")
-        try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let model = AppModel(defaults: defaults, localIdentityDiscovery: .init(home: home, environment: [:]))
-        try JSONSerialization.data(withJSONObject: ["instanceId": "test", "socketPath": model.socketPath]).write(to: settings)
-        defer { model.shutdown(); defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: home) }
+        let model = AppModel(defaults: defaults)
+        defer { model.shutdown(); defaults.removePersistentDomain(forName: suite) }
         model.detectedHarnesses = [hermesApp]; model.runningAgentProviders = ["hermes"]
         let event = AgentEvent(sessionID: "presence", provider: "hermes", kind: .agentPresence,
-            connectionID: "hermes-instance-9f86d081884c7d659a2feaa0c55ad015", connectionName: "Don Digidon")
-        model.receive(try JSONEncoder().encode(event)) { _ in }
-        XCTAssertNil(model.providerReceipts["hermes"])
+            connectionID: "stable-local-instance", connectionName: "Don Digidon")
+        model.receive(try JSONEncoder().encode(event), origin: .local) { _ in }
+        XCTAssertNil(model.legacyProviderReceipts["hermes"])
         XCTAssertEqual(model.agents.map(\.name), ["Don Digidon"])
         XCTAssertEqual(model.agents.filter { $0.state == .online }.count, 1)
         model.tick()
@@ -368,7 +364,7 @@ final class AgentConnectionTests: XCTestCase {
         let connections = [
             "hermes/a": AgentConnection.Observation(provider: "hermes", connectionID: "a", name: "A", lastSeen: now, eventAt: now, eventID: "a"),
             "hermes/b": AgentConnection.Observation(provider: "hermes", connectionID: "b", name: "B", lastSeen: old, eventAt: old, eventID: "b")]
-        let agents = AgentConnection.project(detected: [], sessions: [], receipts: ["hermes": now], running: [], now: now, connections: connections)
+        let agents = AgentConnection.project(detected: [], sessions: [], receipts: [:], running: [], now: now, connections: connections)
         XCTAssertEqual(agents.first { $0.name == "A" }?.state, .online)
         XCTAssertEqual(agents.first { $0.name == "B" }?.state, .lastSeen)
     }
@@ -435,5 +431,211 @@ final class AgentConnectionTests: XCTestCase {
             receipts: ["codex": now], running: [], now: now)
         XCTAssertEqual(agents.count, 1)
         XCTAssertEqual(agents.first?.state, .online)
+    }
+
+    private func hermesDetection() -> HarnessDetection {
+        let url = URL(fileURLWithPath: "/fixture/Hermes.app")
+        return HarnessDetection(kind: .hermes, locations: [HarnessLocation(kind: .application, url: url, resolvedURL: url)])
+    }
+
+    private func presence(_ id: String, at now: Date, origin: AgentConnection.Origin = .local) -> AgentConnection.Observation {
+        .init(provider: "hermes", connectionID: id, name: "Same display name", lastSeen: now,
+              eventAt: now, eventID: "heartbeat", origin: origin)
+    }
+
+    func testConfirmedLocalProfileReplacesOnlyDiscoveryFallback() {
+        let now = Date(), local = presence("local", at: Date())
+        for running: Set<String> in [[], ["hermes"]] {
+            let rows = AgentConnection.project(detected: [hermesDetection()], sessions: [], receipts: [:],
+                running: running, now: now, connections: [local.id: local])
+            XCTAssertEqual(rows.map(\.id), [local.id])
+            XCTAssertEqual(rows.first?.state, .online)
+        }
+        let historical = AgentSession(id: "old", provider: "hermes", status: .completed)
+        let rows = AgentConnection.project(detected: [hermesDetection()], sessions: [historical],
+            receipts: ["hermes": now.addingTimeInterval(-300)], running: ["hermes"], now: now, connections: [local.id: local])
+        XCTAssertEqual(rows.map(\.id), [local.id], "Finished legacy tasks are not another live agent")
+    }
+
+    func testRemoteOrUnknownOrStaleProfilesCannotReplaceLocalApplication() {
+        let now = Date(), connector = UUID()
+        for origin: AgentConnection.Origin in [.unknown, .remote(connector), .local] {
+            let seen = origin == .local ? now.addingTimeInterval(-121) : now
+            let observed = presence("p", at: seen, origin: origin)
+            let config = AgentConnection.Configuration(connectionID: "p", name: "Remote", connectorID: connector,
+                visible: true, transportState: .connected)
+            let rows = AgentConnection.project(detected: [hermesDetection()], sessions: [], receipts: [:],
+                running: ["hermes"], now: now, connections: [observed.id: observed],
+                configurations: origin == .remote(connector) ? [config] : [])
+            XCTAssertEqual(Set(rows.map(\.id)), ["hermes", observed.id])
+            XCTAssertEqual(rows.first { $0.id == "hermes" }?.state, .online)
+        }
+    }
+
+    func testHiddenDisabledAndDisconnectedRemoteProfilesDoNotSuppressLocalApplication() {
+        let now = Date(), connector = UUID(), observed = presence("p", at: Date())
+        for visible in [false, true] {
+            for transport: RemoteConnectionState in [.connected, .disconnected] {
+                let config = AgentConnection.Configuration(connectionID: "p", name: "Remote", connectorID: connector,
+                    visible: visible, transportState: transport)
+                let rows = AgentConnection.project(detected: [hermesDetection()], sessions: [], receipts: [:],
+                    running: ["hermes"], now: now, connections: [observed.id: observed], configurations: [config])
+                XCTAssertEqual(rows.first { $0.id == "hermes" }?.state, .online)
+                XCTAssertEqual(rows.count, visible ? 2 : 1)
+                if visible { XCTAssertEqual(rows.first { $0.id == observed.id }?.state, transport == .connected ? .online : .lastSeen) }
+            }
+        }
+    }
+
+    func testIndependentLegacySessionKeepsItsOwnActivityAndFreshness() {
+        let now = Date(), local = presence("local", at: Date())
+        let task = AgentSession(id: "legacy", provider: "hermes", status: .working)
+        for seen in [now, now.addingTimeInterval(-300)] {
+            let rows = AgentConnection.project(detected: [hermesDetection()], sessions: [task], receipts: ["hermes": seen],
+                running: ["hermes"], now: now, connections: [local.id: local])
+            XCTAssertEqual(Set(rows.map(\.id)), ["hermes", local.id])
+            let legacy = rows.first { $0.id == "hermes" }
+            XCTAssertEqual(legacy?.state, seen == now ? .online : .lastSeen)
+            XCTAssertEqual(legacy?.activeTaskCount, seen == now ? 1 : 0)
+            XCTAssertEqual(rows.first { $0.id == local.id }?.activeTaskCount, 0)
+        }
+    }
+
+    func testOneHundredLocalProfilesAndTwoHundredRemoteProfilesStayIndependent() {
+        let now = Date(), firstConnector = UUID(), secondConnector = UUID()
+        var observations: [String: AgentConnection.Observation] = [:]
+        var configurations: [AgentConnection.Configuration] = []
+        var tasks: [AgentSession] = []
+        for index in 0..<300 {
+            let id = "profile-\(index)", remote = index >= 100
+            let connector = index < 200 ? firstConnector : secondConnector
+            let observed = presence(id, at: now, origin: remote ? .remote(connector) : .local)
+            observations[observed.id] = observed
+            if remote {
+                configurations.append(.init(connectionID: id, name: observed.name, connectorID: connector,
+                    visible: true, transportState: .connected))
+            }
+            for slot in 0..<3 {
+                var task = AgentSession(id: "task-\(index)-\(slot)", provider: "hermes", status: index % 2 == 0 ? .working : .waiting)
+                task.connectionID = id
+                if index == 7 { task.status = .completed }
+                tasks.append(task)
+            }
+        }
+        let rows = AgentConnection.project(detected: [hermesDetection()], sessions: tasks, receipts: [:], running: ["hermes"],
+            now: now, connections: observations, configurations: configurations)
+        XCTAssertEqual(rows.count, 300)
+        XCTAssertEqual(Set(rows.map(\.id)).count, 300)
+        XCTAssertEqual(rows.filter { $0.state == .online }.count, 300)
+        XCTAssertEqual(rows.filter { $0.connectorID == firstConnector }.count, 100)
+        XCTAssertEqual(rows.filter { $0.connectorID == secondConnector }.count, 100)
+        XCTAssertEqual(rows.map(\.id), rows.map(\.id).sorted(), "Equal display names must have a stable identity order")
+        for index in 0..<300 {
+            let row = rows.first { $0.id == "hermes/profile-\(index)" }
+            XCTAssertEqual(row?.activeTaskCount, index == 7 ? 0 : 3)
+            XCTAssertEqual(row?.activity, index == 7 ? .idle : index % 2 == 0 ? .working : .attention)
+        }
+    }
+
+    @MainActor func testNamedEventsNeverRefreshLegacyAndOmittedMetadataKeepsSessionIdentity() throws {
+        let defaults = UserDefaults(suiteName: "si-notch.identity-tests." + UUID().uuidString)!
+        let model = AppModel(defaults: defaults)
+        defer { model.shutdown() }
+        let old = Date().addingTimeInterval(-300)
+        model.store.apply(AgentEvent(sessionID: "legacy", provider: "hermes", kind: .working, timestamp: old), receivedAt: old)
+        model.legacyProviderReceipts["hermes"] = old
+        model.runningAgentProviders = ["hermes"]
+        func send(_ kind: AgentEventKind, session: String, profile: String? = "p", sequence: Int? = nil) throws {
+            let event = AgentEvent(sessionID: session, provider: "hermes", kind: kind,
+                id: UUID().uuidString, sequence: sequence, connectionID: profile, connectionName: profile.map { _ in "Local" })
+            model.receive(try JSONEncoder().encode(event), origin: .local) { _ in }
+        }
+        try send(.agentPresence, session: "presence")
+        try send(.working, session: "named-task", sequence: 1)
+        try send(.completed, session: "named-task", profile: nil, sequence: 2)
+        XCTAssertEqual(model.legacyProviderReceipts["hermes"], old)
+        XCTAssertEqual(model.agents.first { $0.id == "hermes" }?.state, .lastSeen)
+        XCTAssertEqual(model.store.sessions["named-task"]?.connectionID, "p")
+        XCTAssertEqual(model.agents.first { $0.id == "hermes/p" }?.name, "Local")
+        XCTAssertEqual(model.agents.first { $0.id == "hermes/p" }?.activity, .idle)
+    }
+
+    @MainActor func testOneHundredProfileReceiptsDeduplicateAndExpireIndependently() throws {
+        let model = AppModel(defaults: UserDefaults(suiteName: "si-notch.hundred-tests." + UUID().uuidString)!)
+        defer { model.shutdown() }
+        for index in 0..<100 {
+            for task in 0..<4 {
+                let event = AgentEvent(sessionID: "task-\(index)-\(task)", provider: "hermes", kind: .working,
+                    id: "same-event-id", sequence: 1, connectionID: "profile-\(index)", connectionName: "Same name")
+                model.receive(try JSONEncoder().encode(event), origin: .local) { _ in }
+            }
+        }
+        XCTAssertEqual(model.agents.count, 100)
+        XCTAssertEqual(model.store.sessions.count, 400)
+        XCTAssertTrue(model.agents.allSatisfy { $0.activeTaskCount == 4 })
+        let old = Date().addingTimeInterval(-300)
+        for (key, observation) in model.connectionReceipts {
+            model.connectionReceipts[key] = .init(provider: observation.provider, connectionID: observation.connectionID,
+                name: observation.name, lastSeen: old, eventAt: old, eventID: observation.eventID, origin: observation.origin)
+        }
+        let heartbeat = AgentEvent(sessionID: "presence", provider: "hermes", kind: .agentPresence,
+            id: "new-heartbeat", connectionID: "profile-7")
+        model.receive(try JSONEncoder().encode(heartbeat), origin: .local) { _ in }
+        let receipt = model.connectionReceipts["hermes/profile-7"]
+        model.receive(try JSONEncoder().encode(heartbeat), origin: .local) { _ in }
+        XCTAssertEqual(model.connectionReceipts["hermes/profile-7"], receipt)
+        var stale = heartbeat
+        stale.id = "out-of-order"; stale.timestamp = old
+        model.receive(try JSONEncoder().encode(stale), origin: .local) { _ in }
+        XCTAssertEqual(model.connectionReceipts["hermes/profile-7"], receipt)
+        XCTAssertEqual(model.agents.filter { $0.state == .online }.map(\.id), ["hermes/profile-7"])
+        XCTAssertEqual(model.agents.filter { $0.state == .lastSeen }.count, 99)
+        XCTAssertTrue(model.legacyProviderReceipts.isEmpty)
+    }
+
+    @MainActor func testConflictingIngressCannotTakeOverAnotherProfileOrLegacySession() throws {
+        let model = AppModel(defaults: UserDefaults(suiteName: "si-notch.origin-tests." + UUID().uuidString)!)
+        defer { model.shutdown() }
+        let connector = try XCTUnwrap(model.remoteConnections.add())
+        let first = AgentEvent(sessionID: "task", provider: "hermes", kind: .working,
+            connectionID: "local", connectionName: "Local")
+        model.receive(try JSONEncoder().encode(first), origin: .local) { _ in }
+        let before = model.connectionReceipts
+        var conflicting = first
+        conflicting.kind = .completed
+        var error: String?
+        for origin: AgentConnection.Origin in [.remote(connector), .unknown] {
+            model.receive(try JSONEncoder().encode(conflicting), origin: origin) { data in
+                error = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+            }
+            XCTAssertEqual(error, "connection_origin_conflict")
+        }
+        XCTAssertEqual(model.connectionReceipts, before)
+        XCTAssertEqual(model.store.sessions["task"]?.status, .working)
+        let unnamed = AgentEvent(sessionID: "legacy", provider: "hermes", kind: .working)
+        model.receive(try JSONEncoder().encode(unnamed), origin: .remote(connector)) { _ in }
+        XCTAssertNil(model.store.sessions["legacy"])
+        XCTAssertTrue(model.legacyProviderReceipts.isEmpty)
+    }
+
+    func testOnlyTheNativeLocalHelperConfirmsLocalOrigin() {
+        let helper = URL(fileURLWithPath: "/Applications/si-notch.app/Contents/Helpers/si-notchctl")
+        XCTAssertEqual(AgentConnection.localOrigin(peerExecutable: helper.path, helperURL: helper), .local)
+        for path in [nil, "/usr/bin/ssh", "/somewhere/si-notchctl", "/usr/bin/python3"] {
+            XCTAssertEqual(AgentConnection.localOrigin(peerExecutable: path, helperURL: helper), .unknown)
+        }
+    }
+
+    func testSameConnectionIDInAnotherProviderCannotStealSSHGrouping() {
+        let now = Date(), connector = UUID()
+        let other = AgentConnection.Observation(provider: "custom", connectionID: "shared", name: "Local custom",
+            lastSeen: now, eventAt: now, eventID: "custom", origin: .local)
+        let config = AgentConnection.Configuration(connectionID: "shared", name: "Remote Hermes", connectorID: connector,
+            visible: true, transportState: .connected)
+        let rows = AgentConnection.project(detected: [], sessions: [], receipts: [:], running: [], now: now,
+            connections: [other.id: other], configurations: [config])
+        XCTAssertEqual(Set(rows.map(\.id)), ["custom/shared", "hermes/shared"])
+        XCTAssertNil(rows.first { $0.id == "custom/shared" }?.connectorID)
+        XCTAssertEqual(rows.first { $0.id == "hermes/shared" }?.connectorID, connector)
     }
 }

@@ -3,6 +3,46 @@ import XCTest
 @testable import SINotch
 
 final class AgentSetupTests: XCTestCase {
+    func testLocalHermesDiscoveryListsOneHundredProfilesWithoutReadingTheirConfiguration() throws {
+        let home = root.appendingPathComponent(".hermes")
+        for index in 0..<100 {
+            try write(Data("not parsed by discovery".utf8), to: home.appendingPathComponent("profiles/profile-\(index)/config.yaml"))
+        }
+        try FileManager.default.createSymbolicLink(at: home.appendingPathComponent("profiles/alias"),
+            withDestinationURL: home.appendingPathComponent("profiles/profile-0"))
+        let installer = setup(.hermes)
+        let profiles = installer.localHermesProfiles()
+        XCTAssertEqual(profiles.count, 101)
+        XCTAssertEqual(profiles.first?.name, "default")
+        XCTAssertEqual(Set(profiles.map(\.id)).count, 101)
+        XCTAssertFalse(profiles.contains { $0.name == "alias" })
+        XCTAssertTrue(installer.hermesEnableCommand.contains("HERMES_HOME="))
+        let named = setup(.hermes, environment: ["HERMES_HOME": home.appendingPathComponent("profiles/profile-7").path])
+        XCTAssertTrue(named.hermesEnableCommand.contains("profiles/profile-7' hermes plugins enable si-notch"))
+    }
+    func testHermesSetupCreatesStableDistinctProfileIdentitiesAndPreservesExistingSettings() throws {
+        try write(Data("\"\"\"Hermes Agent observer plugin for si-notch\"\"\"".utf8), to: adapters.appendingPathComponent("hermes-si-notch/__init__.py"))
+        try write(Data("name: si-notch\n".utf8), to: adapters.appendingPathComponent("hermes-si-notch/plugin.yaml"))
+        var ids: Set<String> = []
+        for profile in ["a", "b"] {
+            let home = root.appendingPathComponent("hermes-" + profile)
+            let installer = setup(.hermes, environment: ["HERMES_HOME": home.path])
+            let preview = try installer.preview()
+            XCTAssertEqual(try installer.preview().files, preview.files)
+            _ = try installer.apply(preview)
+            XCTAssertFalse(try installer.preview().canApply)
+            let config = home.appendingPathComponent("plugins/si-notch/si-notch.json")
+            ids.insert(try XCTUnwrap(try object(config)["instanceId"] as? String))
+            try write(Data("{\"instanceId\":\"keep-me\",\"displayName\":\"My profile\",\"showSessionText\":true,\"custom\":7}".utf8), to: config)
+            _ = try installer.apply(installer.preview())
+            let saved = try object(config)
+            XCTAssertEqual(saved["instanceId"] as? String, "keep-me")
+            XCTAssertEqual(saved["displayName"] as? String, "My profile")
+            XCTAssertEqual(saved["showSessionText"] as? Bool, true)
+            XCTAssertEqual(saved["custom"] as? Int, 7)
+        }
+        XCTAssertEqual(ids.count, 2)
+    }
     private var root: URL!
     private var helper: URL!
     private var adapters: URL!

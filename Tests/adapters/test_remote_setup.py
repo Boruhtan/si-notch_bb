@@ -79,6 +79,19 @@ path.write_text(json.dumps(config))
         self.assertNotIn("unchanged", json.dumps(snapshot))
         self.assertTrue(snapshot["profiles"][0]["connection_id"].startswith("hermes-instance-"))
 
+    def test_cloned_profiles_with_shared_identity_are_rejected_without_changing_either(self):
+        files = []
+        for home in (self.home, self.profile):
+            directory = home / 'plugins/si-notch'
+            directory.mkdir(parents=True)
+            path = directory / 'si-notch.json'
+            path.write_text(json.dumps({'instanceId': 'copied-profile', 'displayName': 'Same name'}))
+            files.append(path)
+        before = [path.read_bytes() for path in files]
+        with self.assertRaisesRegex(ValueError, 'share an instanceId'):
+            setup.inspect(self.home, self.relay, self.socket)
+        self.assertEqual([path.read_bytes() for path in files], before)
+
     def test_apply_is_bound_to_preview_preserves_hooks_and_backs_up_exact_files(self):
         original = self.config.read_bytes()
         self.preview()

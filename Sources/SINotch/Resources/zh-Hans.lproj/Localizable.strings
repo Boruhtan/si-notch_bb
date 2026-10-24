@@ -536,6 +536,7 @@
 "remote.removeHelp" = "隧道将关闭并删除已保存的连接。若要禁用远程插件，请先取消选择配置并应用更改。";
 "remote.cancel" = "取消";
 "remote.profiles" = "Hermes 配置";
+"agent.setup.hermesProfile" = "本地 Hermes 配置";
 "remote.checkProfiles" = "检查配置";
 "remote.profilesHelp" = "检查主机并选择配置，然后预览并应用插件更改。检查和预览不会修改远程配置。";
 "remote.selectAll" = "全选";
@@ -710,3 +711,11 @@
 "interaction.failed" = "回复尚未确认。请先在 %@ 中检查请求，再重试。";
 "interaction.sending" = "正在等待 %@ 确认…";
 "interaction.openManually" = "请打开原来的 %@ 对话或运行此任务的终端。";
+
+"settings.search" = "搜索设置";
+"settings.clearSearch" = "清除搜索";
+"settings.noSearchResults" = "没有匹配的设置。请尝试其他搜索词。";
+"settings.startup" = "语言与启动";
+"settings.interaction" = "灵动岛行为";
+"settings.presentation" = "展开与收起";
+"settings.reminders" = "提醒";

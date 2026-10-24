@@ -2,7 +2,32 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.26 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.31 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+
+## Changes in 0.4.31
+
+Agent identity now separates confirmed local profiles, SSH connector origins and unknown sources. Installation/running-app discovery is a fallback rather than an extra agent beside a fresh local profile. Independent unnamed sessions retain their own presence. Local setup includes a profile selector and a command scoped to its exact home. Automated fixtures passed for 100 local profiles plus two SSH groups of 100 profiles, 900 task records, 100 simultaneous IPC deliveries, source conflicts, connector removal, independent freshness and stable settings/identity preservation. This is controlled-input coverage, not 300 live model sessions. Plugin 1.13 keeps the 1.12 event format and adds native-helper checks and explicit clone identity setup. Native export passed all 79 checks; the local-profile selector was visually inspected using a disposable catalog with 100 named profiles. Physical keyboard/VoiceOver use and hundreds of real model processes remain unverified.
+
+
+## Verification added in 0.4.30
+
+Memory updates use one brain symbol in History rows, record details and live task labels. Ordinary closed records use an archive symbol; status text and stored terminal states remain unchanged. The full test suite, release archive verification and DMG checks passed. Isolated native History and memory-card fixtures passed in English, Russian and Simplified Chinese; list, detail and 360 pt layouts were visually inspected. These checks use synthetic records and do not establish VoiceOver behavior or rendering on every supported macOS version.
+
+## Verification added in 0.4.29
+
+Goal History reconciliation follows an explicitly completed goal across resumed turns. It updates only the existing original `/goal` record, preserves its content and dates, and leaves ordinary cancelled turns unchanged. Native events and correlated completion receipts, chunked reads, late archive creation and malformed/symlinked input have regression coverage. A read-only check found the completion in the affected local rollout; it did not modify the production archive.
+
+The release build passed isolated History and Usage fixtures in three languages and updater replacement/rollback checks. Current-process Settings captures were inspected in English and Russian; one transient ScreenCaptureKit failure cleared on retry. The native hover/Clear fixture now positions its synthetic pointer inside the panel before opening, and all 15 interaction checks passed.
+
+Keyboard navigation is limited to visible sessions. The companion uses a native button, and a login-item failure no longer triggers a second service request. Navigation has regression coverage; physical keyboard/VoiceOver behavior and login-item failure UI still require manual validation.
+
+Adapter fixtures cover explicit unsuccessful Hermes turns, exact Copilot event-name aliases, a single relay deadline, buffered acknowledgements after peer close and guarded socket recovery. The custom-agent example runs against isolated sockets. This audit did not change installed agent configurations or run new end-to-end model sessions for every provider. Plugin 1.12 must be installed separately in existing remote profiles; publishing the Mac app does not update those profiles.
+
+The subsequent deployment check on 2026-10-23 verified installed app 0.4.29 (build 56), its executable against the release archive and its code signature. The previously stopped goal record had reconciled to `completed` in the working History archive. The live History row was not visually inspected because native UI automation was unavailable. Plugin 1.12 was installed in eight remote profiles: running gateway versions, 15 registered hooks per profile, no load errors and fresh presence in the Mac app were verified. Configuration bytes were preserved; no new model turn was submitted. See [plugin verification](../plugins/hermes/REVISION.md).
+
+A later real API task with plugin 1.12 completed two terminal calls. Working, Done, the final reply and the completed History row were visually verified in the installed app. Four requests were assigned to one task; its 74,453 tokens matched the native ledger, including title generation and without adding cached input twice. The separate Usage detail window remained visually unverified after the automation connection failed. See the same plugin verification report for exact counts and scope.
+
+## Feature matrix
 
 | Feature | Availability and verification |
 | --- | --- |
@@ -29,6 +54,7 @@ Available features and verification scope for 0.4.26 on Apple Silicon. Automated
 | History | Local requests, public replies and available command text persist independently of live cards. Restart, count/byte limits, redaction, source selection, duplicate updates, buffered-write clearing and pending-request isolation have automated coverage. Native list, detail and settings captures use isolated fixtures in three languages. Commands omitted by an integration cannot be reconstructed; complete live coverage across every provider remains unverified. |
 | History status | Status belongs to the archived turn and terminal states cannot be reopened by late text or tool events. On startup, a utility-queue pass over bounded local Codex rollout tails corrects existing records with an exact completion or cancellation marker; missing evidence is left unchanged, and historical sessions are not imported. Status icons have short text labels, while background memory tasks retain their originating agent beside a neutral memory icon. Regression tests cover turn isolation, persistence and reconciliation without a live session. |
 | Interface | Layout, session states, transparency, companions and three languages have automated coverage. |
+| Settings | Resizable navigation, localized preference search, grouped controls and macOS 26 sidebar glass are implemented. Older macOS versions retain a material fallback; reduced transparency and increased contrast use an opaque sidebar. Search regressions in three languages and first-open/reopen window tests passed. Six synthetic Settings screenshots in English and Russian were captured with ScreenCaptureKit, restricted to the current process and exact window ID; no desktop-wide capture was used. Pointer navigation, VoiceOver, all window sizes and older macOS rendering remain unverified; the native computer-use pipe was unavailable. |
 | Display preferences | Session-only visibility is experimental and off by default. Fresh/reset defaults, manual opening, completed-task retention, scoped default reset and fixed compact width have automated coverage. Native panel visibility and settings bitmap exports are checked with local fixtures; physical display and fullscreen combinations still require manual validation. |
 | Fullscreen | The installed beta hid during native fullscreen and AVKit fullscreen video on one built-in display. Chrome native fullscreen with separate toolbar/content windows was also checked live; the panel hid and returned after exit. Deliberate hover reveal and dismissal were observed live in native fullscreen. Window-bounds fallback covers players without presentation flags; a display-filling maximized window with an auto-hidden Dock can also qualify. Display hotplug and return to the built-in screen were checked. Full two-display behavior, hover above an AVKit shielding window and all browser/player combinations remain manual checks. |
 | Session metadata | Model and reasoning are visible on unexpanded cards. All six detail switches have bitmap checks. Hermes plugin 1.7 uses native request metadata, session cwd, todo-list results and subagent hooks; Pi and OpenCode supply available model metadata. Supplied metadata and missing fields remain distinct. |

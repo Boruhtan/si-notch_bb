@@ -254,8 +254,8 @@
 "settings.shortcut.ctrlAlt" = "⌃⌥Пробел";
 "settings.shortcut.ctrlShiftAlt" = "⌃⇧⌥Пробел";
 "settings.sidebarSubtitle" = "Работа агентов рядом";
-"settings.sectionMain" = "НАСТРОЙКИ";
-"settings.sectionAdvanced" = "ДОПОЛНИТЕЛЬНО";
+"settings.sectionMain" = "Настройки";
+"settings.sectionAdvanced" = "Дополнительно";
 "settings.subtitleGeneral" = "Язык, запуск и поведение";
 "settings.subtitleIntegrations" = "Подключение локальных агентов";
 "settings.subtitleNotifications" = "Когда остров просит внимания";
@@ -536,6 +536,7 @@
 "remote.removeHelp" = "Туннель закроется, сохранённое подключение будет удалено. Чтобы отключить удалённый плагин, сначала снимите отметки с профилей и примените изменения.";
 "remote.cancel" = "Отмена";
 "remote.profiles" = "Профили Hermes";
+"agent.setup.hermesProfile" = "Локальный профиль Hermes";
 "remote.checkProfiles" = "Проверить профили";
 "remote.profilesHelp" = "Проверьте хост, выберите профили, затем просмотрите и примените изменения плагина. Проверка и предпросмотр не меняют удалённую конфигурацию.";
 "remote.selectAll" = "Выбрать все";
@@ -710,3 +711,11 @@
 "interaction.failed" = "Ответ не подтверждён. Проверьте запрос в %@ перед повторной попыткой.";
 "interaction.sending" = "Ожидаем подтверждение от %@…";
 "interaction.openManually" = "Откройте исходный чат %@ или терминал, где запущена эта задача.";
+
+"settings.search" = "Поиск настроек";
+"settings.clearSearch" = "Очистить поиск";
+"settings.noSearchResults" = "Настройки не найдены. Попробуйте другой запрос.";
+"settings.startup" = "Язык и запуск";
+"settings.interaction" = "Поведение острова";
+"settings.presentation" = "Открытие и закрытие";
+"settings.reminders" = "Напоминания";

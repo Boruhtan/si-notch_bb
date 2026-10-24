@@ -2,6 +2,11 @@ import Foundation
 
 /// Metadata-only adapters for the documented local CLI hook protocols.
 public enum HarnessHook {
+    private static let copilotWireNames = [
+        "sessionStart": "SessionStart", "userPromptSubmitted": "UserPromptSubmit",
+        "agentStop": "Stop", "notification": "Notification", "sessionEnd": "SessionEnd"
+    ]
+
     public static let events: [String: [String: AgentEventKind]] = [
         "gemini": ["SessionStart": .sessionStarted, "BeforeAgent": .working,
                    "AfterAgent": .completed, "Notification": .waiting, "SessionEnd": .sessionEnded],
@@ -14,7 +19,10 @@ public enum HarnessHook {
     public static func observation(provider: String, hook: String, raw: [String: Any],
                                    timestamp: Date = Date()) throws -> AgentEvent? {
         guard var kind = events[provider]?[hook] else { return nil }
-        if let supplied = raw["hook_event_name"] as? String, supplied != hook { return nil }
+        // Copilot documents PascalCase wire names alongside its lower-camel
+        // configuration keys. Accept only the alias for this exact event.
+        if let supplied = raw["hook_event_name"] as? String, supplied != hook,
+           !(provider == "copilot" && Self.copilotWireNames[hook] == supplied) { return nil }
         let session = provider == "cursor"
             ? (raw["conversation_id"] ?? raw["session_id"]) as? String
             : (raw["sessionId"] ?? raw["session_id"]) as? String

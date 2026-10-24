@@ -8,14 +8,27 @@ struct AgentSetupView: View {
     @State private var error: String?
     @State private var applied = false
     @State private var backups: [URL] = []
+    @State private var localProfiles: [AgentSetup.LocalHermesProfile] = []
+    @State private var selectedLocalProfile = ""
     @AppStorage("appLanguage") private var appLanguage = "auto"
 
-    private var setup: AgentSetup { AgentSetup(provider: provider, helperPath: cliPath) }
+    private var setup: AgentSetup {
+        var environment = ProcessInfo.processInfo.environment
+        if provider == .hermes, let profile = localProfiles.first(where: { $0.id == selectedLocalProfile }) {
+            environment["HERMES_HOME"] = profile.home.path
+        }
+        return AgentSetup(provider: provider, helperPath: cliPath, environment: environment)
+    }
     var body: some View {
         let _ = appLanguage
         GroupBox(L10n.tr("agent.setup.title", provider.displayName)) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(L10n.tr("agent.setup.description")).foregroundStyle(SettingsPalette.secondary)
+                if provider == .hermes, !localProfiles.isEmpty {
+                    Picker(L10n.tr("agent.setup.hermesProfile"), selection: $selectedLocalProfile) {
+                        ForEach(localProfiles) { Text($0.name).tag($0.id) }
+                    }
+                }
                 if let preview {
                     ForEach(preview.files, id: \.url) { file in
                         Text(file.url.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path + "/", with: "~/"))
@@ -32,10 +45,10 @@ struct AgentSetupView: View {
                         if provider == .hermes {
                             Text(L10n.tr("agent.setup.hermesEnable"))
                             HStack {
-                                Text("hermes plugins enable si-notch").font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                Text(setup.hermesEnableCommand).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                                 Button(L10n.tr("Скопировать команды")) {
                                     NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString("hermes plugins enable si-notch", forType: .string)
+                                    NSPasteboard.general.setString(setup.hermesEnableCommand, forType: .string)
                                 }.controlSize(.small)
                             }
                         } else { Text(L10n.tr("agent.setup.restart")) }
@@ -54,9 +67,14 @@ struct AgentSetupView: View {
         }
         .onAppear { refresh() }
         .onChange(of: appLanguage) { _, _ in refresh() }
+        .onChange(of: selectedLocalProfile) { _, _ in applied = false; backups = []; refresh() }
     }
 
     private func refresh() {
+        if provider == .hermes, localProfiles.isEmpty {
+            localProfiles = setup.localHermesProfiles()
+            selectedLocalProfile = localProfiles.first?.id ?? ""
+        }
         do { preview = try setup.preview(); error = nil }
         catch { preview = nil; self.error = message(error) }
     }

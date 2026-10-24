@@ -62,3 +62,5 @@ hermes plugins enable si-notch
 ```
 
 [Проверенные сценарии](parity.md). Документация протоколов: [Claude](https://code.claude.com/docs/en/hooks), [Pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md), [OpenCode](https://opencode.ai/docs/plugins/), [Hermes](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins), [Gemini](https://geminicli.com/docs/hooks/), [Copilot](https://docs.github.com/en/copilot/reference/hooks-reference), [Cursor](https://cursor.com/docs/hooks).
+
+Полный контракт отправителя описан в [руководстве своего агента](custom-agents.md) и [разработке плагина Hermes](hermes-plugin-development.md): lifecycle, идентификаторы, прогресс, расход, сроки решений и изолированные проверки сокета.

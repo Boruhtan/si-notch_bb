@@ -21,6 +21,23 @@ spec.loader.exec_module(adapter)
 
 
 class HookContractTests(unittest.TestCase):
+    def test_copilot_documented_wire_names_and_legacy_payloads(self):
+        aliases = {"sessionStart": "SessionStart", "userPromptSubmitted": "UserPromptSubmit",
+                   "agentStop": "Stop", "notification": "Notification", "sessionEnd": "SessionEnd"}
+        for hook, alias in aliases.items():
+            for supplied in (None, hook, alias):
+                with self.subTest(hook=hook, supplied=supplied):
+                    payload = {"session_id": "copilot-s", "notification_type": "permission_prompt"}
+                    if supplied is not None:
+                        payload["hook_event_name"] = supplied
+                    event = adapter.normalized_event("copilot", hook, payload)
+                    self.assertIsNotNone(event)
+                    self.assertEqual(event["event"], adapter.EVENTS["copilot"][hook])
+        self.assertIsNone(adapter.normalized_event("copilot", "notification", {
+            "sessionId": "copilot-s", "hook_event_name": "Stop", "notification_type": "permission_prompt"}))
+        self.assertIsNone(adapter.normalized_event("cursor", "sessionStart", {
+            "session_id": "cursor-s", "hook_event_name": "SessionStart"}))
+
     def test_native_model_metadata_excludes_reasoning_text_and_credentials(self):
         event = adapter.normalized_event("gemini", "BeforeAgent", {"session_id": "s", "model": "model-name",
             "reasoning_effort": "high", "reasoning": "PRIVATE THOUGHTS", "api_key": "PRIVATE KEY"})

@@ -62,3 +62,5 @@ If a session does not appear, reload the adapter, start a new turn and check **S
 ```
 
 [Verification scope](parity.md). Protocol references: [Claude](https://code.claude.com/docs/en/hooks), [Pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md), [OpenCode](https://opencode.ai/docs/plugins/), [Hermes](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins), [Gemini](https://geminicli.com/docs/hooks/), [Copilot](https://docs.github.com/en/copilot/reference/hooks-reference), [Cursor](https://cursor.com/docs/hooks).
+
+For a complete producer implementation, see the [custom-agent guide](custom-agents.md) and [Hermes plugin development](hermes-plugin-development.md). The guides cover lifecycle, identity, progress, usage, request deadlines and isolated socket tests.

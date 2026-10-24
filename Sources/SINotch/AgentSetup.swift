@@ -1,9 +1,15 @@
 import Darwin
 import Foundation
+import CryptoKit
 import SINotchCore
 
 /// Installs only bundled observers. It never installs or launches a harness.
 struct AgentSetup {
+    struct LocalHermesProfile: Identifiable, Equatable {
+        let name: String
+        let home: URL
+        var id: String { home.path }
+    }
     struct FileChange: Equatable {
         let url: URL
         let original: Data?
@@ -31,6 +37,26 @@ struct AgentSetup {
         self.helperURL = URL(fileURLWithPath: helperPath)
         self.home = home
         self.environment = environment
+    }
+
+    /// Only the selected local Hermes root and its immediate named profiles.
+    /// Configuration contents, histories and credentials are never read here.
+    func localHermesProfiles() -> [LocalHermesProfile] {
+        let root = configRoot("HERMES_HOME", fallback: ".hermes")
+        let directory = root.appendingPathComponent("profiles", isDirectory: true)
+        let children = (try? manager.contentsOfDirectory(at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])) ?? []
+        let named = children.filter {
+            guard let values = try? $0.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  values.isDirectory == true, values.isSymbolicLink != true,
+                  !$0.lastPathComponent.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return false }
+            return manager.fileExists(atPath: $0.appendingPathComponent("config.yaml").path)
+        }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        return [LocalHermesProfile(name: "default", home: root)] + named.map { .init(name: $0.lastPathComponent, home: $0) }
+    }
+
+    var hermesEnableCommand: String {
+        "HERMES_HOME=" + quote(configRoot("HERMES_HOME", fallback: ".hermes").path) + " hermes plugins enable si-notch"
     }
 
     func preview() throws -> Preview {
@@ -170,6 +196,19 @@ struct AgentSetup {
         let original = try read(configURL)
         var config = try object(original)
         config["helperPath"] = helperURL.path
+        if provider == .hermes {
+            if config["displayName"] == nil {
+                let profile = configRoot("HERMES_HOME", fallback: ".hermes").lastPathComponent
+                config["displayName"] = profile == ".hermes" ? "Hermes" : String(profile.prefix(128))
+            }
+            let instance = config["instanceId"] as? String
+            if !(instance.map { !$0.isEmpty && $0.count <= 4096 } ?? false) {
+                // Stable during preview/apply; independent for every local
+                // profile directory. Existing identities survive all upgrades.
+                let identity = ProcessInfo.processInfo.hostName + ":" + destination.standardizedFileURL.path
+                config["instanceId"] = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+            }
+        }
         changes.append(FileChange(url: configURL, original: original, proposed: try encode(config)))
         return Preview(files: changes)
     }

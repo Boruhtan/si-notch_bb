@@ -122,6 +122,56 @@ final class SessionNavigationTests: XCTestCase {
     }
 
     @MainActor
+    func testPanelTaskShortcutsIgnoreAgentsAndHistory() {
+        let model = model()
+        defer { model.shutdown() }
+        let navigator = NavigatorStub()
+        model.sessionNavigator = navigator
+        model.store.apply(AgentEvent(sessionID: "task", provider: "codex", kind: .working,
+                                     terminalBundleID: "com.apple.Terminal"))
+        model.setExpanded(true)
+        model.selectedID = "task"
+        for history in [false, true] {
+            model.showAgents = !history
+            model.activeFilter = history ? "history.title" : "Все"
+            for key in [125, 126, 36, 76, 18] as [UInt16] {
+                XCTAssertFalse(model.handlePanelKey(key, characters: key == 18 ? "1" : nil))
+            }
+            model.selectedID = nil
+            model.moveSelection(1)
+            XCTAssertNil(model.selectedID)
+            model.selectedID = "task"
+        }
+        XCTAssertTrue(navigator.destinations.isEmpty)
+        XCTAssertTrue(model.handlePanelKey(53, characters: nil), "Escape still closes either tab")
+        XCTAssertFalse(model.expanded)
+    }
+
+    @MainActor
+    func testPanelReturnNeverOpensSelectionHiddenByFilterOrSearch() {
+        let model = model()
+        defer { model.shutdown() }
+        let navigator = NavigatorStub()
+        model.sessionNavigator = navigator
+        model.store.apply(AgentEvent(sessionID: "task", provider: "codex", kind: .working,
+                                     title: "Visible task", terminalBundleID: "com.apple.Terminal"))
+        model.setExpanded(true)
+        model.selectedID = "task"
+        model.activeFilter = "Готово"
+        XCTAssertFalse(model.handlePanelKey(36, characters: nil))
+        model.activeFilter = "Все"
+        model.search = "no matching task"
+        XCTAssertFalse(model.handlePanelKey(36, characters: nil))
+        XCTAssertTrue(navigator.destinations.isEmpty)
+        model.search = ""
+        XCTAssertTrue(model.handlePanelKey(36, characters: nil))
+        XCTAssertEqual(navigator.destinations, [.application("com.apple.Terminal")])
+        model.selectedID = nil
+        XCTAssertTrue(model.handlePanelKey(18, characters: "1"))
+        XCTAssertEqual(model.selectedID, "task")
+    }
+
+    @MainActor
     func testStaleCompletionCannotClosePanelAfterAnotherJumpFails() {
         let model = model()
         defer { model.shutdown() }

@@ -130,7 +130,7 @@ struct IslandView: View {
                     Text(L10n.tr("agents.title")).font(.system(size: 11, weight: .medium)).foregroundStyle(NotchDesign.secondary)
                 } else if !model.sessions.isEmpty {
                     HStack(spacing: 6) {
-                        if showCompanion { CompanionView(status: model.dominantStatus, size: 22, interactive: false) }
+                        if showCompanion { CompanionView(status: model.dominantStatus, size: 22) }
                         Text(model.paused ? L10n.tr("Приём событий на паузе") : L10n.count("sessions", model.sessions.count))
                             .font(.system(size: 11, weight: .medium)).lineLimit(1)
                     }.foregroundStyle(NotchDesign.secondary)
@@ -370,8 +370,8 @@ struct SessionCard: View {
                 Text(session.status.label).font(.system(size: 10, weight: .medium)).contentTransition(.opacity)
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: session.status)
                 if info.isMemoryService {
-                    Label(L10n.tr("session.serviceMemory"), systemImage: "gearshape")
-                        .font(.system(size: 9, weight: .medium)).foregroundStyle(NotchDesign.secondary)
+                    Label(L10n.tr("session.serviceMemory"), systemImage: "brain")
+                        .font(.system(size: 9, weight: .medium)).foregroundStyle(NotchDesign.accent)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(.white.opacity(0.07), in: Capsule())
                         .help(L10n.tr("session.serviceMemoryHelp"))
@@ -498,6 +498,7 @@ struct SessionCard: View {
                 if model.pending[session.id] == nil {
                     HStack {
                         Button { model.jump(session) } label: { Label(session.status == .approval || session.status == .waiting ? L10n.tr("Ответить в агенте") : L10n.tr("Открыть"), systemImage: "arrow.up.forward") }.buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundStyle(session.status == .approval || session.status == .waiting ? session.status.tint : providerStyle.color)
+                            .disabled(model.defaults.bool(forKey: "disableClickJump"))
                         Spacer()
                         Button { model.dismiss(session.id) } label: { Image(systemName: "xmark").font(.system(size: 10)) }.buttonStyle(.plain).foregroundStyle(NotchDesign.muted).help(L10n.tr("Убрать сессию")).accessibilityLabel(L10n.tr("Убрать сессию %@", session.title))
                     }.padding(.top, 2)

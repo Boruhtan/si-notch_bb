@@ -1,0 +1,3 @@
+- Prevent duplicate agents when local profiles are connected.
+- Keep presence and task activity separate across local and remote profiles.
+- Add local profile selection and improve installation and update guidance.
