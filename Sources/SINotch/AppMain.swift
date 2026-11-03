@@ -31,6 +31,10 @@ final class AppModel: ObservableObject {
     @Published var receivedCount = 0
     @Published var providerReceipts: [String: Date] = [:]
     @Published var legacyProviderReceipts: [String: Date] = [:]
+    @Published var localHermesProfiles: [LocalHermesProfile] = []
+    private let localProfileRegistry: LocalHermesProfileRegistry
+    private var monitorsLocalProfiles = false
+    private var nextLocalProfileScan: TimeInterval = 0
     @Published var connectionReceipts: [String: AgentConnection.Observation] = [:]
     @Published var activity: [String: [SessionActivity]] = [:]
     @Published var selectedID: String?
@@ -40,6 +44,8 @@ final class AppModel: ObservableObject {
     @Published var interactionErrors: Set<String> = []
     var codexResponder: ((CodexInteraction, String?, [String: String], @escaping (Bool) -> Void) -> Void)?
     @Published var navigationErrorID: String?
+    @Published var navigationNoticeKey: String?
+    var navigationNoticeTimer: Timer?
     var sessionNavigator: any SessionNavigating = SessionNavigator()
     private var navigationGeneration = 0
     @Published var settingsError: AppDisplayError?
@@ -125,7 +131,7 @@ final class AppModel: ObservableObject {
     var agents: [AgentConnection] {
         AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
             receipts: legacyProviderReceipts, running: runningAgentProviders, now: presenceNow, connections: connectionReceipts,
-            configurations: remoteConnections.agentConfigurations(for: connectionReceipts), localDisplayNames: localAgentDisplayNames)
+            configurations: remoteConnections.agentConfigurations(for: connectionReceipts), localDisplayNames: localAgentDisplayNames, localProfiles: localHermesProfiles)
     }
     var agentsSectionHeight: CGFloat { 40 }
     func displayTitle(_ session: AgentSession) -> String {
@@ -225,8 +231,10 @@ final class AppModel: ObservableObject {
     var quiet: Bool { defaults.bool(forKey: "quiet") }
     var socketPath: String { ProcessInfo.processInfo.environment["SI_NOTCH_SOCKET"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".si-notch/run/events.sock").path }
 
-    init(defaults: UserDefaults = .standard, soundPlayer: EventSoundPlayer? = nil) {
+    init(defaults: UserDefaults = .standard, soundPlayer: EventSoundPlayer? = nil,
+         localProfileRegistry: LocalHermesProfileRegistry = .init()) {
         self.defaults = defaults
+        self.localProfileRegistry = localProfileRegistry
         self.quota = CodexQuotaController(defaults: defaults)
         self.remoteConnections = RemoteConnectionManager(defaults: defaults)
         self.soundPlayer = soundPlayer ?? EventSoundPlayer(defaults: defaults)
@@ -240,13 +248,20 @@ final class AppModel: ObservableObject {
             guard let self else { reply(nil); return }
             self.receive(data, origin: .remote(connectorID), reply: { reply($0) })
         }
-        defaults.register(defaults: ["codexAutoDetect": true, "updateBackgroundChecks": true])
+        defaults.register(defaults: ["codexAutoDetect": true, "updateBackgroundChecks": !ForkUpdatePolicy.disabled()])
+        if ForkUpdatePolicy.disabled() {
+            defaults.set(false, forKey: "updateBackgroundChecks")
+            defaults.removeObject(forKey: "updateAvailableVersion")
+            defaults.removeObject(forKey: "updatePluginCatalog")
+        }
         defaults.register(defaults: PresentationPolicy.registeredDefaults)
         defaults.register(defaults: DisplayPreferences.defaults)
         defaults.register(defaults: ["hoverExpand": true, "autoExpand": true, "sound": false, "soundVolume": 0.3, "soundWorking": false, "idleMinutes": 120, "showCompanion": true, "hoverDelay": IslandTiming.hoverEnter, "revealDwell": 5.0, "completionReveal": false, "attentionReveal": true, "shortcutEnabled": true, "shortcutModifier": "ctrlAlt"])
     }
 
     func start() {
+        monitorsLocalProfiles = true
+        refreshLocalProfiles()
         usage.start()
         quota.start()
         history.start(codexSessionsRoot: defaults.bool(forKey: "codexAutoDetect") ?
@@ -261,7 +276,7 @@ final class AppModel: ObservableObject {
         do {
             let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/si-notchctl")
             let ipc = IPCServer(socketPath: socketPath, maxConnections: 128, onPeerMessage: { [weak self] data, executable, reply in
-                let origin = AgentConnection.localOrigin(peerExecutable: executable, helperURL: helper)
+                let origin = AgentConnection.receivingOrigin(peerExecutable: executable, helperURL: helper)
                 DispatchQueue.main.async { self?.receive(data, origin: origin, reply: { reply($0) }) }
             })
             try ipc.start()
@@ -347,16 +362,23 @@ final class AppModel: ObservableObject {
            control["protocol_version"] as? Int == 1 {
             reply(json(["ok": true, "protocol_version": 1, "received_count": receivedCount,
                         "paused": paused, "session_count": sessions.count,
+                        "updates_disabled": ForkUpdatePolicy.disabled(),
+                        "local_profiles": localHermesProfiles.map { ["id": $0.id, "name": $0.name] },
                         "visible_session_count": showAgents ? 0 : filtered.count, "active_filter": activeFilter, "tab": showAgents ? "agents" : "sessions",
                         "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue,
                             "activity": $0.activity.rawValue, "active_task_count": $0.activeTaskCount,
+                            "remote": $0.connectorID != nil || connectionReceipts[$0.id]?.origin.isRemote == true,
                             "last_seen": $0.lastSeen.map { $0.timeIntervalSince1970 as Any } ?? NSNull()] as [String: Any] },
                         "remote_connections": remoteConnections.connections.map { ["id": $0.id.uuidString, "name": $0.displayName,
                             "status": remoteConnections.state($0.id).statusName] },
                         "expanded": expanded, "expansion_history": expansionHistory,
                         "presentation": presentationPolicy?.diagnostics ?? [:],
                         "providers": providerReceipts.mapValues { $0.timeIntervalSince1970 },
-                        "sessions": sessions.map { ["id": $0.id, "provider": $0.provider, "status": $0.status.rawValue] }]))
+                        "sessions": sessions.map { ["id": $0.id, "provider": $0.provider, "status": $0.status.rawValue,
+                            "connection_id": $0.connectionID as Any? ?? NSNull(),
+                            "subagents": $0.subagents.map { ["id": $0.id, "name": $0.name, "status": $0.status.rawValue] }, "turn_id": $0.turnID as Any? ?? NSNull(),
+                            "last_event_at": $0.lastEventAt.timeIntervalSince1970,
+                            "last_sequence": $0.lastSequence as Any? ?? NSNull(), "current_tool": $0.currentTool as Any? ?? NSNull()] }]))
             return
         }
         guard !paused else { reply(json(["ok": false, "error": "paused"])); return }
@@ -547,14 +569,18 @@ final class AppModel: ObservableObject {
         guard let id = event.connectionID else {
             // SSH events need a profile identity; otherwise they could mutate a
             // local legacy session or lend remote presence to a local app.
-            if case .remote = source { return nil }
+            if source.isRemote { return nil }
             return source
         }
+        if localHermesProfiles.contains(where: { $0.provider == event.provider && $0.connectionID == id }),
+           source != .local { return nil }
         let configurations = remoteConnections.agentConfigurations.filter { $0.provider == event.provider && $0.connectionID == id }
         guard configurations.count <= 1 else { return nil }
         let owners = Set(configurations.map(\.connectorID))
         switch source {
         case .local:
+            guard owners.isEmpty else { return nil }
+        case .remoteUnmanaged:
             guard owners.isEmpty else { return nil }
         case .remote(let connectorID):
             guard remoteConnections.connections.contains(where: { $0.id == connectorID }),
@@ -587,13 +613,20 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    func refreshLocalProfiles() {
+        let found = localProfileRegistry.scan()
+        if found != localHermesProfiles { localHermesProfiles = found; revision += 1; onLayout?() }
+        nextLocalProfileScan = ProcessInfo.processInfo.systemUptime + 5
+    }
+
     func tick(at monotonicNow: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         var changed = false
         let visibleBefore = sessions.map { $0.id }
+        if monitorsLocalProfiles && monotonicNow >= nextLocalProfileScan { refreshLocalProfiles() }
         let now = Date()
         let currentAgents = AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
             receipts: legacyProviderReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts,
-            configurations: remoteConnections.agentConfigurations(for: connectionReceipts), localDisplayNames: localAgentDisplayNames)
+            configurations: remoteConnections.agentConfigurations(for: connectionReceipts), localDisplayNames: localAgentDisplayNames, localProfiles: localHermesProfiles)
         if currentAgents != agents { presenceNow = now }
         let frontBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let foreground = Set(sessions.filter { $0.terminalBundleID != nil && $0.terminalBundleID == frontBundle }.map(\.id))
@@ -876,10 +909,15 @@ final class AppModel: ObservableObject {
         guard !defaults.bool(forKey: "disableClickJump") else { return }
         navigationGeneration += 1
         let generation = navigationGeneration
+        navigationNoticeTimer?.invalidate(); navigationNoticeTimer = nil
         navigationErrorID = nil
+        navigationNoticeKey = nil
+        if isRemoteSession(session) {
+            showNavigationNotice(session.id, key: "session.remote", generation: generation)
+            return
+        }
         guard let destination = SessionDestination.resolve(session) else {
-            navigationErrorID = session.id
-            onLayout?()
+            showNavigationNotice(session.id, key: "session.noLocalTarget", generation: generation)
             return
         }
         sessionNavigator.open(destination) { [weak self] success in
@@ -887,10 +925,27 @@ final class AppModel: ObservableObject {
             if success {
                 self.reminders.cancel(session.id)
             } else {
-                self.navigationErrorID = session.id
+                self.showNavigationNotice(session.id, key: "session.openFailed", generation: generation)
+            }
+        }
+    }
+    func isRemoteSession(_ session: AgentSession) -> Bool {
+        guard let id = session.connectionID else { return false }
+        if connectionReceipts[session.provider + "/" + id]?.origin.isRemote == true { return true }
+        return remoteConnections.agentConfigurations.contains { $0.provider == session.provider && $0.connectionID == id }
+    }
+    private func showNavigationNotice(_ id: String, key: String, generation: Int) {
+        navigationNoticeTimer?.invalidate()
+        navigationErrorID = id; navigationNoticeKey = key
+        navigationNoticeTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.navigationGeneration == generation else { return }
+                self.navigationErrorID = nil; self.navigationNoticeKey = nil
+                self.navigationNoticeTimer = nil
                 self.onLayout?()
             }
         }
+        onLayout?()
     }
     func selectSession(_ id: String?) {
         presentationPolicy?.noteActivity()
@@ -940,6 +995,7 @@ final class AppModel: ObservableObject {
         for observer in presenceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         presenceObservers.removeAll()
         cancelExpansionTimer(); cancelRevealTimer()
+        navigationNoticeTimer?.invalidate(); navigationNoticeTimer = nil
         for id in Array(pending.keys) { cancelRequest(id) }
         server?.stop()
     }
@@ -1013,9 +1069,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.focusPanel = { [weak self] in self?.panel.makeKey() }
         installMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let b = statusItem.button {
-            b.toolTip = "si-notch"
-        }
         refreshStatusIcon()
         observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
             object: nil, queue: .main) { [weak self] _ in
@@ -1065,7 +1118,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in
             self?.model.reconcileFilters(); self?.model.refreshCodexObserver(); self?.layout(); self?.rebuildMenu(); self?.installMainMenu(); self?.installShortcut()
             self?.settingsWindow?.title = L10n.tr("si-notch · Настройки")
-            self?.statusItem.button?.toolTip = "si-notch"
         } })
         if CommandLine.arguments.contains("--settings") { showSettings() }
         else if !model.defaults.bool(forKey: "agentDiscoveryPresented") {

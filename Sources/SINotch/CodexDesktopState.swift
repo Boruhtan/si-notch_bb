@@ -69,12 +69,16 @@ struct CodexDesktopState {
         })
         let runtime = root["threadRuntimeStatus"] as? [String: Any] ?? [:]
         let flags = runtime["activeFlags"] as? [String] ?? []
-        let active = runtime["type"] as? String == "active" || turn["status"] as? String == "inProgress"
-        let attention = Self.attentionRequest(in: root, turn: turn)
-        let kind: AgentEventKind = flags.contains("waitingOnApproval") ? .approvalRequested :
-            attention != nil || flags.contains("waitingOnUserInput") ? .waiting :
-            active ? .working : turn["status"] as? String == "failed" ? .failed :
-            turn["status"] as? String == "completed" ? .completed : .sessionStarted
+        let status = turn["status"] as? String
+        let terminal = ["completed", "failed", "interrupted", "cancelled"].contains(status ?? "")
+        // Runtime flags can lag behind a restored conversation. A concrete
+        // turn's outcome wins; loading a thread without a turn is not work.
+        let active = status == "inProgress"
+        let attention = terminal ? nil : Self.attentionRequest(in: root, turn: turn)
+        let kind: AgentEventKind = status == "completed" ? .completed : status == "failed" ? .failed :
+            terminal ? .sessionStarted : active && flags.contains("waitingOnApproval") ? .approvalRequested :
+            attention != nil || (active && flags.contains("waitingOnUserInput")) ? .waiting :
+            active ? .working : .sessionStarted
         let message = items.reversed().first { $0["type"] as? String == "agentMessage" && $0["phase"] as? String != "analysis" }
         let prompt = items.first { $0["type"] as? String == "userMessage" }
         let tool = active ? items.reversed().first { Self.toolName($0) != nil && $0["status"] as? String == "inProgress" } : nil
@@ -119,6 +123,7 @@ struct CodexDesktopState {
         }
         guard turn["status"] as? String == "inProgress", let turnID else { return nil }
         let items = turn["items"] as? [[String: Any]] ?? []
+        let superseded = supersededAsyncQuestionMessageIDs(items)
         let answered = Set(items.flatMap { item -> [String] in
             let type = item["type"] as? String
             guard type == "userMessage" || (type == "steeringUserMessage" && item["status"] as? String == "accepted"),
@@ -128,7 +133,8 @@ struct CodexDesktopState {
             return Self.replyQuestionIDs(text) ?? []
         })
         for item in items where item["type"] as? String == "agentMessage" {
-            guard let messageID = item["id"] as? String, let questions = item["questions"] as? [Any] else { continue }
+            guard let messageID = item["id"] as? String, !superseded.contains(messageID),
+                  let questions = item["questions"] as? [Any] else { continue }
             for index in questions.indices {
                 guard let data = try? JSONSerialization.data(withJSONObject: ["request_user_input_async", messageID, index], options: [.withoutEscapingSlashes]),
                       let questionID = String(data: data, encoding: .utf8), !answered.contains(questionID) else { continue }
@@ -136,6 +142,28 @@ struct CodexDesktopState {
             }
         }
         return nil
+    }
+
+    /// Async question metadata remains on the original agent message after the
+    /// conversation has moved on. A user reply followed by agent output retires
+    /// those questions even when the reply did not use the structured form.
+    static func supersededAsyncQuestionMessageIDs(_ items: [[String: Any]]) -> Set<String> {
+        var open: Set<String> = [], replied: Set<String> = [], superseded: Set<String> = []
+        for item in items {
+            switch item["type"] as? String {
+            case "userMessage": replied.formUnion(open)
+            case "steeringUserMessage" where item["status"] as? String == "accepted": replied.formUnion(open)
+            case "agentMessage" where item["phase"] as? String != "analysis":
+                superseded.formUnion(replied)
+                open.subtract(replied)
+                replied.removeAll()
+                if let id = item["id"] as? String, (item["questions"] as? [Any])?.isEmpty == false {
+                    open.insert(id)
+                }
+            default: break
+            }
+        }
+        return superseded
     }
 
     private static func attentionKey(_ parts: [Any]) -> String? {

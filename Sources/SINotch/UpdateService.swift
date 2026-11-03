@@ -63,6 +63,7 @@ struct UpdateConfiguration {
     let repository: String?
 
     init?(bundle: Bundle = .main) {
+        guard !ForkUpdatePolicy.disabled(in: bundle) else { return nil }
         guard let feed = bundle.object(forInfoDictionaryKey: "SIUpdateFeedURL") as? String,
               let url = URL(string: feed), url.scheme?.lowercased() == "https", url.host != nil,
               let encodedKey = bundle.object(forInfoDictionaryKey: "SIUpdatePublicKey") as? String,
@@ -133,14 +134,17 @@ struct UpdateService {
     static let maxArchiveBytes: Int64 = 250 * 1_048_576
     let configuration: UpdateConfiguration?
     let session: URLSession
+    let updatesDisabled: Bool
 
-    init(configuration: UpdateConfiguration? = UpdateConfiguration(), session: URLSession = .shared) {
-        self.configuration = configuration
+    init(configuration: UpdateConfiguration? = UpdateConfiguration(), session: URLSession = .shared,
+         updatesDisabled: Bool = ForkUpdatePolicy.disabled()) {
+        self.configuration = updatesDisabled ? nil : configuration
         self.session = session
+        self.updatesDisabled = updatesDisabled
     }
 
     func check(currentVersion: String, channel: UpdateChannel) async throws -> UpdateCheckResult {
-        guard let configuration else { return .unconfigured }
+        guard !updatesDisabled, let configuration else { return .unconfigured }
         guard let current = UpdateVersion(currentVersion) else { throw UpdateError.invalidVersion }
         let feed = try await latestFeed(configuration, channel: channel)
         var candidates: [(UpdateVersion, UpdateRelease)] = []
@@ -219,6 +223,7 @@ struct UpdateService {
     // The signed manifest authenticates ad hoc builds too. Developer ID builds
     // additionally pin the Apple team; all builds require a valid code seal.
     func downloadVerified(_ release: UpdateRelease) async throws -> URL {
+        guard !updatesDisabled else { throw UpdateError.unavailable }
         guard let configuration else { throw UpdateError.invalidConfiguration }
         let feed = try await latestFeed(configuration, channel: release.channel)
         guard feed.releases.contains(release) else { throw UpdateError.invalidFeed }
@@ -304,7 +309,7 @@ final class UpdateBackgroundChecker {
     private init() {}
 
     func start() {
-        guard timer == nil else { return }
+        guard !ForkUpdatePolicy.disabled(), timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.checkIfEnabled() }
         }

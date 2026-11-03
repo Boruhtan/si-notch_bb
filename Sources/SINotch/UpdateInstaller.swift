@@ -31,6 +31,7 @@ enum UpdateInstaller {
 
     @MainActor
     static func start(archive: URL, release: UpdateRelease, bundle: Bundle = .main) throws {
+        guard !ForkUpdatePolicy.disabled(in: bundle) else { throw UpdateError.unavailable }
         let destination = bundle.bundleURL.standardizedFileURL
         try validateDestination(destination)
         guard let executable = bundle.executableURL else { throw UpdateInstallError.location }

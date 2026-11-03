@@ -30,7 +30,7 @@ struct UpdateSettingsView: View {
                     Text(L10n.tr("updates.beta")).tag(UpdateChannel.beta.rawValue)
                 }
                 .pickerStyle(.segmented)
-                .disabled(installing)
+                .disabled(installing || ForkUpdatePolicy.disabled())
                 .onChange(of: savedChannel) { _, _ in
                     generation += 1
                     checkTask?.cancel(); downloadTask?.cancel()
@@ -39,6 +39,7 @@ struct UpdateSettingsView: View {
                     result = nil; error = nil; backgroundAvailableVersion = ""; pluginCatalog = Data()
                 }
                 Toggle(L10n.tr("updates.background"), isOn: $backgroundChecks)
+                    .disabled(ForkUpdatePolicy.disabled())
                 Text(L10n.tr("updates.backgroundHelp"))
                     .font(.system(size: 11))
                     .foregroundStyle(SettingsPalette.secondary)
@@ -50,7 +51,10 @@ struct UpdateSettingsView: View {
                     Spacer()
                 }
 
-                if service.configuration == nil {
+                if ForkUpdatePolicy.disabled() {
+                    Label(L10n.tr("updates.forkDisabled"), systemImage: "lock.shield")
+                        .foregroundStyle(.secondary)
+                } else if service.configuration == nil {
                     Label(L10n.tr("updates.unconfigured"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
                 } else if result == nil && !backgroundAvailableVersion.isEmpty {

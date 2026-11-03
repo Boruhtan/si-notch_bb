@@ -2,7 +2,31 @@
 
 # Feature status
 
-Available features and verification scope for 0.4.31 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+Available features and verification scope for 0.4.36 on Apple Silicon. Automated adapter tests use controlled inputs; they do not establish compatibility with every agent version or a complete model session.
+
+## Changes in 0.4.36
+
+An asynchronous Codex question is removed from Attention when a user reply is followed by new agent output, even if Codex retains the original question metadata. Pending steering messages alone do not resolve it, and a later question remains visible. The affected live conversation was inspected read-only; automated regressions cover both the session status and the inline question card. The full test suite passed. On 2026-10-27, installed 0.4.36 (build 63) launched with a valid signature, the current Codex task remained Working, and the remote connection returned to Connected. The affected question was no longer live at restart, so its disappearance was not checked in the installed UI.
+
+## Changes in 0.4.35
+
+Browsing a completed conversation no longer enrolls it in the live task pool. History-only rollout reconciliation cannot establish activity. Desktop activity is bound to an observed turn, closes on its outcome, and rejects later snapshots of the same completed turn. A concrete terminal turn wins over stale runtime flags; an active runtime without an in-progress turn does not establish work. Regression tests cover archived discovery, changed completion snapshots, stale Working/Attention flags, turn isolation, new work in an old chat, parallel subscriptions, idle recovery, delayed file hints and stream authority under clock skew. On 2026-10-25, installed 0.4.35 (build 62) was checked by opening three old completed chats without submitting a message. Across 49 live status samples over 50 seconds, none reappeared in Sessions; the current running task remained Working. The replacement preserved 342 History/Usage/preferences files byte-for-byte before relaunch. New-turn and completion behavior were checked with controlled socket fixtures; a separate real new model turn was not submitted.
+
+## Changes in 0.4.34
+
+A managed worker’s missing final hook is recovered from its committed native admission/execution outcome using a private journal of opaque identities. The existing heartbeat reads only its own profile ledger; it never infers success from silence or changes native data. A confirmed interrupted execution closes without success; unknown remains waiting. Generation, epoch and latest-turn checks protect newer work. A real telemetry outage retained a completed receipt until reconnect. A real target-scoped worker restart reproduced stale Working with plugin 1.14; repeating the native interruption with 1.15 automatically closed the old card and restored idle. Host crashes were not exercised.
+
+On 2026-10-24, a separate real scratch task was checked with installed 0.4.34 (build 61) and observer 1.15. Only its verified managed-worker PID received SIGKILL while a safe terminal command was in flight; the gateway process remained alive. The task run recorded `crashed` and its admission settled `interrupted`. The app changed Working → Waiting, then closed that execution and restored the profile to idle without reporting Done or restarting the app. Both delivery queues and the execution journal were empty. The disposable task was archived with its crash result preserved. This covers one managed worker on one remote macOS profile, not host failure or every runtime entry point.
+
+## Changes in 0.4.33
+
+Outcome receipts survive delivery failures and worker exits, without storing task text. Auxiliary calls and unbound tool IDs cannot invent task activity; late events cannot reopen a completed or failed Hermes turn. SSH peer provenance distinguishes remote navigation from a local application failure; notices clear after three seconds. Automated tests cover replay, process restarts, terminal fencing, source ownership and notice expiry. Native execution completion remains separate from successful task acceptance; unmatched historical events are not reclassified from silence.
+
+On 2026-10-24, a real API task on the remote `backend-coder` profile was checked with installed app 0.4.33 (build 60) and plugin 1.14. Its single terminal call waited 20 seconds and returned the expected marker with exit code 0; the native run and admission both completed. Working, Done with the final reply, and Online / No active tasks were visually verified. Read-only status sampling confirmed idle with zero active tasks for more than two minutes and four fresh presence receipts after completion; both delivery queues were empty. This covers one successful API task on one remote macOS profile. Live delivery failure, worker restart, interruption and other entry points were not exercised in this check.
+
+## Changes in 0.4.32
+
+Old unnamed idle sessions no longer retain an extra application row beside a fresh confirmed local profile. Fresh unnamed events and independent working, waiting, approval and failed tasks remain separate. Regression tests cover missing/stale receipts, the 120-second freshness boundary and task activity isolation; the full automated suite passed. Manual UI validation was not repeated for this patch.
 
 ## Changes in 0.4.31
 

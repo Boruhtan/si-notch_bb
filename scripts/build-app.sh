@@ -11,6 +11,10 @@ trap 'rm -rf "$scratch"' EXIT
 export CLANG_MODULE_CACHE_PATH="$scratch/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$scratch/modules"
 build_args=(--disable-sandbox --cache-path "$scratch/cache" --scratch-path "$scratch/work" -c "$configuration")
+if [[ -n "${SI_NOTCH_BUILD_SYSTEM:-}" ]]; then
+  [[ "$SI_NOTCH_BUILD_SYSTEM" == native ]] || { echo "Only native is supported as an explicit build override" >&2; exit 2; }
+  build_args+=(--build-system native)
+fi
 swift build "${build_args[@]}"
 bindir="$(swift build "${build_args[@]}" --show-bin-path)"
 app="$scratch/si-notch.app"
@@ -32,8 +36,13 @@ if [[ -f plugins/hermes/relay.py ]]; then cp plugins/hermes/relay.py "$app/Conte
 if [[ -f scripts/claude-permission.py ]]; then cp scripts/claude-permission.py "$app/Contents/Resources/adapters/claude-permission.py"; fi
 iconset="$scratch/AppIcon.iconset"
 mkdir -p "$iconset"
-swift -module-cache-path "$scratch/icon-modules" scripts/render-icon.swift "$iconset"
-iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+if [[ -n "${SI_NOTCH_ICON_SOURCE:-}" ]]; then
+  [[ -f "$SI_NOTCH_ICON_SOURCE" ]] || { echo 'Explicit icon does not exist' >&2; exit 2; }
+  cp "$SI_NOTCH_ICON_SOURCE" "$app/Contents/Resources/AppIcon.icns"
+else
+  swift -module-cache-path "$scratch/icon-modules" scripts/render-icon.swift "$iconset"
+  iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+fi
 for resources in "$bindir"/*SINotch.bundle; do
   [[ -d "$resources" ]] || continue
   ditto --norsrc --noextattr "$resources" "$app/Contents/Resources/$(basename "$resources")"
@@ -59,7 +68,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 python3 - "$app/Contents/Info.plist" <<'PYCONFIG'
-import json, plistlib, sys
+import json, plistlib, sys, subprocess
 from pathlib import Path
 config = json.loads(Path('release.json').read_text())
 path = Path(sys.argv[1])
@@ -68,7 +77,10 @@ info.update(CFBundleShortVersionString=config['version'].split('-')[0], CFBundle
             SIReleaseVersion=config['version'], SIUpdateRepository=config['repository'],
             SIUpdateFeedURL='https://github.com/' + config['repository'] + '/releases/latest/download/update.json',
             SIUpdatePublicKey=config['updatePublicKey'],
-            SIPluginUpdates=config.get('pluginUpdates', []))
+            SIPluginUpdates=config.get('pluginUpdates', []),
+            SIUpdatesDisabled=config.get('updatesDisabled', False),
+            SIBuildSource=config['repository'],
+            SIBuildCommit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip())
 path.write_bytes(plistlib.dumps(info))
 PYCONFIG
 codesign --force --deep --sign - "$app"

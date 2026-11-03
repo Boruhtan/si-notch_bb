@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import closing
 import math
 import stat
 import json
@@ -11,6 +12,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import sqlite3
 import threading
 import time
 from uuid import uuid4
@@ -21,7 +23,6 @@ _SAFE_TOOL_NAMES = frozenset({
     "write_file", "edit_file", "delegate_task", "search", "python", "grep",
 })
 _LOCK = threading.Lock()
-_SEQUENCES: dict[str, int] = {}
 _STARTED: set[str] = set()
 _TASK_TITLES: dict[str, str] = {}
 _METADATA: dict[str, dict] = {}
@@ -37,6 +38,9 @@ _TIMEOUT_SECONDS = 2.5
 _RETRY_SECONDS = 5.0
 _HEARTBEAT_SECONDS = 30.0
 _HEARTBEAT: tuple[threading.Event, threading.Thread] | None = None
+_EXECUTION_LOCK = threading.Lock()
+_TRACKED_EXECUTIONS: dict[tuple[str, str], Path | None] = {}
+_EXECUTION_CURSOR = 0
 
 
 def _opaque_id(value: object, prefix: str) -> str | None:
@@ -233,8 +237,8 @@ def _spool_directory() -> Path:
     return Path(__file__).resolve().parent / "usage-outbox"
 
 
-def _private_spool() -> Path:
-    directory = _spool_directory()
+def _private_spool(directory: Path | None = None) -> Path:
+    directory = directory if directory is not None else _spool_directory()
     directory.mkdir(mode=0o700, exist_ok=True)
     info = directory.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
@@ -295,17 +299,228 @@ def _drain_usage() -> None:
         _SPOOL_LOCK.release()
 
 
+_LIFECYCLE_LOCK = threading.Lock()
+_LIFECYCLE_KINDS = frozenset({"agent.completed", "agent.failed", "agent.waiting", "session.end"})
+
+
+def _lifecycle_directory() -> Path:
+    return Path(__file__).resolve().parent / "lifecycle-outbox"
+
+
+def _queue_lifecycle(payload: dict) -> bool:
+    # Persist outcome and opaque routing only; never persist task text/tool output.
+    keep = {"event", "session_id", "provider", "id", "timestamp", "connection_id", "connection_name", "turn_id"}
+    value = {key: data for key, data in payload.items() if key in keep}
+    try:
+        with _LIFECYCLE_LOCK:
+            directory = _private_spool(_lifecycle_directory())
+            if len(list(directory.glob("*.json"))) >= _SPOOL_LIMIT:
+                marker = directory / "incomplete"
+                fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+                os.close(fd)
+                return _send(payload)
+            path = directory / (hashlib.sha256(value["id"].encode()).hexdigest() + ".json")
+            temporary = directory / (".write-" + str(uuid4()))
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                with os.fdopen(fd, "w") as stream:
+                    json.dump(value, stream, separators=(",", ":")); stream.flush(); os.fsync(stream.fileno())
+                os.replace(temporary, path)
+                directory_fd = os.open(directory, os.O_RDONLY)
+                try: os.fsync(directory_fd)
+                finally: os.close(directory_fd)
+            finally:
+                temporary.unlink(missing_ok=True)
+        if _send(payload): path.unlink(missing_ok=True)
+        return True
+    except (OSError, ValueError):
+        return _send(payload)
+
+
+def _drain_lifecycle() -> None:
+    if not _LIFECYCLE_LOCK.acquire(blocking=False): return
+    try:
+        directory = _lifecycle_directory()
+        if not directory.exists(): return
+        _private_spool(directory)
+        # One bounded exchange per heartbeat iteration; a backlog cannot stall Hermes.
+        for path in sorted(directory.glob("*.json"), key=lambda p: p.lstat().st_mtime)[:1]:
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_size > 8192: continue
+            value = json.loads(path.read_text())
+            if not isinstance(value, dict) or value.get("event") not in _LIFECYCLE_KINDS or value.get("provider") != "hermes": continue
+            if _send(value): path.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        pass
+    finally:
+        _LIFECYCLE_LOCK.release()
+
+
+def _execution_directory() -> Path:
+    return Path(__file__).resolve().parent / "active-executions"
+
+
+def _native_database() -> Path:
+    # A multiplexer serves several profiles; process-global HERMES_HOME is not
+    # the authority for this installed plugin's own native database.
+    return Path(__file__).resolve().parents[2] / "state.db"
+
+
+def _open_native_database():
+    path = _native_database()
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+        raise OSError("unsafe native state")
+    return sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=0.05)
+
+
+def _write_execution(path: Path, value: dict) -> None:
+    temporary = path.parent / (".write-" + str(uuid4()))
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(value, stream, separators=(",", ":")); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try: os.fsync(directory_fd)
+        finally: os.close(directory_fd)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _track_execution(native_session: str, payload: dict) -> None:
+    turn = payload.get("turn_id")
+    identity = (payload["session_id"], turn)
+    if not turn or not payload.get("connection_id") or identity in _TRACKED_EXECUTIONS:
+        return
+    try:
+        with _EXECUTION_LOCK, closing(_open_native_database()) as database:
+            # Require one exact, executing native reservation. API threads and
+            # unsupported schemas retain their existing hook-only behavior.
+            rows = database.execute("""SELECT w.execution_id, w.generation, w.owner_epoch,
+                       a.admission_id, a.generation, a.owner_epoch
+                FROM worker_executions w JOIN session_admissions a
+                  ON w.execution_id = 'admission-worker:' || a.admission_id
+                WHERE w.session_id = ? AND w.status = 'running' AND a.status = 'started'
+                LIMIT 2""", (native_session,)).fetchall()
+            if len(rows) != 1: return
+            execution, generation, epoch, admission, admission_generation, admission_epoch = rows[0]
+            directory = _private_spool(_execution_directory())
+            if len(list(directory.glob("*.json"))) >= _SPOOL_LIMIT: return
+            value = {key: payload[key] for key in ("session_id", "provider", "connection_id", "turn_id")}
+            value.update(execution_id=execution, generation=generation, owner_epoch=epoch,
+                         admission_id=admission, admission_generation=admission_generation,
+                         admission_epoch=admission_epoch)
+            # An admission can contain several goal-loop turns. Its final native
+            # verdict belongs only to the latest observed turn, never its predecessors.
+            name = hashlib.sha256(execution.encode()).hexdigest() + ".json"
+            path = directory / name
+            _write_execution(path, value)
+            if len(_TRACKED_EXECUTIONS) >= _SPOOL_LIMIT:
+                _TRACKED_EXECUTIONS.pop(next(iter(_TRACKED_EXECUTIONS)))
+            _TRACKED_EXECUTIONS[identity] = path
+    except (OSError, ValueError, TypeError, sqlite3.Error):
+        pass
+
+
+def _forget_execution(session_id: object, turn_id: object) -> None:
+    identity = (_session_key(session_id), _opaque_id(turn_id, "turn-"))
+    with _EXECUTION_LOCK:
+        path = _TRACKED_EXECUTIONS.get(identity)
+        if path is not None:
+            try:
+                value = json.loads(path.read_text())
+                if (value.get("session_id"), value.get("turn_id")) == identity:
+                    path.unlink(missing_ok=True)
+            except FileNotFoundError:
+                pass
+            except (OSError, ValueError, AttributeError):
+                return
+            _TRACKED_EXECUTIONS[identity] = None
+
+
+def _reconcile_executions() -> None:
+    """Recover a missing worker hook from a committed native execution verdict.
+
+    No transcript scan, PID heuristic, native mutation or inference from silence.
+    Only opaque execution/routing identities enter the private journal.
+    """
+    global _EXECUTION_CURSOR
+    if not _EXECUTION_LOCK.acquire(blocking=False): return
+    try:
+        directory = _execution_directory()
+        if not directory.exists(): return
+        _private_spool(directory)
+        paths = sorted(directory.glob("*.json"))[:_SPOOL_LIMIT]
+        if not paths: return
+        with closing(_open_native_database()) as database:
+            for _ in range(min(32, len(paths))):
+                path = paths[_EXECUTION_CURSOR % len(paths)]
+                _EXECUTION_CURSOR += 1
+                try:
+                    info = path.lstat()
+                    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_size > 8192: continue
+                    value = json.loads(path.read_text())
+                    if (not isinstance(value, dict) or value.get("provider") != "hermes"
+                            or value.get("connection_id") != _connection_id()): continue
+                    text_keys = ("execution_id", "admission_id", "session_id", "turn_id")
+                    numbers = ("generation", "owner_epoch", "admission_generation", "admission_epoch")
+                    if (any(not isinstance(value.get(k), str) or not 0 < len(value[k]) <= 4096 for k in text_keys)
+                            or any(type(value.get(k)) is not int or value[k] < 0 for k in numbers)): continue
+                    if value["execution_id"] != "admission-worker:" + value["admission_id"]: continue
+                    # Stamp before the snapshot: later turns sort after this
+                    # receipt even if delivery is delayed by a disconnected Mac.
+                    observed_at = time.time()
+                    row = database.execute("""SELECT w.status, a.status, a.outcome,
+                            (SELECT MAX(n.generation) FROM worker_executions n WHERE n.session_id=w.session_id)
+                        FROM worker_executions w JOIN session_admissions a
+                          ON w.execution_id='admission-worker:' || a.admission_id
+                        WHERE w.execution_id=? AND w.generation=? AND w.owner_epoch=?
+                          AND a.admission_id=? AND a.generation=? AND a.owner_epoch=?""",
+                        tuple(value[k] for k in ("execution_id", "generation", "owner_epoch",
+                                                "admission_id", "admission_generation", "admission_epoch"))).fetchone()
+                    if row is None or row[0] != "terminal": continue
+                    if row[3] != value["generation"]:
+                        path.unlink(missing_ok=True); continue  # A newer worker owns this session.
+                    if row[1] == "unknown":
+                        kind = "agent.waiting"
+                    elif row[1] == "terminal":
+                        kind = {"completed": "agent.completed", "failed": "agent.failed",
+                                "interrupted": "session.end"}.get(row[2])
+                    else:
+                        continue
+                    if kind is None or value.get("notified") == kind: continue
+                    pending_at = value.get("pending_at")
+                    if (value.get("pending_kind") != kind or type(pending_at) not in (int, float)
+                            or not math.isfinite(pending_at) or pending_at < 0):
+                        value.update(pending_kind=kind, pending_at=observed_at)
+                        _write_execution(path, value)
+                    payload = {key: value[key] for key in ("session_id", "provider", "connection_id", "turn_id")}
+                    payload.update(event=kind, timestamp=value["pending_at"],
+                                   id=hashlib.sha256((value["execution_id"] + "\0" + value["turn_id"] + "\0" + kind).encode()).hexdigest())
+                    if _queue_lifecycle(payload):
+                        if row[1] == "unknown":
+                            value["notified"] = kind; _write_execution(path, value)
+                        else:
+                            path.unlink(missing_ok=True)
+                    break  # One bounded delivery per iteration, including offline paths.
+                except (OSError, ValueError, TypeError):
+                    continue
+    except (OSError, ValueError, sqlite3.Error):
+        pass
+    finally:
+        _EXECUTION_LOCK.release()
+
+
 def _emit(kind: str, session_id: object, *, tool_name: object = None,
           approval_id: object = None, attention_request_id: object = None, message: str | None = None,
           first_prompt: str | None = None, turn_id: object = None,
           task: dict | None = None, subagent: dict | None = None,
-          usage: dict | None = None) -> bool:
+          usage: dict | None = None, durable: bool = False) -> bool:
     session = _session_key(session_id)
     if session is None:
         return False
     with _LOCK:
-        sequence = _SEQUENCES.get(session, 0) + 1
-        _SEQUENCES[session] = sequence
         task_title = _TASK_TITLES.get(session)
         metadata = dict(_METADATA.get(session, {}))
     title = _display_name()
@@ -317,7 +532,8 @@ def _emit(kind: str, session_id: object, *, tool_name: object = None,
         "session_id": session,
         "provider": "hermes",
         "id": str(uuid4()),
-        "sequence": sequence,
+        # A process-local counter cannot order a durable session across workers
+        # or plugin reloads. Receivers order these events by timestamp and UUID.
         "timestamp": time.time(),
         "title": title,
         **metadata,
@@ -342,7 +558,10 @@ def _emit(kind: str, session_id: object, *, tool_name: object = None,
         payload["first_prompt"] = first_prompt
     if safe_turn := _opaque_id(turn_id, "turn-"):
         payload["turn_id"] = safe_turn
-    return _queue_usage(payload) if usage is not None else _send(payload)
+    if kind in {"agent.working", "tool.start"} and isinstance(session_id, str):
+        _track_execution(session_id, payload)
+    if usage is not None: return _queue_usage(payload)
+    return _queue_lifecycle(payload) if durable else _send(payload)
 
 
 def _start_once(session_id: object) -> None:
@@ -361,7 +580,9 @@ def on_session_start(session_id=None, model=None, **kwargs) -> None:
     _start_once(session_id)
 
 
-def pre_api_request(session_id=None, turn_id=None, model=None, request=None, **kwargs) -> None:
+def pre_api_request(session_id=None, turn_id=None, model=None, request=None, call_kind=None, **kwargs) -> None:
+    if call_kind in ("auxiliary", "compression"):
+        return  # Usage is still recorded by post_api_request; this is not a new task.
     with _LOCK:
         if session_id in _PARENTS and turn_id:
             _TURN_PARENTS.setdefault((session_id, turn_id), _PARENTS[session_id])
@@ -419,16 +640,24 @@ def pre_llm_call(session_id=None, user_message=None, turn_id=None, model=None, *
     _emit("agent.working", session_id, message=text, first_prompt=text, turn_id=turn_id)
 
 
+def _tool_session(session_id, task_id):
+    if _session_key(session_id) is not None: return session_id
+    # A tool invocation ID is not necessarily a durable session. Older hooks
+    # may reuse task_id only after session/LLM hooks established that identity.
+    session = _session_key(task_id)
+    with _LOCK:
+        return task_id if session in _STARTED else None
+
+
 def pre_tool_call(session_id=None, tool_name=None, turn_id=None, task_id=None, **kwargs) -> None:
-    # Hermes tool hooks also use task_id on some supported runtimes.
-    session_id = session_id or task_id
+    session_id = _tool_session(session_id, task_id)
     # Always return None: this callback observes tools and never supplies a directive.
     _start_once(session_id)
     _emit("tool.start", session_id, tool_name=tool_name, turn_id=turn_id)
 
 
 def post_tool_call(session_id=None, tool_name=None, status=None, turn_id=None, task_id=None, result=None, **kwargs) -> None:
-    session_id = session_id or task_id
+    session_id = _tool_session(session_id, task_id)
     failed = status in ("error", "failed", "blocked")
     outcome = None
     # Inspect outcome flags only; never forward result content or errors.
@@ -507,16 +736,17 @@ def on_session_end(session_id=None, completed=None, failed=False,
         kind = "agent.failed"
     else:
         kind = "agent.waiting"
-    _emit(kind, session_id, turn_id=turn_id)
+    if _emit(kind, session_id, turn_id=turn_id, durable=True):
+        if failed or interrupted or completed or (completed is False and interrupted is False):
+            _forget_execution(session_id, turn_id)
 
 
 def on_session_finalize(session_id=None, **kwargs) -> None:
-    _emit("session.end", session_id)
+    _emit("session.end", session_id, durable=True)
     session = _session_key(session_id)
     if session:
         with _LOCK:
             _STARTED.discard(session)
-            _SEQUENCES.pop(session, None)
             _TASK_TITLES.pop(session, None)
             _METADATA.pop(session, None)
             _TODO_IDS.pop(session, None)
@@ -550,6 +780,8 @@ def _start_heartbeat(ctx, connection: str) -> None:
         while not stop.wait(min(2.0, _HEARTBEAT_SECONDS)):
             if _connection_id() != connection: return
             _drain_usage()
+            _drain_lifecycle()
+            _reconcile_executions()
             if time.monotonic() >= next_presence:
                 _emit("agent.presence", "presence-" + connection)
                 next_presence = time.monotonic() + _HEARTBEAT_SECONDS
@@ -590,4 +822,6 @@ def register(ctx) -> None:
     if connection := _connection_id():
         # A loaded profile announces availability without creating a task.
         _emit("agent.presence", "presence-" + connection)
+        _drain_lifecycle()
+        _reconcile_executions()
         _start_heartbeat(ctx, connection)

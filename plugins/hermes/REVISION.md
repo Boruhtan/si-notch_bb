@@ -1,5 +1,47 @@
 # Current revision
 
+Plugin **1.15**, bundled with app **0.4.34**, recovers a managed worker’s missing final hook from the committed native execution ledger. The existing heartbeat reads only its own profile database. A private `active-executions` journal records opaque admission/execution and turn identities before activity is delivered; no prompts, tool content or native database writes are involved. Successful, failed, interrupted and unknown outcomes remain distinct. A confirmed interrupted worker closes without success; an unknown execution remains waiting. Generation, owner epoch and latest-turn checks prevent another execution’s outcome from changing the current task. Unsupported schemas retain hook-only behavior.
+
+Immutable runtime source: [`52b6de6fba263745db245f4672e859ca24bc2754`](https://github.com/eugeneb1ack/si-notch/tree/52b6de6fba263745db245f4672e859ca24bc2754/plugins/hermes).
+
+```sh
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 52b6de6fba263745db245f4672e859ca24bc2754 --no-enable
+```
+
+On 2026-10-24, a real remote API task completed during a forced interruption of the app-owned telemetry tunnel. The native completed outcome was observed in the private outbox before reconnection; automatic recovery delivered Done and restored idle, with empty queues. A separate native Kanban worker restart reproduced a missing final hook in plugin 1.14: native execution was interrupted while its old card remained Working after the replacement completed. With plugin 1.15 installed in the same profile, a repeated native reclaim automatically closed the interrupted execution and restored idle without replaying a success or restarting the Mac app. These checks used target-scoped operator restarts.
+
+A subsequent real scratch task on the same day received SIGKILL only at its verified managed-worker PID while a safe terminal call was in flight. The gateway's PID and birth remained unchanged. Installed app 0.4.34 (build 61) moved Working → Waiting, then closed the interrupted execution and restored idle. Native evidence retained a crashed task run and a terminal/interrupted admission; no completed outcome was reported. Both delivery queues and the execution journal were empty. The disposable task was archived with its crash record retained. This establishes one actual managed-worker SIGKILL path; host crashes and other runtime entry points remain unverified.
+
+| File | SHA-256 |
+| --- | --- |
+| `__init__.py` | `f63503ecc5a9b961e439c6b424b60424a815d76d6365afc9766edc64110b2e16` |
+| `plugin.yaml` | `66f6b4fd55efc594b892960698082fed8eda5245de86fb4cf46c73dcc6fc9f32` |
+| `relay.py` | `b387d9f5b6d22bd3a76cf51f4b44a845c3bb67d5b2e13cf2866123f173a24728` |
+| `configure.py` | `acfab38546654040b3563517cf44e29ca881fb7d3ea279a6e3193cf82f12762b` |
+
+# Previous plugin 1.14
+
+Plugin **1.14**, bundled with app **0.4.33**, persists outcome receipts until delivery is acknowledged, retries them through the existing heartbeat and avoids process-local sequence counters. Auxiliary/compression requests do not start task activity. Tool-only fallback IDs are accepted only after session/LLM lifecycle established their identity. The event format and registered hooks remain compatible.
+
+Immutable runtime source: [`50d5fd9bbe872d770830cddb96584700411490b0`](https://github.com/eugeneb1ack/si-notch/tree/50d5fd9bbe872d770830cddb96584700411490b0/plugins/hermes).
+
+```sh
+hermes plugins install eugeneb1ack/si-notch/plugins/hermes --ref 50d5fd9bbe872d770830cddb96584700411490b0 --no-enable
+```
+
+The private lifecycle outbox contains opaque routing and outcome metadata, never task text or tool output. Updates preserve settings and pending queues; explicit clone identity changes are refused while either outbox is nonempty. Automated regressions cover rejected ACKs, identical replay, worker restarts, auxiliary activity, missing outcomes and same-turn terminal fencing. Historical packets that were never recorded cannot be reconstructed as successful outcomes.
+
+On 2026-10-24, one real API task on the remote `backend-coder` profile was checked with installed app 0.4.33 (build 60) and plugin 1.14. One terminal call waited 20 seconds and returned the expected marker with exit code 0. The native run and session admission both completed; their session identity matched the app's opaque session ID. Working, Done with the final reply, and Online / No active tasks were visually verified in the production app. Read-only status samples retained idle with zero active tasks for more than two minutes and four fresh presence receipts after completion, without reopening the completed turn. Installed runtime hashes matched this revision and both delivery queues were empty. No profile settings or existing tasks were changed. This check covers one successful API task; live delivery failure, worker restart, interruption and other entry points remain outside its scope.
+
+| File | SHA-256 |
+| --- | --- |
+| `__init__.py` | `303d3faea61b0ee8b98395ec9e78d8cd1d1687f5aadf5c34051ed37c8a2bcc98` |
+| `plugin.yaml` | `8c54fca1dda68407d72605a44232a296fe57b73f560e96205f9f8495a1d5a884` |
+| `relay.py` | `b387d9f5b6d22bd3a76cf51f4b44a845c3bb67d5b2e13cf2866123f173a24728` |
+| `configure.py` | `2a24af2e874e9ff35fdb77d318e1b6806e9274658ca99ef9c63b4c034760ae60` |
+
+# Previous plugin 1.13
+
 Plugin **1.13**, bundled with app **0.4.31**, uses the native Mac helper for delivery checks when available and adds an explicit `setup --new-instance` operation for a deliberately cloned profile. A clone identity change is refused while its usage queue is nonempty. Ordinary setup and updates preserve the existing identity, text preference, helper/socket settings, unknown fields and pending usage queue. The lifecycle observer and its event format are unchanged from 1.12.
 
 Immutable runtime source: [`0cc545064c5ff3dbd39f635d3fd9b1b46d51a3bd`](https://github.com/eugeneb1ack/si-notch/tree/0cc545064c5ff3dbd39f635d3fd9b1b46d51a3bd/plugins/hermes). The native installer requires this full commit SHA, not a tag or branch.

@@ -5,7 +5,13 @@ import SINotchCore
 struct AgentConnection: Identifiable, Equatable {
     /// Assigned by the receiving endpoint, never by event-supplied display metadata.
     enum Origin: Equatable {
-        case unknown, local, remote(UUID)
+        case unknown, local, remote(UUID), remoteUnmanaged
+        var isRemote: Bool {
+            switch self {
+            case .remote, .remoteUnmanaged: return true
+            case .unknown, .local: return false
+            }
+        }
     }
     struct Observation: Equatable {
         let provider: String
@@ -64,6 +70,16 @@ struct AgentConnection: Identifiable, Equatable {
         return .local
     }
 
+    static func receivingOrigin(peerExecutable: String?, helperURL: URL) -> Origin {
+        let local = localOrigin(peerExecutable: peerExecutable, helperURL: helperURL)
+        if local == .local { return local }
+        // The kernel supplies the peer executable; event metadata cannot claim SSH origin.
+        if let peerExecutable, ["/usr/bin/ssh", "/usr/sbin/sshd", "/usr/libexec/sshd-session"].contains(peerExecutable) {
+            return .remoteUnmanaged
+        }
+        return .unknown
+    }
+
     static func runningProviders(detected: [HarnessDetection], applicationPaths: Set<String>,
                                  bundleIdentifiers: Set<String>) -> Set<String> {
         var providers = Set(detected.filter { detection in
@@ -89,16 +105,21 @@ struct AgentConnection: Identifiable, Equatable {
                         receipts: [String: Date], running: Set<String>, now: Date,
                         connections: [String: Observation] = [:],
                         configurations: [Configuration] = [],
-                        localDisplayNames: [String: String] = [:]) -> [Self] {
+                        localDisplayNames: [String: String] = [:],
+                        localProfiles: [LocalHermesProfile] = []) -> [Self] {
         let installed = Set(detected.filter(\.isDetected).map(\.id))
         let legacySessions = sessions.filter { $0.connectionID == nil }
         let legacyByProvider = Dictionary(grouping: legacySessions, by: \.provider)
         let configured = Dictionary(configurations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let localProviders = Set(connections.values.filter {
+        // Saved SSH ownership is authoritative even if a local configuration was cloned.
+        let local = Dictionary(localProfiles.filter { configured[$0.id] == nil }.map { ($0.id, $0) },
+                               uniquingKeysWith: { first, _ in first })
+        let localProviders = Set(local.values.map(\.provider)).union(connections.values.filter {
             $0.origin == .local && configured[$0.id] == nil && isFresh($0.lastSeen, at: now)
         }.map(\.provider))
         // Discovery is a fallback for an application, not another profile. Only
         // independent legacy activity may coexist with a confirmed local profile.
+        // Idle sessions need a fresh receipt to prove a separate live agent.
         let independentLegacy = Set(legacySessions.filter {
             Self.isTask($0) && [.working, .waiting, .approval, .failed].contains($0.status)
         }.map(\.provider))
@@ -129,12 +150,16 @@ struct AgentConnection: Identifiable, Equatable {
         let observedIDs = Set(connections.values.map(\.id))
         let named = connections.values.compactMap { observation -> Self? in
             let config = configured[observation.id]
+            if local[observation.id] != nil && observation.origin != .local { return nil }
             if case .remote = observation.origin, config == nil { return nil }
             if config?.visible == false { return nil }
             let connected = config?.transportState.map { $0 == .connected } ?? true
-            return Self(id: observation.id, provider: observation.provider, displayName: config?.name ?? observation.name,
+            return Self(id: observation.id, provider: observation.provider, displayName: config?.name ?? local[observation.id]?.name ?? observation.name,
                         state: connected && isFresh(observation.lastSeen, at: now) ? .online : .lastSeen, lastSeen: observation.lastSeen,
                         connectorID: config?.connectorID)
+        }
+        let quietLocal = local.values.filter { profile in !named.contains { $0.id == profile.id } }.map {
+            Self(id: $0.id, provider: $0.provider, displayName: $0.name, state: .installed, lastSeen: nil)
         }
         let quiet = configured.values.filter { $0.visible && !observedIDs.contains($0.id) }.map {
             Self(id: $0.id, provider: $0.provider, displayName: $0.name,
@@ -143,7 +168,7 @@ struct AgentConnection: Identifiable, Equatable {
         let activeByIdentity = Dictionary(grouping: sessions.filter {
             Self.isTask($0) && [.working, .waiting, .approval, .failed].contains($0.status)
         }, by: { session in session.connectionID.map { session.provider + "/" + $0 } ?? session.provider })
-        return (legacy + named + quiet).map { agent in
+        return (legacy + named + quiet + quietLocal).map { agent in
             var agent = agent
             guard agent.state == .online else { return agent }
             let active = activeByIdentity[agent.id] ?? []
