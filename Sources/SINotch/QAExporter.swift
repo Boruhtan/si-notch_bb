@@ -1169,17 +1169,19 @@ enum QAExporter {
                 let fixtureAgents = delegate.model.agents.filter { ["qa-fixture", "pi"].contains($0.id) }
                 check("agents-separated-\(language)", delegate.model.sessions.count == 1 && fixtureAgents.count == 2,
                       "An idle harness belongs to Agents and must not increase the task count.")
-                check("tab-adaptive-height-\(language)", abs(delegate.panel.frame.height - delegate.model.panelHeight(limitedTo: 560) - 1) <= 1 &&
+                check("tab-adaptive-height-\(language)", abs(delegate.panel.frame.height - delegate.model.expandedPanelHeight - 1) <= 1 &&
                       delegate.panel.frame.maxY == sessionFrame.maxY,
                       "Switching tabs adopts the new content height; the top navigation remains attached to the screen edge.")
                 for connection in delegate.model.remoteConnections.connections.filter(\.showInAgents) {
+                    delegate.model.setConnectorExpanded(connection.id, false)
+                    try await settle(expanded: true)
                     let collapsed = delegate.panel.frame
                     delegate.model.setConnectorExpanded(connection.id, true)
                     try await settle(expanded: true)
                     check("agent-group-expand-\(connection.id)-\(language)",
-                          abs(delegate.panel.frame.height - delegate.model.panelHeight(limitedTo: 560) - 1) <= 1 &&
+                          abs(delegate.panel.frame.height - delegate.model.expandedPanelHeight - 1) <= 1 &&
                           delegate.panel.frame.maxY == collapsed.maxY,
-                          "Opening a remote group follows its visible 32 pt rows within the display limit; height=\(delegate.panel.frame.height), expected=\(delegate.model.panelHeight(limitedTo: 560) + 1).")
+                          "Opening a remote group uses the fitted height and preserves the top anchor.")
                     try capturePanel(name: "island-agent-group-\(connection.id)-\(language)", language: language)
                     delegate.model.setConnectorExpanded(connection.id, false)
                     try await settle(expanded: true)

@@ -57,7 +57,7 @@ final class AppModel: ObservableObject {
         didSet { if oldValue != search { sessionQueryChanged() } }
     }
     @Published var showAgents = false
-    @Published var expandedConnectors: Set<UUID> = []
+    @Published private var collapsedConnectors: Set<UUID> = []
     @Published private(set) var localHermesGroupExpanded = true
     @Published var installedApplicationHosts = AgentHostApplication.installed()
     @Published private(set) var applicationSessionHosts: [String: AgentHostApplication] = [:]
@@ -76,6 +76,8 @@ final class AppModel: ObservableObject {
     @Published var trailingSurface = false
     @Published var expandedPanelWidth: CGFloat = 680
     @Published var expandedPanelHeight: CGFloat = 210
+    @Published var agentPanelColumns = 1
+    @Published var agentPanelOverflows = false
     var server: IPCServer?
     var codexObserver: CodexSessionObserver?
     var piObserver: PiSessionObserver?
@@ -195,18 +197,34 @@ final class AppModel: ObservableObject {
     let compactStatusWidth: CGFloat = 18
     var compactShoulderWidth: CGFloat { floatingSurface ? 10 : 3 }
     var compactHeight: CGFloat { floatingSurface ? 30 : max(33, headerHeight) }
+    var agentPanelContent: AgentPanelLayout.Content {
+        let connections = remoteConnections.connections.filter(\.showInAgents)
+        let hermes = localHermesGroup
+        let agentsByConnector = Dictionary(grouping: agents, by: \.connectorID)
+        var profileCounts = [ungroupedLocalAgents.count]
+        if let hermes, localHermesGroupExpanded { profileCounts.append(hermes.profiles.count) }
+        var fullWidthRows = connections.count + (hermes == nil ? 0 : 1)
+        var openGroups = 0
+        for connection in connections where connectorExpanded(connection.id) {
+            openGroups += 1
+            let count = agentsByConnector[connection.id]?.count ?? 0
+            if count > 0 { profileCounts.append(count) } else { fullWidthRows += 1 }
+        }
+        for group in applicationAgentGroups {
+            fullWidthRows += 1
+            if applicationGroupExpanded(group.host) {
+                openGroups += 1
+                fullWidthRows += max(1, group.sessions.reduce(0) { $0 + 1 + $1.subagents.count })
+            }
+        }
+        if hermes != nil && localHermesGroupExpanded { openGroups += 1 }
+        // A disclosure can add native spacing around its content.
+        let chrome = headerHeight + agentsSectionHeight + 52 + CGFloat(openGroups * 4) + (serverError == nil ? 0 : 28)
+        return AgentPanelLayout.Content(chromeHeight: chrome, fullWidthRows: fullWidthRows, profilesPerGroup: profileCounts)
+    }
     var desiredPanelHeight: CGFloat {
         if showAgents {
-            let connections = remoteConnections.connections.filter(\.showInAgents)
-            let localRows = ungroupedLocalAgents.count + (localHermesGroup.map { 1 + (localHermesGroupExpanded ? $0.profiles.count : 0) } ?? 0)
-            let applicationRows = applicationAgentGroups.reduce(0) { count, group in
-                count + 1 + (applicationGroupExpanded(group.host) ? max(1, group.sessions.reduce(0) { $0 + 1 + $1.subagents.count }) : 0)
-            }
-            let rows = localRows + applicationRows + connections.count +
-                connections.filter { expandedConnectors.contains($0.id) }.reduce(0) { count, connection in
-                    count + max(1, agents.filter { $0.connectorID == connection.id }.count)
-                }
-            return headerHeight + agentsSectionHeight + 52 + (rows == 0 ? 56 : CGFloat(rows) * 32)
+            return agentPanelContent.height(columns: agentPanelColumns)
         }
         if showingHistory { return headerHeight + agentsSectionHeight + 420 }
         if sessions.isEmpty { return headerHeight + (quiet ? 204 : 180) + agentsSectionHeight }
@@ -236,15 +254,17 @@ final class AppModel: ObservableObject {
         onLayout?()
     }
 
+    func connectorExpanded(_ id: UUID) -> Bool { !collapsedConnectors.contains(id) }
+
     func setConnectorExpanded(_ id: UUID, _ value: Bool) {
-        if value { expandedConnectors.insert(id) } else { expandedConnectors.remove(id) }
+        if value { collapsedConnectors.remove(id) } else { collapsedConnectors.insert(id) }
         if showAgents { onLayout?() }
     }
 
     func setLocalHermesGroupExpanded(_ value: Bool) {
         guard localHermesGroupExpanded != value else { return }
         localHermesGroupExpanded = value
-        defaults.set(value, forKey: "localHermesGroupExpanded.v1")
+        defaults.set(value, forKey: "localHermesGroupExpanded.v2")
         if showAgents { onLayout?() }
     }
 
@@ -280,7 +300,7 @@ final class AppModel: ObservableObject {
          localProfileRegistry: LocalHermesProfileRegistry = .init()) {
         self.defaults = defaults
         self.localProfileRegistry = localProfileRegistry
-        self.localHermesGroupExpanded = defaults.object(forKey: "localHermesGroupExpanded.v1") as? Bool ?? true
+        self.localHermesGroupExpanded = defaults.object(forKey: "localHermesGroupExpanded.v2") as? Bool ?? true
         self.expandedApplicationHosts = defaults.dictionary(forKey: "expandedApplicationHosts.v1") as? [String: Bool] ?? [:]
         self.quota = CodexQuotaController(defaults: defaults)
         self.remoteConnections = RemoteConnectionManager(defaults: defaults)
@@ -1225,10 +1245,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if model.cameraWidth != placement.cameraWidth { model.cameraWidth = placement.cameraWidth }
         if model.headerHeight != placement.headerHeight { model.headerHeight = placement.headerHeight }
         panel.hasShadow = placement.isFloating
-        let width = min(screen.frame.width - 24, max(360, model.defaults.double(forKey: "panelWidth")))
-        if model.expandedPanelWidth != width { model.expandedPanelWidth = width }
+        let preferredWidth = max(360, model.defaults.double(forKey: "panelWidth"))
         let maxHeight = max(345, model.defaults.double(forKey: "panelHeight"))
-        let height = model.panelHeight(limitedTo: min(screen.frame.height - 80, maxHeight))
+        let width: CGFloat, height: CGFloat
+        if model.showAgents {
+            let available = CGSize(width: max(1, screen.visibleFrame.width - 24),
+                height: max(1, screen.frame.maxY - placement.topOffset - screen.visibleFrame.minY - 14))
+            let plan = AgentPanelLayout.fit(model.agentPanelContent,
+                preferred: CGSize(width: preferredWidth, height: maxHeight), available: available)
+            if model.agentPanelColumns != plan.columns { model.agentPanelColumns = plan.columns }
+            let overflows = !plan.fits
+            if model.agentPanelOverflows != overflows { model.agentPanelOverflows = overflows }
+            (width, height) = (plan.size.width, plan.size.height)
+        } else {
+            width = min(screen.frame.width - 24, preferredWidth)
+            height = model.panelHeight(limitedTo: min(screen.frame.height - 80, maxHeight))
+        }
+        if model.expandedPanelWidth != width { model.expandedPanelWidth = width }
         if model.expandedPanelHeight != height { model.expandedPanelHeight = height }
         let menuMode = placement.isFloating
         let compactFrame = placement.compactFrame(leftWidth: model.compactWingWidth, rightWidth: model.compactStatusWidth)

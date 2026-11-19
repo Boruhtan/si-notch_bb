@@ -222,126 +222,155 @@ struct IslandView: View {
     }
     var agentsList: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(model.ungroupedLocalAgents) { agent in agentRow(agent) }
-                    if let group = model.localHermesGroup {
-                        DisclosureGroup(isExpanded: Binding(get: { model.localHermesGroupExpanded }, set: {
-                            model.setLocalHermesGroupExpanded($0)
-                        })) {
-                            VStack(spacing: 0) {
-                                ForEach(group.profiles) { agent in agentRow(agent).padding(.leading, 12) }
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "desktopcomputer").frame(width: 16)
-                                Text(group.name).fontWeight(.medium).lineLimit(1)
-                                Spacer()
-                                Text(L10n.tr("agents.localGroup")).foregroundStyle(NotchDesign.secondary)
-                                Text(L10n.tr("agents.localGroup.online", group.onlineCount, group.profiles.count))
-                                    .foregroundStyle(NotchDesign.secondary)
-                                Circle().fill(group.onlineCount > 0 ? Color.green : Color.gray.opacity(0.5))
-                                    .frame(width: 5, height: 5)
-                            }.font(.system(size: 11)).frame(height: 32)
-                        }.padding(.horizontal, 24).tint(NotchDesign.secondary)
-                            .transaction { $0.animation = nil; $0.disablesAnimations = true }
-                            .accessibilityIdentifier("agent-group-" + LocalHermesAgentGroup.id)
-                    }
-                    ForEach(model.applicationAgentGroups, id: \.host) { group in
-                        DisclosureGroup(isExpanded: Binding(get: { model.applicationGroupExpanded(group.host) }, set: {
-                            model.setApplicationGroupExpanded(group.host, $0)
-                        })) {
-                            VStack(spacing: 0) {
-                                ForEach(group.sessions) { session in
-                                    Button { model.showApplicationSession(session.id) } label: {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: ProviderStyle(provider: session.provider).symbol)
-                                                .foregroundStyle(ProviderStyle(provider: session.provider).color).frame(width: 16)
-                                            Text(model.displayTitle(session)).lineLimit(1)
-                                            Spacer()
-                                            Text(session.status.label).foregroundStyle(session.status.isActive ? .green : NotchDesign.secondary)
-                                        }.font(.system(size: 11)).frame(height: 32).contentShape(Rectangle())
-                                    }.buttonStyle(.plain).accessibilityIdentifier("host-session-" + session.id)
-                                    ForEach(session.subagents) { child in
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "arrow.turn.down.right").frame(width: 16)
-                                            Text(child.name).lineLimit(1); Spacer()
-                                            Text(child.status.label)
-                                        }.font(.system(size: 11)).foregroundStyle(NotchDesign.secondary)
-                                            .padding(.leading, 16).frame(height: 32)
-                                    }
-                                }
-                                if group.sessions.isEmpty {
-                                    Text(L10n.tr(group.host == .zed ? "agents.hostEmpty.zed" : "agents.hostEmpty.rex"))
-                                        .font(.system(size: 11)).foregroundStyle(NotchDesign.secondary).frame(height: 32)
-                                }
-                            }.padding(.leading, 12)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: group.host == .rex ? "terminal" : "curlybraces").frame(width: 16)
-                                Text(group.host.name).fontWeight(.medium); Spacer()
-                                Text(L10n.tr("agents.hostTasks", group.sessions.count)).foregroundStyle(NotchDesign.secondary)
-                            }.font(.system(size: 11)).frame(height: 32)
-                        }.padding(.horizontal, 24).tint(NotchDesign.secondary)
-                            .transaction { $0.animation = nil; $0.disablesAnimations = true }
-                            .accessibilityIdentifier("agent-host-" + group.host.rawValue)
-                    }
-                    ForEach(model.remoteConnections.connections.filter(\.showInAgents)) { connection in
-                        let profiles = model.agents.filter { $0.connectorID == connection.id }
-                        DisclosureGroup(isExpanded: Binding(get: { model.expandedConnectors.contains(connection.id) }, set: {
-                            model.setConnectorExpanded(connection.id, $0)
-                        })) {
-                            VStack(spacing: 0) {
-                                ForEach(profiles) { agent in agentRow(agent).padding(.leading, 12) }
-                                if profiles.isEmpty {
-                                    Text(L10n.tr("remote.noProfiles")).font(.system(size: 11))
-                                        .foregroundStyle(NotchDesign.secondary).frame(height: 32)
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "network").frame(width: 16)
-                                Text(connection.displayName).fontWeight(.medium).lineLimit(1)
-                                Spacer()
-                                Text(L10n.tr("remote.sshState", model.remoteConnections.state(connection.id).label))
-                                    .foregroundStyle(NotchDesign.secondary)
-                                Text("\(profiles.count)").foregroundStyle(NotchDesign.secondary)
-                                Button { model.openRemoteConnections?() } label: { Image(systemName: "gearshape") }
-                                    .buttonStyle(.plain).help(L10n.tr("remote.settingsTab"))
-                                Circle().fill(model.remoteConnections.state(connection.id) == .connected ? Color.green : Color.gray.opacity(0.5))
-                                    .frame(width: 5, height: 5)
-                            }.font(.system(size: 11)).frame(height: 32)
-                        }.padding(.horizontal, 24).tint(NotchDesign.secondary)
-                            .transaction { $0.animation = nil; $0.disablesAnimations = true }
-                            .accessibilityIdentifier("agent-connection-" + connection.id.uuidString)
-                    }
-                    if model.agents.isEmpty && model.applicationAgentGroups.isEmpty && !model.remoteConnections.connections.contains(where: \.showInAgents) {
-                        Text(L10n.tr("agents.empty")).font(.system(size: 12)).foregroundStyle(NotchDesign.secondary).frame(height: 56)
-                    }
-                }
-            }.scrollIndicators(.hidden)
+            if model.agentPanelOverflows {
+                ScrollView { agentGroups }
+            } else {
+                agentGroups
+            }
             Button { model.openIntegrations?() } label: {
                 Text(L10n.tr("agents.manage")).font(.system(size: 11))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).frame(height: 36)
             }.buttonStyle(.plain).foregroundStyle(NotchDesign.secondary)
-        }.padding(.top, 8).padding(.bottom, 8)
+        }.padding(.vertical, 8)
     }
-    private func agentRow(_ agent: AgentConnection) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: ProviderStyle(provider: agent.provider).symbol)
-                .foregroundStyle(ProviderStyle(provider: agent.provider).color).frame(width: 16)
-            Text(agent.name).fontWeight(.medium).lineLimit(1)
-            Spacer()
-            Circle().fill(agent.state == .online ? Color.green : Color.gray.opacity(0.5)).frame(width: 5, height: 5)
-            Text(agent.state.label).foregroundStyle(NotchDesign.secondary)
-                .help(L10n.tr("agents.presenceHelp"))
-            Text("·").foregroundStyle(NotchDesign.muted)
-            Text(agent.activity.label)
-                .foregroundStyle(agent.activity == .attention ? .orange : agent.activity == .working ? .green : NotchDesign.secondary)
-            if agent.activeTaskCount > 1 {
-                Text("\(agent.activeTaskCount)").foregroundStyle(NotchDesign.secondary)
+    var agentGroups: some View {
+        VStack(spacing: 0) {
+            agentRows(model.ungroupedLocalAgents).padding(.horizontal, 24)
+            if let group = model.localHermesGroup {
+                DisclosureGroup(isExpanded: Binding(get: { model.localHermesGroupExpanded }, set: {
+                    model.setLocalHermesGroupExpanded($0)
+                })) {
+                    agentRows(group.profiles).padding(.leading, 12)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "desktopcomputer").frame(width: 16)
+                        Text(group.name).fontWeight(.medium).lineLimit(1)
+                        Spacer()
+                        Text(L10n.tr("agents.localGroup")).foregroundStyle(NotchDesign.secondary)
+                        Text(L10n.tr("agents.localGroup.online", group.onlineCount, group.profiles.count))
+                            .foregroundStyle(NotchDesign.secondary)
+                        Circle().fill(group.onlineCount > 0 ? Color.green : Color.gray.opacity(0.5))
+                            .frame(width: 5, height: 5)
+                    }.font(.system(size: 11)).frame(height: 32)
+                }.padding(.horizontal, 24).tint(NotchDesign.secondary)
+                    .transaction { $0.animation = nil; $0.disablesAnimations = true }
+                    .accessibilityIdentifier("agent-group-" + LocalHermesAgentGroup.id)
             }
-        }.font(.system(size: 11)).padding(.horizontal, 24).frame(height: 32)
+            ForEach(model.applicationAgentGroups, id: \.host) { group in
+                DisclosureGroup(isExpanded: Binding(get: { model.applicationGroupExpanded(group.host) }, set: {
+                    model.setApplicationGroupExpanded(group.host, $0)
+                })) {
+                    VStack(spacing: 0) {
+                        ForEach(group.sessions) { session in
+                            Button { model.showApplicationSession(session.id) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: ProviderStyle(provider: session.provider).symbol)
+                                        .foregroundStyle(ProviderStyle(provider: session.provider).color).frame(width: 16)
+                                    Text(model.displayTitle(session)).lineLimit(1)
+                                    Spacer()
+                                    Text(session.status.label).foregroundStyle(session.status.isActive ? .green : NotchDesign.secondary)
+                                }.font(.system(size: 11)).frame(height: 32).contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityIdentifier("host-session-" + session.id)
+                            ForEach(session.subagents) { child in
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.turn.down.right").frame(width: 16)
+                                    Text(child.name).lineLimit(1); Spacer()
+                                    Text(child.status.label)
+                                }.font(.system(size: 11)).foregroundStyle(NotchDesign.secondary)
+                                    .padding(.leading, 16).frame(height: 32)
+                            }
+                        }
+                        if group.sessions.isEmpty {
+                            Text(L10n.tr(group.host == .zed ? "agents.hostEmpty.zed" : "agents.hostEmpty.rex"))
+                                .font(.system(size: 11)).foregroundStyle(NotchDesign.secondary).frame(height: 32)
+                        }
+                    }.padding(.leading, 12)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: group.host == .rex ? "terminal" : "curlybraces").frame(width: 16)
+                        Text(group.host.name).fontWeight(.medium); Spacer()
+                        Text(L10n.tr("agents.hostTasks", group.sessions.count)).foregroundStyle(NotchDesign.secondary)
+                    }.font(.system(size: 11)).frame(height: 32)
+                }.padding(.horizontal, 24).tint(NotchDesign.secondary)
+                    .transaction { $0.animation = nil; $0.disablesAnimations = true }
+                    .accessibilityIdentifier("agent-host-" + group.host.rawValue)
+            }
+            ForEach(model.remoteConnections.connections.filter(\.showInAgents)) { connection in
+                let profiles = model.agents.filter { $0.connectorID == connection.id }
+                DisclosureGroup(isExpanded: Binding(get: { model.connectorExpanded(connection.id) }, set: {
+                    model.setConnectorExpanded(connection.id, $0)
+                })) {
+                    VStack(spacing: 0) {
+                        agentRows(profiles).padding(.leading, 12)
+                        if profiles.isEmpty {
+                            Text(L10n.tr("remote.noProfiles")).font(.system(size: 11))
+                                .foregroundStyle(NotchDesign.secondary).frame(height: 32)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "network").frame(width: 16)
+                        Text(connection.displayName).fontWeight(.medium).lineLimit(1)
+                        Spacer()
+                        Text(L10n.tr("remote.sshState", model.remoteConnections.state(connection.id).label))
+                            .foregroundStyle(NotchDesign.secondary)
+                        Text("\(profiles.count)").foregroundStyle(NotchDesign.secondary)
+                        Button { model.openRemoteConnections?() } label: { Image(systemName: "gearshape") }
+                            .buttonStyle(.plain).help(L10n.tr("remote.settingsTab"))
+                        Circle().fill(model.remoteConnections.state(connection.id) == .connected ? Color.green : Color.gray.opacity(0.5))
+                            .frame(width: 5, height: 5)
+                    }.font(.system(size: 11)).frame(height: 32)
+                }.padding(.horizontal, 24).tint(NotchDesign.secondary)
+                    .transaction { $0.animation = nil; $0.disablesAnimations = true }
+                    .accessibilityIdentifier("agent-connection-" + connection.id.uuidString)
+            }
+            if model.agents.isEmpty && model.applicationAgentGroups.isEmpty && !model.remoteConnections.connections.contains(where: \.showInAgents) {
+                Text(L10n.tr("agents.empty")).font(.system(size: 12)).foregroundStyle(NotchDesign.secondary).frame(height: 56)
+            }
+        }
+    }
+    @ViewBuilder private func agentRows(_ agents: [AgentConnection]) -> some View {
+        if model.agentPanelColumns == 1 {
+            VStack(spacing: 0) { ForEach(agents) { agentRow($0, compact: false) } }
+        } else {
+            let columns = Array(repeating: GridItem(.flexible(), spacing: AgentPanelLayout.columnSpacing),
+                                count: model.agentPanelColumns)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 0) {
+                ForEach(agents) { agentRow($0, compact: true) }
+            }
+        }
+    }
+    private func agentRow(_ agent: AgentConnection, compact: Bool) -> some View {
+        let style = ProviderStyle(provider: agent.provider)
+        let presence = Circle().fill(agent.state == .online ? Color.green : Color.gray.opacity(0.5)).frame(width: 5, height: 5)
+        let activity = HStack(spacing: 4) {
+            Text(agent.activity.label).lineLimit(1)
+                .foregroundStyle(agent.activity == .attention ? .orange : agent.activity == .working ? .green : NotchDesign.secondary)
+            if agent.activeTaskCount > 1 { Text("\(agent.activeTaskCount)").foregroundStyle(NotchDesign.secondary) }
+        }
+        let label = [agent.name, agent.state.label, agent.activity.label].joined(separator: " · ")
+        return HStack(spacing: 8) {
+            Image(systemName: style.symbol).foregroundStyle(style.color).frame(width: 16)
+            if compact {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        presence
+                        Text(agent.name).fontWeight(.medium).lineLimit(1)
+                    }
+                    activity.font(.system(size: 10))
+                }
+                Spacer(minLength: 0)
+            } else {
+                Text(agent.name).fontWeight(.medium).lineLimit(1)
+                Spacer(minLength: 4)
+                presence
+                Text(agent.state.label).foregroundStyle(NotchDesign.secondary)
+                Text("·").foregroundStyle(NotchDesign.muted)
+                activity
+            }
+        }.font(.system(size: 11)).frame(height: AgentPanelLayout.rowHeight)
+            .help(label).accessibilityElement(children: .ignore).accessibilityLabel(label)
+            .accessibilityIdentifier("agent-profile-" + agent.id)
     }
     var emptyState: some View {
         VStack(alignment: .leading, spacing: 17) {
