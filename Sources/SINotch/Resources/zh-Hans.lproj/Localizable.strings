@@ -730,3 +730,14 @@
 "agents.hostTasks" = "任务：%d";
 "agents.hostEmpty.rex" = "尚无代理会话";
 "agents.hostEmpty.zed" = "此处显示外部代理和终端会话";
+
+"attention.requests" = "等待你的回复";
+"attention.problems" = "错误和连接";
+"attention.empty" = "暂无需要处理的事项";
+"attention.waitingSince" = "已等待";
+"attention.sshSettings" = "SSH 设置";
+"attention.remoteHost" = "远程主机";
+"session.navigation.openSession" = "打开会话";
+"session.navigation.openApplication" = "打开应用";
+"session.navigation.openFile" = "打开文件";
+"session.navigation.exactUnavailable" = "会话直达链接不可用";

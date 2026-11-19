@@ -730,3 +730,14 @@
 "agents.hostTasks" = "Задачи: %d";
 "agents.hostEmpty.rex" = "Нет сессий от агентов";
 "agents.hostEmpty.zed" = "Здесь появятся сессии внешних агентов и терминала";
+
+"attention.requests" = "Ждут вашего ответа";
+"attention.problems" = "Ошибки и подключения";
+"attention.empty" = "Ничего не требует внимания";
+"attention.waitingSince" = "Ждёт";
+"attention.sshSettings" = "Настройки SSH";
+"attention.remoteHost" = "Удалённый хост";
+"session.navigation.openSession" = "Открыть сессию";
+"session.navigation.openApplication" = "Открыть приложение";
+"session.navigation.openFile" = "Открыть файл";
+"session.navigation.exactUnavailable" = "Точная ссылка недоступна";

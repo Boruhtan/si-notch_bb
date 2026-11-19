@@ -730,3 +730,14 @@
 "agents.hostTasks" = "Tasks: %d";
 "agents.hostEmpty.rex" = "No reported agent sessions";
 "agents.hostEmpty.zed" = "External-agent and terminal sessions appear here";
+
+"attention.requests" = "Needs your response";
+"attention.problems" = "Errors and connections";
+"attention.empty" = "Nothing needs your attention";
+"attention.waitingSince" = "Waiting";
+"attention.sshSettings" = "SSH settings";
+"attention.remoteHost" = "Remote host";
+"session.navigation.openSession" = "Open session";
+"session.navigation.openApplication" = "Open application";
+"session.navigation.openFile" = "Open file";
+"session.navigation.exactUnavailable" = "Exact session link unavailable";

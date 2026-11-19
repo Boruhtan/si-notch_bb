@@ -21,6 +21,7 @@ struct CodexInteraction: Identifiable, Equatable {
     let actions: [Action]
     let cwd: String
     var expiresAt: TimeInterval = 0
+    var firstSeenUptime: TimeInterval? = nil
     var isApproval: Bool { questions.isEmpty }
 
     func response(action: String?, answers: [String: String]) -> (method: String, params: [String: Any])? {

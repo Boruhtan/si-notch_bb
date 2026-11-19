@@ -39,6 +39,7 @@ final class PresentationModelTests: XCTestCase {
                 enabled: true, showSessionText: false, pluginInstalled: true, connectionId: "connection-\(index)")
         }
         model.remoteConnections.update(connection)
+        model.setConnectorExpanded(id, false)
         model.selectAgents(true)
         let collapsed = model.desiredPanelHeight
         model.setConnectorExpanded(id, true)

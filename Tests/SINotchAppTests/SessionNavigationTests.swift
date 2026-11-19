@@ -14,6 +14,10 @@ final class SessionNavigationTests: XCTestCase {
         let observed = AgentConnection.Observation(provider: "codex", connectionID: "remote", name: "Remote",
             lastSeen: Date(), eventAt: Date(), eventID: "heartbeat", origin: .remoteUnmanaged)
         model.connectionReceipts[observed.id] = observed
+        task.targetURL = "codex://threads/\(thread)"
+        let action = model.navigationAction(for: task)
+        XCTAssertNil(action.titleKey)
+        XCTAssertEqual(action.noticeKey, "session.navigation.exactUnavailable")
         model.jump(task)
         XCTAssertEqual(model.navigationNoticeKey, "session.remote")
         XCTAssertEqual(model.navigationErrorID, task.id)
@@ -52,8 +56,26 @@ final class SessionNavigationTests: XCTestCase {
 
     func testCodexThreadOpensInCodexWithPriorityOverTerminal() {
         let url = "codex://threads/\(thread)"
-        XCTAssertEqual(SessionDestination.resolve(session(url: url, bundle: "com.apple.Terminal")),
+        XCTAssertEqual(SessionDestination.resolve(session(url: url, bundle: "com.apple.Terminal"), hostBundleID: "dev.zed.Zed"),
                        .link(URL(string: url)!, bundleID: "com.openai.codex"))
+    }
+
+    @MainActor
+    func testNavigationLabelsDescribeWhatWillOpen() {
+        let model = model()
+        defer { model.shutdown() }
+        let exact = model.navigationAction(for: session(url: "codex://threads/\(thread)"))
+        XCTAssertEqual(exact.titleKey, "session.navigation.openSession")
+        XCTAssertNil(exact.noticeKey)
+        let file = model.navigationAction(for: session(url: "zed://file/tmp/test.swift"))
+        XCTAssertEqual(file.titleKey, "session.navigation.openFile")
+        XCTAssertEqual(file.noticeKey, "session.navigation.exactUnavailable")
+        let app = model.navigationAction(for: session(bundle: "com.apple.Terminal"))
+        XCTAssertEqual(app.titleKey, "session.navigation.openApplication")
+        XCTAssertEqual(app.noticeKey, "session.navigation.exactUnavailable")
+        let missing = model.navigationAction(for: session(url: "https://example.com"))
+        XCTAssertNil(missing.titleKey)
+        XCTAssertEqual(missing.noticeKey, "session.navigation.exactUnavailable")
     }
 
     func testEditorFileLinksAndTerminalActivation() {
@@ -105,6 +127,23 @@ final class SessionNavigationTests: XCTestCase {
     }
 
     @MainActor
+    func testOpeningApplicationFallbackKeepsUnreadRequestReminder() throws {
+        let model = model()
+        defer { model.shutdown() }
+        let navigator = NavigatorStub()
+        model.sessionNavigator = navigator
+        model.inject(["event": "agent.waiting", "provider": "pi", "session_id": "waiting",
+                      "terminal_bundle_id": "com.apple.Terminal", "attention_request_id": "question"])
+        let task = try XCTUnwrap(model.store.sessions["waiting"])
+        XCTAssertNotNil(model.attentionIdentity(task.id))
+        model.reminders.update(id: task.id, status: .waiting, now: 1, delay: 1, includeCompleted: false)
+        model.jump(task)
+        XCTAssertEqual(navigator.destinations, [.application("com.apple.Terminal")])
+        navigator.completions.first?(true)
+        XCTAssertEqual(model.reminders.due(now: 2, states: [task.id: .waiting]), [task.id])
+    }
+
+    @MainActor
     func testJumpLeavesCollapseToPointerExit() async throws {
         let model = model()
         defer { model.shutdown() }
@@ -151,6 +190,9 @@ final class SessionNavigationTests: XCTestCase {
         let navigator = NavigatorStub()
         model.sessionNavigator = navigator
         model.defaults.set(true, forKey: "disableClickJump")
+        let action = model.navigationAction(for: session(bundle: "com.apple.Terminal"))
+        XCTAssertNil(action.titleKey)
+        XCTAssertNil(action.noticeKey)
         model.activateSession(session(bundle: "com.apple.Terminal"))
         XCTAssertEqual(model.selectedID, "task")
         model.activateSession(session(bundle: "com.apple.Terminal"))

@@ -51,7 +51,9 @@ final class CodexInteractionBridge {
         entry.firstSeen = entry.firstSeen.filter { key, _ in requests.contains { $0.id == key } }
         entry.requests = requests.compactMap { request in
             var request = request
-            request.expiresAt = entry.firstSeen[request.id]! + 300
+            let firstSeen = entry.firstSeen[request.id]!
+            request.firstSeenUptime = firstSeen
+            request.expiresAt = firstSeen + 300
             return now < request.expiresAt ? request : nil
         }
         entries[sessionID] = entry

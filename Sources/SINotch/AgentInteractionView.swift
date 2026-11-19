@@ -4,8 +4,6 @@ struct AgentInteractionView: View {
     @ObservedObject var model: AppModel
     let request: AgentInteraction
     let providerName: String
-    let canOpenAgent: Bool
-    let openAgent: () -> Void
     @State private var answers: [String: String] = [:]
     private var sending: Bool { model.interactionSubmitting.contains(request.id) }
     private var failed: Bool { model.interactionErrors.contains(request.id) }
@@ -71,12 +69,6 @@ struct AgentInteractionView: View {
                     .buttonStyle(NotchActionButtonStyle(prominent: true))
                     .disabled(blocked || !request.accepts(answers: answers))
                     .accessibilityIdentifier("interaction-submit-" + request.id)
-            }
-            if canOpenAgent {
-                Button(L10n.tr("interaction.openAgent", providerName), action: openAgent).buttonStyle(.plain)
-                    .font(.system(size: 11)).foregroundStyle(NotchDesign.secondary)
-            } else {
-                Text(L10n.tr("interaction.openManually", providerName)).font(.system(size: 11)).foregroundStyle(NotchDesign.secondary)
             }
         }.padding(10).background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
             .id(request.id)

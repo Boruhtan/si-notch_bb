@@ -91,7 +91,9 @@ struct IslandView: View {
     }
 
     var compactContent: some View {
-        HStack(spacing: 0) {
+        let requests = model.attentionQueue.requests.count
+        let count = requests > 0 ? requests : model.sessions.count
+        return HStack(spacing: 0) {
             HStack(spacing: 6) {
                 if model.paused {
                     Image(systemName: "pause.fill").foregroundStyle(.orange)
@@ -103,11 +105,11 @@ struct IslandView: View {
             }.padding(.horizontal, 3).frame(width: model.compactWingWidth)
             Color.clear.frame(width: model.cameraWidth)
             Group {
-                if model.sessions.isEmpty { Circle().fill(model.dominantStatus.tint).frame(width: 5, height: 5) }
+                if count == 0 { Circle().fill(model.dominantStatus.tint).frame(width: 5, height: 5) }
                 else {
-                    Text(model.sessions.count > 99 ? "99+" : "\(model.sessions.count)")
+                    Text(count > 99 ? "99+" : "\(count)")
                         .monospacedDigit().font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(model.dominantStatus.tint).lineLimit(1).minimumScaleFactor(0.8)
+                        .foregroundStyle(requests > 0 ? .orange : model.dominantStatus.tint).lineLimit(1).minimumScaleFactor(0.8)
                 }
             }.frame(width: model.compactStatusWidth)
         }
@@ -118,6 +120,7 @@ struct IslandView: View {
         .onTapGesture { model.setExpanded(true) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.tr("Открыть si-notch, %@, %@", L10n.count("sessions", model.sessions.count), model.dominantStatus.label))
+        .accessibilityHint(requests > 0 ? L10n.tr("Внимание") + " · \(requests)" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.setExpanded(true) }
         .help(shortcutLabel)
@@ -128,6 +131,8 @@ struct IslandView: View {
             HStack {
                 if model.showAgents {
                     Text(L10n.tr("agents.title")).font(.system(size: 11, weight: .medium)).foregroundStyle(NotchDesign.secondary)
+                } else if model.showingAttention {
+                    Text(L10n.tr("Внимание")).font(.system(size: 11, weight: .medium)).foregroundStyle(NotchDesign.secondary)
                 } else if !model.sessions.isEmpty {
                     HStack(spacing: 6) {
                         if showCompanion { CompanionView(status: model.dominantStatus, size: 22) }
@@ -148,12 +153,14 @@ struct IslandView: View {
                 Label(error.text, systemImage: "exclamationmark.triangle").font(.system(size: 11)).foregroundStyle(.red).padding(.horizontal, 22).padding(.bottom, 10)
             }
             VStack(spacing: 0) {
-                if model.showAgents { agentsList } else {
+                if model.showAgents { agentsList }
+                else if model.showingAttention { AttentionQueueView(model: model) }
+                else {
                     if !model.showingHistory && (model.sessions.count > 3 || !model.search.isEmpty) {
                         TextField(L10n.tr("Поиск сессий"), text: $model.search).textFieldStyle(.plain).font(.system(size: 12)).padding(10).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 20).padding(.bottom, 10)
                     }
                     HStack(spacing: 5) {
-                        ForEach(["Все", "В работе", "Внимание", "Готово", "history.title"], id: \.self) { filter in
+                        ForEach(["Все", "В работе", "Готово", "history.title"], id: \.self) { filter in
                             Button { model.activeFilter = filter } label: {
                                 Text(L10n.tr(filter)).font(.system(size: 10, weight: .medium)).padding(.horizontal, 11).padding(.vertical, 7)
                                     .background(model.activeFilter == filter ? .white.opacity(0.14) : .clear, in: Capsule())
@@ -194,31 +201,36 @@ struct IslandView: View {
         }
     }
     var navigation: some View {
-        VStack(spacing: 0) {
+        let attentionCount = model.attentionQueue.count
+        return VStack(spacing: 0) {
             Rectangle().fill(.white.opacity(0.08)).frame(height: 1).padding(.horizontal, 20)
             HStack(spacing: 4) {
-                navigationTab(title: L10n.tr("agents.sessions"), symbol: "list.bullet", agents: false)
-                navigationTab(title: L10n.tr("agents.title"), symbol: "terminal", agents: true)
+                navigationTab(title: L10n.tr("agents.sessions"), symbol: "list.bullet", id: "sessions",
+                              selected: !model.showAgents && !model.showingAttention) { model.selectAgents(false) }
+                navigationTab(title: L10n.tr("Внимание"), symbol: "bell", id: "attention", selected: model.showingAttention,
+                              badge: attentionCount > 0 ? "\(attentionCount)" : nil, badgeColor: .orange) { model.selectAttention() }
+                navigationTab(title: L10n.tr("agents.title"), symbol: "terminal", id: "agents", selected: model.showAgents,
+                              badge: L10n.tr("agents.onlineCount", model.agents.filter { $0.state == .online }.count),
+                              badgeHelp: L10n.tr("agents.presenceHelp")) { model.selectAgents(true) }
             }.padding(.horizontal, 16).frame(height: 39)
         }
     }
-    func navigationTab(title: String, symbol: String, agents: Bool) -> some View {
-        Button {
-            model.selectAgents(agents)
-        } label: {
+    private func navigationTab(title: String, symbol: String, id: String, selected: Bool, badge: String? = nil,
+                               badgeColor: Color = NotchDesign.muted, badgeHelp: String = "", action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: symbol)
-                Text(title)
-                if agents {
-                    Text(L10n.tr("agents.onlineCount", model.agents.filter { $0.state == .online }.count))
-                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(NotchDesign.muted)
-                        .help(L10n.tr("agents.presenceHelp"))
+                Text(title).lineLimit(1).layoutPriority(1)
+                if let badge {
+                    Text(badge).font(.system(size: 10, design: .monospaced)).foregroundStyle(badgeColor)
+                        .lineLimit(1).minimumScaleFactor(0.75).help(badgeHelp)
                 }
             }.font(.system(size: 11, weight: .medium)).frame(maxWidth: .infinity).frame(height: 27)
-                .foregroundStyle(model.showAgents == agents ? .white : NotchDesign.secondary)
-                .background(model.showAgents == agents ? .white.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 7))
+                .foregroundStyle(selected ? .white : NotchDesign.secondary)
+                .background(selected ? .white.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 7))
                 .contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityAddTraits(model.showAgents == agents ? .isSelected : [])
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityIdentifier("island-tab-" + id)
     }
     var agentsList: some View {
         VStack(spacing: 0) {
@@ -419,6 +431,7 @@ struct IslandView: View {
 struct SessionCard: View {
     let session: AgentSession
     @ObservedObject var model: AppModel
+    var attention: AttentionSessionItem? = nil
     @AppStorage("appLanguage") var appLanguage = "auto"
     @State private var promptExpanded = false
     @AppStorage("fontSize") var fontSize = 11.0
@@ -429,7 +442,7 @@ struct SessionCard: View {
     @AppStorage("showSubagents") var showSubagents = true
     @AppStorage("showActivity") var showActivity = true
     @Environment(\.accessibilityReduceMotion) var reduceMotion
-    var selected: Bool { model.selectedID == session.id || model.pending[session.id] != nil }
+    var selected: Bool { model.selectedID == session.id || (attention == nil && model.pending[session.id] != nil) }
     var needsAgentResponse: Bool {
         [.waiting, .approval].contains(session.status) && session.lastEventID?.hasPrefix("interaction-submitted:") != true
     }
@@ -441,31 +454,41 @@ struct SessionCard: View {
     var body: some View {
         let _ = appLanguage
         let info = content
+        let route = model.navigationAction(for: session)
+        let requests = model.interactions(for: session.id)
+        let externalResponse = requests.isEmpty && model.pending[session.id] == nil && needsAgentResponse
+        let showNavigation = attention != nil || !requests.isEmpty || externalResponse || selected
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 7) {
-                Button { model.activateSession(session) } label: {
+                Button { activateCard(route) } label: {
                     HStack(alignment: .top, spacing: 11) {
                         Circle().fill(session.status.tint).frame(width: 6, height: 6).padding(.top, 5)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(info.primaryTitle).font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(.white.opacity(0.94))
                                 .lineLimit(selected ? 3 : 2).fixedSize(horizontal: false, vertical: true)
                             HStack(spacing: 6) {
-                                Label(info.providerName, systemImage: providerStyle.symbol)
+                                Label(profileLabel(info.providerName), systemImage: providerStyle.symbol)
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(providerStyle.color).lineLimit(1)
-                                if showProject, let project = info.projectName, !info.projectIsTitle {
+                                if showProject || attention != nil, let project = info.projectName, !info.projectIsTitle {
                                     Text("·").foregroundStyle(NotchDesign.muted)
                                     Label(project, systemImage: "folder").lineLimit(1).truncationMode(.middle)
                                 }
+                                if let attention {
+                                    Text("·").foregroundStyle(NotchDesign.muted)
+                                    Label(attention.machineName, systemImage: "desktopcomputer").lineLimit(1)
+                                }
                                 Spacer(minLength: 4)
-                                Text(session.updatedAt, style: .relative).font(.system(size: 9)).lineLimit(1).foregroundStyle(NotchDesign.muted)
+                                if attention == nil {
+                                    Text(session.updatedAt, style: .relative).font(.system(size: 9)).lineLimit(1).foregroundStyle(NotchDesign.muted)
+                                }
                             }.font(.system(size: 10)).foregroundStyle(NotchDesign.secondary)
                         }
                     }.contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                    .accessibilityLabel(L10n.tr("session.open", info.providerName, info.primaryTitle))
+                    .accessibilityLabel(cardActionLabel(info, route: route))
                     .accessibilityIdentifier("open-session-" + session.id)
-                    .help(L10n.tr(model.isRemoteSession(session) ? "session.remote" : "session.openApp"))
+                    .help(attention == nil ? (route.title ?? route.notice ?? "") : "")
                 Button {
                     model.selectSession(selected ? nil : session.id)
                 } label: {
@@ -496,13 +519,21 @@ struct SessionCard: View {
                         .lineLimit(1).foregroundStyle(NotchDesign.secondary)
                 }
                 Spacer()
+                if let since = attention?.waitingSince {
+                    HStack(spacing: 4) {
+                        Text(L10n.tr("attention.waitingSince"))
+                        Text(since, style: .timer).monospacedDigit()
+                    }.font(.system(size: 10, weight: .medium)).foregroundStyle(.orange).lineLimit(1)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("attention-wait-time-" + session.id)
+                }
                 if showTasks, !session.tasks.isEmpty {
                     Label("\(session.tasks.filter(\.completed).count)/\(session.tasks.count)", systemImage: "checklist")
                         .font(.system(size: 9)).foregroundStyle(NotchDesign.secondary)
                 }
                 if showSubagents, !session.subagents.isEmpty { Label("\(session.subagents.count)", systemImage: "person.2").font(.system(size: 9)).foregroundStyle(NotchDesign.secondary) }
             }.foregroundStyle(session.status.tint)
-                .contentShape(Rectangle()).onTapGesture { model.activateSession(session) }
+                .contentShape(Rectangle()).onTapGesture { activateCard(route) }
             if (showModel && info.modelName != nil) || (showReasoning && info.reasoningEffort != nil) {
                 HStack(spacing: 10) {
                     if showModel, let name = info.modelName { Label(name, systemImage: "cpu").help(name) }
@@ -514,31 +545,22 @@ struct SessionCard: View {
                 Text(summary).font(.system(size: max(10, min(16, fontSize)))).foregroundStyle(NotchDesign.secondary)
                     .lineSpacing(2).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                    .onTapGesture { model.activateSession(session) }
+                    .onTapGesture { activateCard(route) }
             }
             if model.navigationErrorID == session.id {
                 Label(L10n.tr(model.navigationNoticeKey ?? "session.openFailed"), systemImage: "info.circle")
                     .font(.system(size: 10)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
-            if !model.interactions(for: session.id).isEmpty {
-                let requests = model.interactions(for: session.id)
+            if !requests.isEmpty {
                 ForEach(requests) { request in
-                    AgentInteractionView(model: model, request: request, providerName: info.providerName,
-                        canOpenAgent: !model.defaults.bool(forKey: "disableClickJump") && !model.isRemoteSession(session) && SessionDestination.resolve(session) != nil, openAgent: { model.jump(session) })
+                    AgentInteractionView(model: model, request: request, providerName: info.providerName)
                 }
-            } else if model.pending[session.id] == nil && needsAgentResponse {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(L10n.tr(session.status == .approval ? "interaction.approvalInAgent" : "interaction.answerInAgent", info.providerName))
-                        .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                    if !model.defaults.bool(forKey: "disableClickJump"), SessionDestination.resolve(session) != nil {
-                        Button(L10n.tr("interaction.openAgent", info.providerName)) { model.jump(session) }
-                            .buttonStyle(NotchActionButtonStyle(prominent: true))
-                            .accessibilityIdentifier("respond-in-agent-" + session.id)
-                    } else {
-                        Text(L10n.tr("interaction.openManually", info.providerName)).font(.system(size: 11))
-                            .foregroundStyle(NotchDesign.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+            } else if externalResponse && attention == nil {
+                Text(L10n.tr(session.status == .approval ? "interaction.approvalInAgent" : "interaction.answerInAgent", info.providerName))
+                    .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            if showNavigation {
+                navigationControl(route, prominent: externalResponse)
             }
             if selected {
                 let tokenRow = model.usage.task(session: UsageSession.key(provider: session.provider, connection: session.connectionID, session: session.id), turn: session.turnID)
@@ -611,8 +633,6 @@ struct SessionCard: View {
                 }
                 if model.pending[session.id] == nil {
                     HStack {
-                        Button { model.jump(session) } label: { Label(session.status == .approval || session.status == .waiting ? L10n.tr("Ответить в агенте") : L10n.tr("Открыть"), systemImage: "arrow.up.forward") }.buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundStyle(session.status == .approval || session.status == .waiting ? session.status.tint : providerStyle.color)
-                            .disabled(model.defaults.bool(forKey: "disableClickJump"))
                         Spacer()
                         Button { model.dismiss(session.id) } label: { Image(systemName: "xmark").font(.system(size: 10)) }.buttonStyle(.plain).foregroundStyle(NotchDesign.muted).help(L10n.tr("Убрать сессию")).accessibilityLabel(L10n.tr("Убрать сессию %@", session.title))
                     }.padding(.top, 2)
@@ -631,5 +651,58 @@ struct SessionCard: View {
         .overlay(alignment: .bottom) {
             if !selected { Rectangle().fill(.white.opacity(0.055)).frame(height: 0.5).padding(.horizontal, 13) }
         }
+    }
+
+    private func profileLabel(_ provider: String) -> String {
+        guard let profile = attention?.profileName, profile != provider else { return provider }
+        return provider + " · " + profile
+    }
+
+    private func cardActionLabel(_ info: SessionCardContent, route: SessionNavigationAction) -> String {
+        if attention == nil, let title = route.title { return title + " · " + info.primaryTitle }
+        let label = L10n.tr("%@, %@, %@. Подробнее", profileLabel(info.providerName), info.primaryTitle, session.status.label)
+        guard let attention else { return label }
+        let project = info.projectIsTitle ? nil : info.projectName
+        return [label, project, attention.machineName].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func activateCard(_ route: SessionNavigationAction) {
+        if attention != nil || route.title == nil { model.selectSession(selected ? nil : session.id) }
+        else { model.activateSession(session) }
+    }
+
+    @ViewBuilder private func navigationControl(_ route: SessionNavigationAction, prominent: Bool) -> some View {
+        if attention != nil, let title = route.title, let notice = route.notice {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    navigationButton(title, prominent: prominent)
+                    navigationNotice(notice)
+                }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading, spacing: 4) {
+                    navigationButton(title, prominent: prominent)
+                    navigationNotice(notice)
+                }
+            }
+        } else {
+            if let title = route.title { navigationButton(title, prominent: prominent) }
+            if let notice = route.notice { navigationNotice(notice) }
+        }
+    }
+
+    @ViewBuilder private func navigationButton(_ title: String, prominent: Bool) -> some View {
+        let button = Button { model.jump(session) } label: { Label(title, systemImage: "arrow.up.forward") }
+        if attention != nil {
+            button.buttonStyle(AttentionActionButtonStyle(prominent: prominent))
+                .accessibilityIdentifier("attention-session-action-" + session.id)
+        } else {
+            button.buttonStyle(NotchActionButtonStyle(prominent: prominent))
+                .accessibilityIdentifier("respond-in-agent-" + session.id)
+        }
+    }
+
+    private func navigationNotice(_ notice: String) -> some View {
+        Text(notice).font(.system(size: 10)).foregroundStyle(NotchDesign.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("session-navigation-notice-" + session.id)
     }
 }

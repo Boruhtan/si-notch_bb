@@ -5,9 +5,14 @@ enum SessionDestination: Equatable {
     case link(URL, bundleID: String)
     case application(String)
 
-    static func resolve(_ session: AgentSession) -> SessionDestination? {
+    var opensExactSession: Bool {
+        guard case let .link(url, _) = self else { return false }
+        return url.scheme?.lowercased() == "codex"
+    }
+
+    static func resolve(_ session: AgentSession, hostBundleID: String? = nil) -> SessionDestination? {
         if let raw = session.targetURL, let destination = navigationLink(raw) { return destination }
-        guard let bundle = session.terminalBundleID, validBundleID(bundle) else { return nil }
+        guard let bundle = hostBundleID ?? session.terminalBundleID, validBundleID(bundle) else { return nil }
         return .application(bundle)
     }
 
@@ -36,6 +41,36 @@ enum SessionDestination: Equatable {
         value.count <= 256 && value.split(separator: ".").count >= 2 &&
             value.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) ||
                 (97...122).contains($0) || $0 == 45 || $0 == 46 }
+    }
+}
+
+enum SessionNavigationAction: Equatable {
+    case open(SessionDestination)
+    case unavailable(noticeKey: String)
+    case disabled
+
+    var title: String? { titleKey.map { L10n.tr($0) } }
+    var notice: String? { noticeKey.map { L10n.tr($0) } }
+
+    var titleKey: String? {
+        guard case let .open(destination) = self else { return nil }
+        switch destination {
+        case .link:
+            return destination.opensExactSession ? "session.navigation.openSession" : "session.navigation.openFile"
+        case .application:
+            return "session.navigation.openApplication"
+        }
+    }
+
+    var noticeKey: String? {
+        switch self {
+        case .disabled:
+            return nil
+        case .open(let destination) where destination.opensExactSession:
+            return nil
+        default:
+            return "session.navigation.exactUnavailable"
+        }
     }
 }
 

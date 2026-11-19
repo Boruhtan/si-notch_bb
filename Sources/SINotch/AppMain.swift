@@ -104,7 +104,13 @@ final class AppModel: ObservableObject {
     private var revealGeneration: UInt64 = 0
     private var expansionOrigin: IslandExpansionOrigin = .manual
     private var codexServiceSessions = CodexServiceSessionFilter()
-    private var observedAttention: [String: (id: String, seenAt: TimeInterval)] = [:]
+    private struct ObservedAttention {
+        let id: String
+        let startedAt: Date
+        let seenAt: TimeInterval
+        let ownsResponse: Bool
+    }
+    private var observedAttention: [String: ObservedAttention] = [:]
     var pointerInside = false
     var reminders = FollowUpReminders()
     var presentationPolicy: PresentationPolicy?
@@ -236,6 +242,15 @@ final class AppModel: ObservableObject {
         if showAgents {
             return agentPanelContent.height(columns: agentPanelColumns)
         }
+        if showingAttention {
+            let queue = attentionQueue
+            let requests = queue.requests.prefix(4).reduce(CGFloat(0)) { height, item in
+                let controls = interactions(for: item.id)
+                return height + 116 + controls.reduce(0) { $0 + 86 + CGFloat($1.questions.count * 38) }
+            }
+            return headerHeight + agentsSectionHeight + 45 +
+                (queue.count == 0 ? 76 : requests + CGFloat(queue.errors.prefix(4).count * 106 + queue.ssh.prefix(4).count * 60))
+        }
         if showingHistory { return headerHeight + agentsSectionHeight + 420 }
         if sessions.isEmpty { return headerHeight + (quiet ? 204 : 180) + agentsSectionHeight }
         let filters: CGFloat = 38
@@ -260,8 +275,20 @@ final class AppModel: ObservableObject {
 
     func selectAgents(_ value: Bool) {
         showAgents = value
-        setExpanded(true)
+        if !value && activeFilter == "Внимание" { activeFilter = "Все" }
+        setExpanded(true, preferAttention: false)
         onLayout?()
+    }
+
+    func selectAttention() {
+        showAttention()
+        setExpanded(true, preferAttention: false)
+        onLayout?()
+    }
+
+    private func showAttention() {
+        showAgents = false
+        activeFilter = "Внимание"
     }
 
     func connectorExpanded(_ id: UUID) -> Bool { !collapsedConnectors.contains(id) }
@@ -287,6 +314,7 @@ final class AppModel: ObservableObject {
         onLayout?()
     }
     var showingHistory: Bool { activeFilter == "history.title" }
+    var showingAttention: Bool { !showAgents && activeFilter == "Внимание" }
 
     func measureSessionCards(_ values: [String: CGFloat]) {
         let valid = values.filter { store.sessions[$0.key] != nil && $0.value.isFinite && (30...10000).contains($0.value) }
@@ -295,7 +323,54 @@ final class AppModel: ObservableObject {
         measuredSessionHeights.merge(valid) { _, new in new }
         onLayout?()
     }
-    var attentionCount: Int { sessions.filter { [.approval, .waiting, .failed].contains($0.status) }.count }
+    var attentionQueue: AttentionQueue {
+        let now = Date()
+        let uptime = ProcessInfo.processInfo.systemUptime
+        let profiles = Dictionary(agents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let connectorNames = Dictionary(uniqueKeysWithValues: remoteConnections.connections.map { ($0.id, $0.displayName) })
+        var requests: [AttentionSessionItem] = []
+        var errors: [AttentionSessionItem] = []
+        for session in sessions {
+            let timing = attentionTiming(session, now: now, uptime: uptime)
+            guard timing != nil || session.status == .failed else { continue }
+            let identity = AgentConnection.identity(for: session)
+            let profile = profiles[identity]
+            let observedOrigin = connectionReceipts[identity]?.origin
+            var connectorID = profile?.connectorID
+            if connectorID == nil, case .remote(let id)? = observedOrigin { connectorID = id }
+            let machine = connectorID.flatMap { connectorNames[$0] } ??
+                (observedOrigin?.isRemote == true ? L10n.tr("attention.remoteHost") : localHermesFallbackHostName)
+            let name = profile?.name ?? session.connectionName ?? HarnessKind(rawValue: session.provider)?.displayName ?? session.provider
+            let item = AttentionSessionItem(session: session, profileName: name, machineName: machine,
+                                            waitingSince: timing?.start, deadline: timing?.deadline)
+            if timing != nil { requests.append(item) } else { errors.append(item) }
+        }
+        let ssh = remoteConnections.connections.compactMap { connection -> AttentionSSHItem? in
+            let state = remoteConnections.state(connection.id)
+            switch state {
+            case .retrying, .failed: return AttentionSSHItem(id: connection.id, name: connection.displayName, state: state)
+            default: return nil
+            }
+        }
+        return AttentionQueue(requests: AttentionSessionItem.prioritized(requests, at: now), errors: errors, ssh: ssh)
+    }
+
+    private func attentionTiming(_ session: AgentSession, now: Date, uptime: TimeInterval) -> (start: Date?, deadline: Date?)? {
+        guard session.status == .approval || session.status == .waiting else { return nil }
+        let id = session.id
+        if let request = pending[id], uptime < request.expiresAt {
+            return (request.receivedAt, now.addingTimeInterval(request.expiresAt - uptime))
+        }
+        let live = codexInteractions[id]?.filter { $0.expiresAt > uptime } ?? []
+        if let deadline = live.map(\.expiresAt).min() {
+            let start = live.compactMap(\.firstSeenUptime).min().map { now.addingTimeInterval($0 - uptime) }
+            return (start ?? observedAttention[id]?.startedAt, now.addingTimeInterval(deadline - uptime))
+        }
+        guard let observed = observedAttention[id], !observed.ownsResponse else { return nil }
+        return (observed.startedAt, nil)
+    }
+
+    var attentionCount: Int { attentionQueue.count }
     var workingCount: Int { sessions.filter { $0.status == .working }.count }
     var presentationState: IslandPresentationState {
         IslandPresentationState(hasSessions: !sessions.isEmpty, hasWorkingSessions: workingCount > 0,
@@ -437,6 +512,11 @@ final class AppModel: ObservableObject {
         if let control = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            control.count == 2, control["command"] as? String == "status",
            control["protocol_version"] as? Int == 1 {
+            let visibleCount: Int
+            if showingAttention {
+                let queue = attentionQueue
+                visibleCount = queue.requests.count + queue.errors.count
+            } else { visibleCount = showAgents ? 0 : filtered.count }
             reply(json(["ok": true, "protocol_version": 1, "received_count": receivedCount,
                         "paused": paused, "session_count": sessions.count,
                         "updates_disabled": ForkUpdatePolicy.disabled(),
@@ -447,7 +527,8 @@ final class AppModel: ObservableObject {
                         "application_groups": applicationAgentGroups.map { ["id": $0.host.rawValue, "name": $0.host.name,
                             "expanded": applicationGroupExpanded($0.host), "active_count": $0.activeCount,
                             "session_ids": $0.sessions.map(\.id)] as [String: Any] },
-                        "visible_session_count": showAgents ? 0 : filtered.count, "active_filter": activeFilter, "tab": showAgents ? "agents" : "sessions",
+                        "visible_session_count": visibleCount,
+                        "active_filter": activeFilter, "tab": showAgents ? "agents" : showingAttention ? "attention" : "sessions",
                         "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue,
                             "activity": $0.activity.rawValue, "active_task_count": $0.activeTaskCount,
                             "remote": $0.connectorID != nil || connectionReceipts[$0.id]?.origin.isRemote == true,
@@ -563,6 +644,7 @@ final class AppModel: ObservableObject {
             let oldStatus = store.sessions[event.sessionID]?.status
             let oldAttention = attentionIdentity(event.sessionID)
             let previousObservedAttention = observedAttention[event.sessionID]?.id
+            let previousPending = waitingForReply ? pending[event.sessionID] : nil
             var nextStore = store
             let disposition = nextStore.apply(event)
             receivedCount += 1
@@ -622,15 +704,21 @@ final class AppModel: ObservableObject {
                 guard pending.count < 8 else { reply(json(["ok": false, "decision": "busy", "request_id": rid])); return }
                 let requestedTimeout = raw["response_timeout"] as? Double ?? 60
                 guard requestedTimeout.isFinite, (0.1...110).contains(requestedTimeout) else { reply(json(["ok": false, "decision": "invalid_timeout", "request_id": rid])); return }
-                pending[event.sessionID] = PendingRequest(expiresAt: ProcessInfo.processInfo.systemUptime + requestedTimeout, sessionID: event.sessionID, requestID: rid, message: raw["message"] as? String ?? raw["prompt"] as? String ?? "Агент ожидает ответа", messageIsAppOwned: raw["message"] == nil && raw["prompt"] == nil, question: raw["question"] as? Bool == true, receivedAt: Date(), reply: reply)
-                if showingHistory { activeFilter = "Внимание" }
+                let receivedAt = previousPending.flatMap { $0.requestID == rid ? $0.receivedAt : nil } ?? Date()
+                pending[event.sessionID] = PendingRequest(expiresAt: ProcessInfo.processInfo.systemUptime + requestedTimeout, sessionID: event.sessionID, requestID: rid, message: raw["message"] as? String ?? raw["prompt"] as? String ?? "Агент ожидает ответа", messageIsAppOwned: raw["message"] == nil && raw["prompt"] == nil, question: raw["question"] as? Bool == true, receivedAt: receivedAt, reply: reply)
             } else { reply(json(["ok": true, "disposition": String(describing: disposition)])) }
             if disposition == .applied, let status = store.sessions[event.sessionID]?.status, ![.approval, .waiting].contains(status) { cancelRequest(event.sessionID) }
             if disposition == .applied { presentationPolicy?.noteActivity() }
             let newStatus = store.sessions[event.sessionID]?.status
             if disposition == .applied {
-                if let id = event.attentionRequestID {
-                    observedAttention[event.sessionID] = (id, ProcessInfo.processInfo.systemUptime)
+                // Requests need an identity. Generic waiting/approval statuses
+                // may come from snapshots rather than a pending user decision.
+                let reportedID = event.attentionRequestID
+                if let id = reportedID, newStatus == .approval || newStatus == .waiting {
+                    let previous = observedAttention[event.sessionID].flatMap { $0.id == id ? $0 : nil }
+                    let native = waitingForReply || codexInteractions[event.sessionID]?.contains(where: { $0.id == id }) == true
+                    observedAttention[event.sessionID] = ObservedAttention(id: id, startedAt: previous?.startedAt ?? Date(),
+                        seenAt: ProcessInfo.processInfo.systemUptime, ownsResponse: native || previous?.ownsResponse == true)
                 } else if event.id?.hasPrefix("desktop-stream:") == true ||
                             (event.provider != "codex" && event.kind == .working) ||
                             [.sessionStarted, .completed, .failed, .sessionEnded].contains(event.kind) {
@@ -638,15 +726,15 @@ final class AppModel: ObservableObject {
                 }
                 let newAttention = attentionIdentity(event.sessionID)
                 if !suppressPresentation, let status = newStatus,
-                   oldStatus != newStatus || oldAttention != newAttention || event.attentionRequestID != previousObservedAttention {
+                   oldStatus != newStatus || oldAttention != newAttention || reportedID != previousObservedAttention {
                     reminders.update(id: event.sessionID, status: status, now: ProcessInfo.processInfo.systemUptime,
                         delay: defaults.double(forKey: "followupMinutes") * 60, includeCompleted: defaults.bool(forKey: "followupCompleted"))
-                    let repeatedObservation = event.attentionRequestID != nil && event.attentionRequestID == previousObservedAttention
+                    let repeatedObservation = reportedID != nil && reportedID == previousObservedAttention
                     let needsAnswer = newAttention != nil && !repeatedObservation && defaults.bool(forKey: "attentionReveal")
                     let completed = status == .completed && oldStatus != status && defaults.bool(forKey: "completionReveal")
                     if (needsAnswer || completed), !quiet, defaults.bool(forKey: "autoExpand"),
                        presentationPolicy?.canAutomaticallyReveal(for: store.sessions[event.sessionID]) ?? true {
-                        if needsAnswer { showAgents = false; if showingHistory { activeFilter = "Внимание" } }
+                        if needsAnswer && (!expanded || expansionOrigin == .automatic) { showAttention() }
                         reveal(reason: needsAnswer ? "response-needed" : "completed")
                     }
                 }
@@ -821,8 +909,7 @@ final class AppModel: ObservableObject {
         if let request = requests.first, let session = store.sessions[id], !sessionFilter.hides(path: session.projectPath, firstPrompt: session.firstPrompt) {
             inject(["event": request.isApproval ? "approval.request" : "agent.waiting", "provider": "codex",
                 "session_id": id, "attention_request_id": request.id])
-            selectedID = id
-            showAgents = false
+            if !expanded || expansionOrigin == .automatic { selectedID = id }
         }
         revision += 1
         onLayout?()
@@ -850,7 +937,7 @@ final class AppModel: ObservableObject {
     func attentionIdentity(_ id: String, at now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> String? {
         if let request = codexInteractions[id]?.first, now < request.expiresAt { return request.id }
         if let request = pending[id], now < request.expiresAt { return "reply:\(request.requestID)" }
-        guard let request = observedAttention[id], (0..<45).contains(now - request.seenAt),
+        guard let request = observedAttention[id], !request.ownsResponse, (0..<45).contains(now - request.seenAt),
               let status = store.sessions[id]?.status, [.waiting, .approval].contains(status) else { return nil }
         return request.id
     }
@@ -907,11 +994,12 @@ final class AppModel: ObservableObject {
         }
     }
     func json(_ object: [String: Any]) -> Data { (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data("{}".utf8) }
-    func setExpanded(_ value: Bool, origin: IslandExpansionOrigin = .manual, reason: String? = nil) {
+    func setExpanded(_ value: Bool, origin: IslandExpansionOrigin = .manual, reason: String? = nil,
+                     preferAttention: Bool = true) {
         cancelExpansionTimer()
         cancelRevealTimer()
         if value { expansionOrigin = origin }
-        if value && !expanded && (!pending.isEmpty || !codexInteractions.isEmpty) { showAgents = false }
+        if value && !expanded && preferAttention && !attentionQueue.requests.isEmpty { showAttention() }
         guard expanded != value else { presentationPolicy?.expansionChanged(value, origin: origin); return }
         if !value {
             let overPill = compactHoverRegion?.contains(hoverLocation()) ?? pointerInside
@@ -1014,25 +1102,35 @@ final class AppModel: ObservableObject {
             selectSession(selectedID == session.id ? nil : session.id)
         } else { jump(session) }
     }
+    func navigationAction(for session: AgentSession) -> SessionNavigationAction {
+        guard !defaults.bool(forKey: "disableClickJump") else { return .disabled }
+        guard !isRemoteSession(session) else { return .unavailable(noticeKey: "session.remote") }
+        guard let destination = SessionDestination.resolve(session, hostBundleID: applicationSessionHosts[session.id]?.bundleID) else {
+            return .unavailable(noticeKey: "session.noLocalTarget")
+        }
+        return .open(destination)
+    }
     func jump(_ session: AgentSession) {
-        guard !defaults.bool(forKey: "disableClickJump") else { return }
+        let action = navigationAction(for: session)
+        guard action != .disabled else { return }
         navigationGeneration += 1
         let generation = navigationGeneration
         navigationNoticeTimer?.invalidate(); navigationNoticeTimer = nil
         navigationErrorID = nil
         navigationNoticeKey = nil
-        if isRemoteSession(session) {
-            showNavigationNotice(session.id, key: "session.remote", generation: generation)
-            return
-        }
-        guard let destination = applicationSessionHosts[session.id].map({ SessionDestination.application($0.bundleID) }) ?? SessionDestination.resolve(session) else {
-            showNavigationNotice(session.id, key: "session.noLocalTarget", generation: generation)
+        guard case let .open(destination) = action else {
+            if case let .unavailable(noticeKey) = action {
+                showNavigationNotice(session.id, key: noticeKey, generation: generation)
+            }
             return
         }
         sessionNavigator.open(destination) { [weak self] success in
             guard let self, self.navigationGeneration == generation else { return }
             if success {
-                self.reminders.cancel(session.id)
+                // A fallback cannot establish that the user reached the waiting request.
+                if destination.opensExactSession || self.attentionIdentity(session.id) == nil {
+                    self.reminders.cancel(session.id)
+                }
             } else {
                 self.showNavigationNotice(session.id, key: "session.openFailed", generation: generation)
             }
@@ -1069,7 +1167,7 @@ final class AppModel: ObservableObject {
     }
     func moveSelection(_ delta: Int) {
         guard !showAgents, !showingHistory else { return }
-        let items = filtered
+        let items = visibleSessionSelection
         guard !items.isEmpty else { return }
         let index = selectedID.flatMap { id in items.firstIndex { $0.id == id } } ?? (delta > 0 ? -1 : items.count)
         selectSession(items[min(items.count - 1, max(0, index + delta))].id)
@@ -1080,7 +1178,7 @@ final class AppModel: ObservableObject {
         guard expanded else { return false }
         if keyCode == 53 { setExpanded(false); return true }
         guard !showAgents, !showingHistory else { return false }
-        let items = filtered
+        let items = visibleSessionSelection
         switch keyCode {
         case 125, 126:
             guard !items.isEmpty else { return false }
@@ -1095,6 +1193,12 @@ final class AppModel: ObservableObject {
             selectSession(items[number - 1].id)
         }
         return true
+    }
+
+    private var visibleSessionSelection: [AgentSession] {
+        guard showingAttention else { return filtered }
+        let queue = attentionQueue
+        return (queue.requests + queue.errors).map(\.session)
     }
 
     func shutdown() {
