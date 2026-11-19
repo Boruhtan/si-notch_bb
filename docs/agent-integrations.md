@@ -14,7 +14,7 @@ Custom integrations can set `terminal_bundle_id` (for example, `com.mitchellh.gh
 
 ## Codex and Pi
 
-Codex Desktop sessions are observed automatically through local IPC; CLI sessions can also be discovered from local session files. **Connect Codex** adds and authorizes the eight bundled CLI hooks after checking their exact content. Existing hooks and `notify` are preserved. If authorization fails, review the entries in Codex CLI’s `/hooks` screen. The Desktop protocol may change between Codex versions.
+Codex Desktop sessions are observed automatically through local IPC; CLI sessions can also be discovered from local session files. **Connect Codex** adds and authorizes the bundled CLI hooks after checking their exact content. Existing hooks and `notify` are preserved. If authorization fails, review the entries in Codex CLI’s `/hooks` screen. The Desktop protocol may change between Codex versions.
 
 The bundled PermissionRequest hook offers **Allow once** and **Deny** in the island for supported requests in a confirmed manual-review turn. Automatic review keeps its normal path and creates no native prompt. Because the hook does not expose its effective reviewer, the adapter checks only the matching session/turn metadata in a bounded tail of its supplied transcript. This transcript format is not a stable API: missing, mismatched or unknown metadata defers to Codex. Global configuration is never used to guess a turn's reviewer. Review the full tool input before deciding. Each decision is bound to one request with a 70-second deadline; there is no permanent grant. Missing, expired, oversized or unsupported requests return to Codex's normal permission flow. Reconnect Codex after upgrading an older hook setup; only si-notch's owned permission timeout changes to 80 seconds, and the updated hook requires authorization. Verification scope is listed in [feature status](parity.md).
 
@@ -63,7 +63,10 @@ local Rex terminal. The native helper recognizes the Rex environment and
 associates subsequent events with that group. If a plugin loses those environment
 variables, the helper can identify an ancestor executable from a known local
 Rex or Zed installation. This also works for supported
-agents launched in **Zed Terminal Threads**. Shell output and Rex program-status
+agents launched in **Zed Terminal Threads**. Reconnect Codex in si-notch to register
+and review its `SubagentStart` and `SubagentStop` hooks. An agent that forwards a
+turn to a separate gateway without reporting the originating terminal still
+appears under its own provider. Shell output and Rex program-status
 records are not imported. Rex is a terminal and does not identify the canonical
 session behind an arbitrary program-status record.
 

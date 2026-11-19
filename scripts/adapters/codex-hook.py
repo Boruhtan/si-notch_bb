@@ -30,6 +30,8 @@ EVENTS = {
     "PreToolUse": "tool.start",
     "PostToolUse": "tool.finish",
     "PermissionRequest": "agent.waiting",
+    "SubagentStart": "subagent.start",
+    "SubagentStop": "subagent.end",
     "Stop": "agent.completed",
     "Interrupt": "session.start",  # Idle; an interrupted turn is not a completion.
     "SessionEnd": "session.end",
@@ -98,6 +100,14 @@ def event_from_hook(hook):
     if name == "PermissionRequest":
         # This is observation only. A decision must remain in Codex itself.
         event["message"] = "Approval requested in Codex"
+    if name in ("SubagentStart", "SubagentStop"):
+        child = safe_identifier(hook.get("agent_id"))
+        if not child or child == session:
+            return None
+        role = hook.get("agent_type")
+        label = role if isinstance(role, str) and SAFE_TOOL.fullmatch(role) else "Subagent"
+        event["subagent"] = {"id": child, "sessionID": child, "name": label,
+                             "status": "working" if name == "SubagentStart" else "completed"}
     return event
 
 

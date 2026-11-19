@@ -23,10 +23,11 @@ final class CodexHookAuthorizationTests: XCTestCase {
                           "warnings": warnings, "errors": [] as [String]]]]
     }
 
-    func testExactEightHookPlanAndNativeBatchWriteShape() throws {
+    func testExactHookPlanAndNativeBatchWriteShape() throws {
         let plan = try client.plan(from: listing())
-        XCTAssertEqual(plan.hooks.count, 8)
-        XCTAssertEqual(plan.pendingCount, 8)
+        XCTAssertEqual(plan.hooks.count, 10)
+        XCTAssertEqual(plan.pendingCount, 10)
+        XCTAssertTrue(Set(plan.hooks.map(\.eventName)).isSuperset(of: ["subagentStart", "subagentStop"]))
         XCTAssertEqual(plan.command, command)
         let params = CodexHookAuthorization.writeParams(for: plan)
         XCTAssertEqual(params["reloadUserConfig"] as? Bool, true)
@@ -36,7 +37,7 @@ final class CodexHookAuthorizationTests: XCTestCase {
         XCTAssertEqual(edits[0]["keyPath"] as? String, "hooks.state")
         XCTAssertEqual(edits[0]["mergeStrategy"] as? String, "upsert")
         let value = try XCTUnwrap(edits[0]["value"] as? [String: [String: String]])
-        XCTAssertEqual(value.count, 8)
+        XCTAssertEqual(value.count, 10)
         XCTAssertTrue(value.values.allSatisfy { $0 == ["trusted_hash": "sha256:original"] })
     }
 
@@ -50,7 +51,7 @@ final class CodexHookAuthorizationTests: XCTestCase {
             case 2:
                 XCTAssertEqual(method, "config/batchWrite")
                 let edits = try XCTUnwrap(params["edits"] as? [[String: Any]])
-                XCTAssertEqual((edits[0]["value"] as? [String: Any])?.count, 8)
+                XCTAssertEqual((edits[0]["value"] as? [String: Any])?.count, 10)
                 return ["status": "ok", "filePath": "/tmp/codex-home/config.toml", "version": "v2"]
             case 3: return self.listing(status: "trusted")
             default: XCTFail("Unexpected request"); return [:]

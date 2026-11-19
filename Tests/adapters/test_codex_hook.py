@@ -33,6 +33,16 @@ class CodexHookTests(unittest.TestCase):
                 "turn_id": "turn_456", "transcript_path": str(self.transcript), "permission_mode": "default",
                 "cwd": "/tmp/project", "tool_input": {"command": "printf approval-smoke", "description": "Local harmless check"}}
 
+    def test_subagent_hook_links_canonical_child_without_forwarding_its_content(self):
+        base = {"session_id": "parent", "agent_id": "child", "agent_type": "worker",
+                "last_assistant_message": "private-output", "agent_transcript_path": "/private/transcript"}
+        for name, status in (("SubagentStart", "working"), ("SubagentStop", "completed")):
+            event = hook_adapter.event_from_hook(dict(base, hook_event_name=name))
+            self.assertEqual(event["session_id"], "parent")
+            self.assertEqual(event["subagent"], {"id": "child", "sessionID": "child", "name": "worker", "status": status})
+            self.assertNotIn("private", json.dumps(event))
+        self.assertIsNone(hook_adapter.event_from_hook(dict(base, hook_event_name="SubagentStart", agent_id="parent")))
+
     def test_auto_review_and_noninteractive_modes_never_create_native_request(self):
         for reviewer, policy in (("auto_review", "on-request"), ("user", "never"), (None, "on-request"),
                                  ("user", {"granular": {"sandbox_approval": False}})):

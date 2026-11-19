@@ -33,7 +33,7 @@ enum CodexAuthorizeRunner {
             guard let expected = ProcessInfo.processInfo.environment["SI_NOTCH_REVIEWED_HOOKS_SHA256"],
                   expected == digest else { throw RunnerError.reviewChanged }
             try await service.authorize(binary: binary, reviewed: plan)
-            print("Codex reports all eight si-notch hook definitions trusted.")
+            print("Codex reports all \(CodexHookSetup.events.count) si-notch hook definitions trusted.")
         } catch {
             fputs("Codex hook authorization: \(error.localizedDescription)\n", stderr)
             exit(1)
@@ -56,7 +56,7 @@ enum CodexAuthorizeRunner {
             switch self {
             case .usage:
                 return "Usage: runner preview|apply CODEX_CLI ADAPTER HELPER [HOOKS_FILE]; apply requires SI_NOTCH_REVIEWED_HOOKS_SHA256"
-            case .notInstalled: return "Install the eight si-notch hooks before authorizing them."
+            case .notInstalled: return "Install the si-notch hooks before authorizing them."
             case .reviewChanged: return "The hook definitions differ from the reviewed SHA-256; preview again."
             }
         }

@@ -26,7 +26,7 @@ struct CodexHookSetup {
     }
 
     static let events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-                         "PermissionRequest", "Stop", "Interrupt", "SessionEnd"]
+                         "PermissionRequest", "SubagentStart", "SubagentStop", "Stop", "Interrupt", "SessionEnd"]
     static let permissionTimeout = 80
 
     let adapterPath: String
