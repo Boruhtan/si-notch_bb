@@ -234,13 +234,14 @@ struct IslandView: View {
         }.padding(.vertical, 8)
     }
     var agentGroups: some View {
-        VStack(spacing: 0) {
-            agentRows(model.ungroupedLocalAgents).padding(.horizontal, 24)
+        let details = model.agentSessionsByProfile
+        return VStack(spacing: 0) {
+            agentRows(model.ungroupedLocalAgents, details: details).padding(.horizontal, 24)
             if let group = model.localHermesGroup {
                 DisclosureGroup(isExpanded: Binding(get: { model.localHermesGroupExpanded }, set: {
                     model.setLocalHermesGroupExpanded($0)
                 })) {
-                    agentRows(group.profiles).padding(.leading, 12)
+                    agentRows(group.profiles, details: details).padding(.leading, 12)
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "desktopcomputer").frame(width: 16)
@@ -261,25 +262,7 @@ struct IslandView: View {
                     model.setApplicationGroupExpanded(group.host, $0)
                 })) {
                     VStack(spacing: 0) {
-                        ForEach(group.sessions) { session in
-                            Button { model.showApplicationSession(session.id) } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: ProviderStyle(provider: session.provider).symbol)
-                                        .foregroundStyle(ProviderStyle(provider: session.provider).color).frame(width: 16)
-                                    Text(model.displayTitle(session)).lineLimit(1)
-                                    Spacer()
-                                    Text(session.status.label).foregroundStyle(session.status.isActive ? .green : NotchDesign.secondary)
-                                }.font(.system(size: 11)).frame(height: 32).contentShape(Rectangle())
-                            }.buttonStyle(.plain).accessibilityIdentifier("host-session-" + session.id)
-                            ForEach(session.subagents) { child in
-                                HStack(spacing: 8) {
-                                    Image(systemName: "arrow.turn.down.right").frame(width: 16)
-                                    Text(child.name).lineLimit(1); Spacer()
-                                    Text(child.status.label)
-                                }.font(.system(size: 11)).foregroundStyle(NotchDesign.secondary)
-                                    .padding(.leading, 16).frame(height: 32)
-                            }
-                        }
+                        agentGrid(group.sessions.map { AgentPanelSession(session: $0) }, row: agentSession)
                         if group.sessions.isEmpty {
                             Text(L10n.tr(group.host == .zed ? "agents.hostEmpty.zed" : "agents.hostEmpty.rex"))
                                 .font(.system(size: 11)).foregroundStyle(NotchDesign.secondary).frame(height: 32)
@@ -301,7 +284,7 @@ struct IslandView: View {
                     model.setConnectorExpanded(connection.id, $0)
                 })) {
                     VStack(spacing: 0) {
-                        agentRows(profiles).padding(.leading, 12)
+                        agentRows(profiles, details: details).padding(.leading, 12)
                         if profiles.isEmpty {
                             Text(L10n.tr("remote.noProfiles")).font(.system(size: 11))
                                 .foregroundStyle(NotchDesign.secondary).frame(height: 32)
@@ -329,16 +312,57 @@ struct IslandView: View {
             }
         }
     }
-    @ViewBuilder private func agentRows(_ agents: [AgentConnection]) -> some View {
-        if model.agentPanelColumns == 1 {
-            VStack(spacing: 0) { ForEach(agents) { agentRow($0, compact: false) } }
+    private func agentRows(_ agents: [AgentConnection], details: [String: [AgentSession]]) -> some View {
+        let sessions = agents.flatMap { agent in
+            (details[agent.id] ?? []).map { AgentPanelSession(session: $0, profileName: agent.name) }
+        }
+        return VStack(spacing: 0) {
+            agentGrid(agents) { agentRow($0, compact: min(agents.count, model.agentPanelColumns) > 1) }
+            agentGrid(sessions, row: agentSession)
+        }
+    }
+    @ViewBuilder private func agentGrid<Item: Identifiable, Row: View>(_ items: [Item], row: @escaping (Item) -> Row) -> some View {
+        let count = min(items.count, model.agentPanelColumns)
+        if count <= 1 {
+            VStack(spacing: 0) { ForEach(items, content: row) }
         } else {
-            let columns = Array(repeating: GridItem(.flexible(), spacing: AgentPanelLayout.columnSpacing),
-                                count: model.agentPanelColumns)
+            let columns = Array(repeating: GridItem(.flexible(), spacing: AgentPanelLayout.columnSpacing, alignment: .topLeading),
+                                count: count)
             LazyVGrid(columns: columns, alignment: .leading, spacing: 0) {
-                ForEach(agents) { agentRow($0, compact: true) }
+                ForEach(items, content: row)
             }
         }
+    }
+    private func agentSession(_ item: AgentPanelSession) -> some View {
+        let session = item.session
+        let title = model.displayTitle(session)
+        let label = item.profileName.flatMap { $0 == title ? nil : $0 + " · " + title } ?? title
+        let style = ProviderStyle(provider: session.provider)
+        return VStack(spacing: 0) {
+            Button { model.showAgentSession(session.id) } label: {
+                agentSessionLine(label, symbol: style.symbol, symbolColor: style.color, status: session.status)
+                    .contentShape(Rectangle())
+            }.buttonStyle(.plain).help(label).accessibilityIdentifier("agent-session-" + session.id)
+            ForEach(session.tasks) { task in
+                agentSessionLine(task.title, symbol: "checklist", symbolColor: NotchDesign.secondary, status: task.status)
+                    .padding(.leading, 16)
+            }
+            ForEach(session.subagents) { child in
+                agentSessionLine(child.name, symbol: "arrow.turn.down.right", symbolColor: NotchDesign.secondary, status: child.status)
+                    .padding(.leading, 16)
+            }
+        }
+    }
+    private func agentSessionLine(_ title: String, symbol: String, symbolColor: Color, status: AgentStatus) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).foregroundStyle(symbolColor).frame(width: 16)
+            Text(title).lineLimit(1)
+            Spacer(minLength: 4)
+            Text(status.label).lineLimit(1).layoutPriority(1)
+                .foregroundStyle(status.isActive ? status.tint : NotchDesign.secondary)
+        }.font(.system(size: 11)).frame(height: AgentPanelLayout.rowHeight)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title + " · " + status.label)
     }
     private func agentRow(_ agent: AgentConnection, compact: Bool) -> some View {
         let style = ProviderStyle(provider: agent.provider)

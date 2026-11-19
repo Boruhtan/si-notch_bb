@@ -11,10 +11,16 @@ struct AgentPanelLayout {
         let chromeHeight: CGFloat
         let fullWidthRows: Int
         let profilesPerGroup: [Int]
+        var detailRowsPerGroup: [[Int]] = []
 
         func height(columns: Int) -> CGFloat {
             let profileRows = profilesPerGroup.reduce(0) { $0 + ($1 + columns - 1) / columns }
-            let rows = fullWidthRows + profileRows
+            let detailRows = detailRowsPerGroup.reduce(0) { total, group in
+                total + stride(from: 0, to: group.count, by: columns).reduce(0) { rows, start in
+                    rows + (group[start..<min(start + columns, group.count)].max() ?? 0)
+                }
+            }
+            let rows = fullWidthRows + profileRows + detailRows
             return chromeHeight + (rows == 0 ? 56 : CGFloat(rows) * AgentPanelLayout.rowHeight)
         }
     }

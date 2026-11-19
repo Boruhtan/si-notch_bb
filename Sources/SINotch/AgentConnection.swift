@@ -101,6 +101,14 @@ struct AgentConnection: Identifiable, Equatable {
         return true
     }
 
+    static func identity(for session: AgentSession) -> String {
+        session.connectionID.map { session.provider + "/" + $0 } ?? session.provider
+    }
+
+    static func isActiveTask(_ session: AgentSession) -> Bool {
+        isTask(session) && (session.status.isActive || session.status == .failed)
+    }
+
     static func project(detected: [HarnessDetection], sessions: [AgentSession],
                         receipts: [String: Date], running: Set<String>, now: Date,
                         connections: [String: Observation] = [:],
@@ -120,9 +128,7 @@ struct AgentConnection: Identifiable, Equatable {
         // Discovery is a fallback for an application, not another profile. Only
         // independent legacy activity may coexist with a confirmed local profile.
         // Idle sessions need a fresh receipt to prove a separate live agent.
-        let independentLegacy = Set(legacySessions.filter {
-            Self.isTask($0) && [.working, .waiting, .approval, .failed].contains($0.status)
-        }.map(\.provider))
+        let independentLegacy = Set(legacySessions.filter(isActiveTask).map(\.provider))
             .union(receipts.filter { isFresh($0.value, at: now) }.keys)
         let providers = installed.union(legacyByProvider.keys).union(receipts.keys).union(running)
             .filter { !localProviders.contains($0) || independentLegacy.contains($0) }
@@ -165,9 +171,7 @@ struct AgentConnection: Identifiable, Equatable {
             Self(id: $0.id, provider: $0.provider, displayName: $0.name,
                  state: .installed, lastSeen: nil, connectorID: $0.connectorID)
         }
-        let activeByIdentity = Dictionary(grouping: sessions.filter {
-            Self.isTask($0) && [.working, .waiting, .approval, .failed].contains($0.status)
-        }, by: { session in session.connectionID.map { session.provider + "/" + $0 } ?? session.provider })
+        let activeByIdentity = Dictionary(grouping: sessions.filter(isActiveTask), by: identity)
         return (legacy + named + quiet + quietLocal).map { agent in
             var agent = agent
             guard agent.state == .online else { return agent }

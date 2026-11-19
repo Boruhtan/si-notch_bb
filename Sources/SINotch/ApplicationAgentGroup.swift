@@ -31,15 +31,7 @@ struct ApplicationAgentGroup {
         let hosts = installed.union(sessions.compactMap { claims[$0.id] })
         return AgentHostApplication.allCases.filter { hosts.contains($0) }.map { host in
             let owned = sessions.filter { claims[$0.id] == host }
-            // Only explicit child-session links suppress a duplicate root row.
-            let ownedProviders = Dictionary(uniqueKeysWithValues: owned.map { ($0.id, $0.provider) })
-            let nested = Set(owned.flatMap { parent in
-                parent.subagents.compactMap { child -> String? in
-                    guard let id = child.sessionID, id != parent.id, ownedProviders[id] == parent.provider else { return nil }
-                    return id
-                }
-            })
-            return Self(host: host, sessions: owned.filter { !nested.contains($0.id) })
+            return Self(host: host, sessions: AgentPanelSession.roots(owned))
         }
     }
 }

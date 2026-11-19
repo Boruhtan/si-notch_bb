@@ -151,7 +151,7 @@ final class AppModel: ObservableObject {
         defaults.set(expandedApplicationHosts, forKey: "expandedApplicationHosts.v1")
         if showAgents { onLayout?() }
     }
-    func showApplicationSession(_ id: String) {
+    func showAgentSession(_ id: String) {
         showAgents = false
         activeFilter = "Все"
         search = ""
@@ -169,6 +169,9 @@ final class AppModel: ObservableObject {
     var ungroupedLocalAgents: [AgentConnection] {
         let grouped = Set(localHermesGroup?.profiles.map(\.id) ?? [])
         return agents.filter { $0.connectorID == nil && !grouped.contains($0.id) }
+    }
+    var agentSessionsByProfile: [String: [AgentSession]] {
+        AgentPanelSession.byProfile(sessions, excludingHostSessions: applicationSessionHosts)
     }
     func displayTitle(_ session: AgentSession) -> String {
         guard let key = appOwnedTitles[session.id], session.title == key else { return session.title }
@@ -201,26 +204,33 @@ final class AppModel: ObservableObject {
         let connections = remoteConnections.connections.filter(\.showInAgents)
         let hermes = localHermesGroup
         let agentsByConnector = Dictionary(grouping: agents, by: \.connectorID)
-        var profileCounts = [ungroupedLocalAgents.count]
-        if let hermes, localHermesGroupExpanded { profileCounts.append(hermes.profiles.count) }
+        let sessionsByProfile = agentSessionsByProfile
+        var profileGroups = [ungroupedLocalAgents]
+        if let hermes, localHermesGroupExpanded { profileGroups.append(hermes.profiles) }
+        var detailRows: [[Int]] = []
         var fullWidthRows = connections.count + (hermes == nil ? 0 : 1)
         var openGroups = 0
         for connection in connections where connectorExpanded(connection.id) {
             openGroups += 1
-            let count = agentsByConnector[connection.id]?.count ?? 0
-            if count > 0 { profileCounts.append(count) } else { fullWidthRows += 1 }
+            if let profiles = agentsByConnector[connection.id] { profileGroups.append(profiles) }
+            else { fullWidthRows += 1 }
         }
         for group in applicationAgentGroups {
             fullWidthRows += 1
             if applicationGroupExpanded(group.host) {
                 openGroups += 1
-                fullWidthRows += max(1, group.sessions.reduce(0) { $0 + 1 + $1.subagents.count })
+                if group.sessions.isEmpty { fullWidthRows += 1 }
+                else { detailRows.append(group.sessions.map(AgentPanelSession.rows)) }
             }
         }
         if hermes != nil && localHermesGroupExpanded { openGroups += 1 }
         // A disclosure can add native spacing around its content.
         let chrome = headerHeight + agentsSectionHeight + 52 + CGFloat(openGroups * 4) + (serverError == nil ? 0 : 28)
-        return AgentPanelLayout.Content(chromeHeight: chrome, fullWidthRows: fullWidthRows, profilesPerGroup: profileCounts)
+        detailRows += profileGroups.map { profiles in
+            profiles.flatMap { (sessionsByProfile[$0.id] ?? []).map(AgentPanelSession.rows) }
+        }
+        return AgentPanelLayout.Content(chromeHeight: chrome, fullWidthRows: fullWidthRows,
+                                        profilesPerGroup: profileGroups.map(\.count), detailRowsPerGroup: detailRows)
     }
     var desiredPanelHeight: CGFloat {
         if showAgents {
