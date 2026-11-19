@@ -27,6 +27,7 @@ struct PiSessionScanner {
         let inode: UInt64
         let sessionID: String
         let cwd: String?
+        let navigationURL: String?
         var offset: UInt64
         var partial = Data()
         var discardingLongLine = false
@@ -138,6 +139,7 @@ struct PiSessionScanner {
         // session commonly contains only its header, which is still useful.
         let tail = (try? handle.read(upToCount: maximumTailBytes)) ?? Data()
         var state = FileState(inode: candidate.inode, sessionID: sessionID, cwd: cwd,
+                              navigationURL: PiSessionTarget.route(for: candidate.url),
                               offset: tailStart + UInt64(tail.count), activityAt: created,
                               lastEventAt: created)
         var body = tail
@@ -267,7 +269,8 @@ struct PiSessionScanner {
     private func event(_ kind: AgentEventKind, state: FileState, stamp: Date, id: String, historyItems: [AgentHistoryItem]? = nil) -> AgentEvent {
         AgentEvent(sessionID: state.sessionID, provider: "pi", kind: kind, timestamp: stamp,
                    id: id, title: state.prompt.map { String($0.prefix(100)) }, projectPath: state.cwd,
-                   message: state.message, toolName: state.tool, modelName: state.model, reasoningEffort: state.effort, firstPrompt: state.prompt, turnID: state.turnID, historyItems: historyItems)
+                   message: state.message, toolName: state.tool, targetURL: state.navigationURL, modelName: state.model,
+                   reasoningEffort: state.effort, firstPrompt: state.prompt, turnID: state.turnID, historyItems: historyItems)
     }
 
     private func json(_ data: Data) -> [String: Any]? {

@@ -3,6 +3,102 @@ import SINotchCore
 @testable import SINotch
 
 final class SessionNavigationTests: XCTestCase {
+    func testPiOpensOnlyARegularSessionFileWithMatchingHeader() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Pi work's #1.jsonl")
+        let link = folder.appendingPathComponent("alias.jsonl")
+        let header = #"{"type":"session","id":"pi-1"}"# + "\n"
+        try Data(header.utf8).write(to: file)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+
+        var task = AgentSession(id: "pi-1", provider: "pi")
+        task.targetURL = PiSessionTarget.route(for: file)
+        let target = try XCTUnwrap(PiSessionTarget(task))
+        XCTAssertEqual(target.verifiedSessionFile()?.url, file)
+        XCTAssertEqual(SessionNavigationAction.open(.pi(target)).titleKey, "session.navigation.openPiSession")
+        task.id = "other-session"
+        XCTAssertNil(PiSessionTarget(task)?.verifiedSessionFile())
+        task.id = "pi-1"
+        task.targetURL = PiSessionTarget.route(for: link)
+        XCTAssertNil(PiSessionTarget(task)?.verifiedSessionFile())
+        task.targetURL = "pi-session://other-host/tmp/session.jsonl"
+        XCTAssertNil(PiSessionTarget(task))
+        task.targetURL = "pi-session://file/tmp/session.jsonl?command=run"
+        XCTAssertNil(PiSessionTarget(task))
+    }
+
+    func testPiTerminalMetadataRequiresBothPartsAndSurvivesLaterFileEvents() throws {
+        var store = SessionStore()
+        let event = try AgentEvent.parse(data: Data("""
+        {"session_id":"pi","provider":"pi","event":"agent.waiting","terminal_bundle_id":"com.apple.Terminal",
+         "terminal_tty":"/dev/ttys012","terminal_pid":314}
+        """.utf8))
+        XCTAssertEqual(store.apply(event), .applied)
+        XCTAssertEqual(store.apply(AgentEvent(sessionID: "pi", provider: "pi", kind: .working)), .applied)
+        var task = try XCTUnwrap(store.sessions["pi"])
+        XCTAssertEqual(PiSessionTarget(task)?.terminal, .init(tty: "/dev/ttys012", pid: 314))
+        task.terminalTTY = "/dev/ttys012\n"
+        XCTAssertNil(PiSessionTarget(task))
+        task.terminalTTY = "/dev/ttys012"
+        task.terminalBundleID = "com.mitchellh.ghostty"
+        XCTAssertNil(PiSessionTarget(task))
+    }
+
+    func testPiRexRouteRequiresFullTypedIdentifiers() throws {
+        let sid = "session:01a1cac6-9ae2-719a-844e-84c5fdf704e8"
+        let block = "block:01a1cad3-558c-70ab-b747-a1beeef2e0b4"
+        var store = SessionStore()
+        let event = AgentEvent(sessionID: "pi-rex", provider: "pi", kind: .waiting,
+                               terminalBundleID: "com.superlogical.rex", rexSessionID: sid, rexBlockID: block)
+        XCTAssertEqual(store.apply(try AgentEvent.parse(data: JSONEncoder().encode(event))), .applied)
+        var task = try XCTUnwrap(store.sessions[event.sessionID])
+        XCTAssertEqual(PiSessionTarget(task)?.rex, RexTerminal.Block(session: sid, block: block))
+        task.rexBlockID = "left"
+        XCTAssertNil(PiSessionTarget(task))
+        task.rexBlockID = block
+        task.rexSessionID = block
+        XCTAssertNil(PiSessionTarget(task))
+    }
+
+    @MainActor
+    func testHermesRemoteRouteUsesOnlyTheProfileAndHostBoundToItsConnector() throws {
+        let model = model()
+        defer { model.shutdown() }
+        let connector = try XCTUnwrap(model.remoteConnections.add())
+        var connection = try XCTUnwrap(model.remoteConnections.connections.first)
+        let profile = RemoteHermesProfile(id: "default", home: "/Users/mac/.hermes", displayName: "Don David",
+            enabled: true, showSessionText: false, pluginInstalled: true, connectionId: "profile-don-david")
+        connection.host = "pupsik"
+        connection.profiles = [profile]
+        model.remoteConnections.update(connection)
+        var task = AgentSession(id: "hermes-b5d24b0c9cee4232d1fa7b9dd527122e", provider: "hermes")
+        task.connectionID = profile.connectionId
+        task.targetURL = "hermes://open/20261120_013700_95cc48"
+        task.connectionName = "untrusted-host"
+        let origin = AgentConnection.Observation(provider: "hermes", connectionID: "profile-don-david",
+            name: "Don David", lastSeen: Date(), eventAt: Date(), eventID: nil, origin: .remote(connector))
+        model.connectionReceipts[origin.id] = origin
+        let action = model.navigationAction(for: task)
+        XCTAssertEqual(action.titleKey, "session.navigation.openChatSSH")
+        guard case .open(.hermesTerminal(let target)) = action else {
+            return XCTFail("Expected a managed SSH route")
+        }
+        let command = try XCTUnwrap(target.command())
+        XCTAssertEqual(command.program, "/usr/bin/ssh")
+        XCTAssertEqual(command.arguments.first, "-tt")
+        XCTAssertEqual(command.arguments.dropLast().last, "pupsik")
+        XCTAssertTrue(command.arguments.last?.hasSuffix(" '/Users/mac/.hermes' 'default' '20261120_013700_95cc48'") == true)
+        XCTAssertFalse(command.arguments.joined().contains("untrusted-host"))
+        task.targetURL = "hermes://open/20261120_013700_abcdef"
+        XCTAssertNil(model.navigationAction(for: task).titleKey)
+        task.targetURL = "hermes://open/20261120_013700_95cc48"
+        connection.profiles[0].enabled = false
+        model.remoteConnections.update(connection)
+        XCTAssertNil(model.navigationAction(for: task).titleKey)
+    }
+
     @MainActor
     func testRemoteNavigationExplainsLocationWithoutOpeningLocalAppAndExpires() async {
         let model = model()

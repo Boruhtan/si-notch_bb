@@ -131,6 +131,37 @@ def _session_key(value: object) -> str | None:
     return _opaque_id(connection + ":" + opaque, "hermes-") if connection else opaque
 
 
+# Only documented Hermes-generated ID shapes can be used as navigation data.
+# In particular, the CLI also accepts titles and "latest" as resume arguments.
+_NATIVE_SESSION_ID = re.compile(
+    r"(?:[0-9]{8}_[0-9]{6}_[0-9a-f]{6,12}"
+    r"|api_[0-9]{9,}_[0-9a-f]{8}|api-[0-9a-f]{16}"
+    r"|(?:room|run)_[0-9a-f]{32}|bg_(?:[0-9]{6}_)?[0-9a-f]{6}"
+    r"|cron_[A-Za-z0-9][A-Za-z0-9._-]*_[0-9]{8}_[0-9]{6}"
+    r"|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"
+)
+
+
+def _chat_link(stored_id: object) -> str | None:
+    if (isinstance(stored_id, str) and 0 < len(stored_id) <= 128
+            and ".." not in stored_id and _NATIVE_SESSION_ID.fullmatch(stored_id)):
+        return "hermes://open/" + stored_id
+    return None
+
+
+def _stored_chat_link(session_id: object) -> str | None:
+    if (link := _chat_link(session_id)) is None:
+        return None
+    try:
+        # Hooks may carry ephemeral runtime identities. Only a row in this
+        # observer's own profile is a verified Desktop/CLI navigation target.
+        with closing(_open_native_database()) as database:
+            row = database.execute("SELECT 1 FROM sessions WHERE id = ? LIMIT 1", (session_id,)).fetchone()
+        return link if row is not None else None
+    except (OSError, ValueError, sqlite3.Error):
+        return None
+
+
 def _session_text(value: object, *, prompt: bool = False) -> str | None:
     if _settings().get("showSessionText") is not True or not isinstance(value, str):
         return None
@@ -360,8 +391,9 @@ def _queue_lifecycle(payload: dict) -> bool:
     # Native-ledger recovery and live hooks share the same terminal boundary.
     # Forget matching live state before delivery, including while disconnected.
     _remember_activity(payload, terminal=True)
-    # Persist outcome and opaque routing only; never persist task text/tool output.
-    keep = {"event", "session_id", "provider", "id", "timestamp", "connection_id", "connection_name", "turn_id"}
+    # Preserve a verified chat destination on failure and omit task/tool text.
+    keep = {"event", "session_id", "provider", "id", "timestamp", "connection_id", "connection_name",
+            "turn_id", "target_url"}
     value = {key: data for key, data in payload.items() if key in keep}
     try:
         with _LIFECYCLE_LOCK:
@@ -549,7 +581,7 @@ def _reconcile_executions() -> None:
                                 CASE WHEN a.status IN ('terminal','unknown') THEN 'terminal' ELSE a.status END,
                                 a.status, a.outcome,
                                 (SELECT MAX(n.seq) FROM session_admissions n
-                                    WHERE n.target_session_id=a.target_session_id)
+                                    WHERE n.target_session_id=a.target_session_id), s.id
                             FROM session_admissions a JOIN sessions s ON s.id=a.target_session_id
                             WHERE a.admission_id=? AND a.generation=? AND a.owner_epoch=?
                               AND a.seq=? AND s.source='api_server'""",
@@ -557,9 +589,11 @@ def _reconcile_executions() -> None:
                              value["admission_epoch"], sequence)).fetchone()
                     else:
                         row = database.execute("""SELECT w.status, a.status, a.outcome,
-                                (SELECT MAX(n.generation) FROM worker_executions n WHERE n.session_id=w.session_id)
+                                (SELECT MAX(n.generation) FROM worker_executions n WHERE n.session_id=w.session_id),
+                                s.id
                             FROM worker_executions w JOIN session_admissions a
                               ON w.execution_id='admission-worker:' || a.admission_id
+                            LEFT JOIN sessions s ON s.id=w.session_id
                             WHERE w.execution_id=? AND w.generation=? AND w.owner_epoch=?
                               AND a.admission_id=? AND a.generation=? AND a.owner_epoch=?""",
                             tuple(value[k] for k in ("execution_id", "generation", "owner_epoch",
@@ -588,6 +622,9 @@ def _reconcile_executions() -> None:
                     payload = {key: value[key] for key in ("session_id", "provider", "connection_id", "turn_id")}
                     payload.update(event=kind, timestamp=value["pending_at"],
                                    id=hashlib.sha256((value["execution_id"] + "\0" + value["turn_id"] + "\0" + kind).encode()).hexdigest())
+                    if kind == "agent.failed" and _session_key(row[4]) == value["session_id"]:
+                        if link := _chat_link(row[4]):
+                            payload["target_url"] = link
                     if _queue_lifecycle(payload):
                         if row[1] == "unknown":
                             value["notified"] = kind; _write_execution(path, value)
@@ -642,6 +679,9 @@ def _emit(kind: str, session_id: object, *, tool_name: object = None,
             payload["approval_id"] = safe_id
     if safe_id := _opaque_id(attention_request_id, "input-"):
         payload["attention_request_id"] = safe_id
+    if kind in {"approval.request", "agent.failed"} or (kind == "agent.waiting" and safe_id):
+        if link := _stored_chat_link(session_id):
+            payload["target_url"] = link
     if message:
         payload["message"] = message
     if first_prompt:

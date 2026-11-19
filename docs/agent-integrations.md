@@ -12,6 +12,10 @@ Click a session card to open its Codex task or originating terminal/editor. The 
 
 Custom integrations can set `terminal_bundle_id` (for example, `com.mitchellh.ghostty`) or `target_url`. Accepted links are `codex://threads/<UUID>` and local file routes for VS Code, Cursor and Zed. Command and extension URLs are rejected. SSH events do not infer a local terminal.
 
+The bundled Hermes observer links to an existing chat in the profile that reported it. The default local profile opens in Hermes Desktop when available. Other local profiles open in a terminal tab. A managed SSH card connects to the configured host and checks the chat ID in that profile before resuming. Whether an ongoing request can be answered there depends on Hermes and the original client. When Rex is installed, new terminal tabs open in the local Rex app.
+
+Pi selects the original Rex pane when its full session and pane IDs are available. It can also select the original Apple Terminal tab when its process and TTY match and Terminal automation is already allowed. Otherwise it opens the exact saved session after checking the session file header. A reopened session does not include a dialog that remains in the first Pi process.
+
 ## Codex and Pi
 
 Codex Desktop sessions are observed automatically through local IPC; CLI sessions can also be discovered from local session files. **Connect Codex** adds and authorizes the bundled CLI hooks after checking their exact content. Existing hooks and `notify` are preserved. If authorization fails, review the entries in Codex CLI’s `/hooks` screen. The Desktop protocol may change between Codex versions.

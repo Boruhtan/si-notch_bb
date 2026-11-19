@@ -1,9 +1,11 @@
 """Contract tests for our Hermes observer; no Hermes installation is required."""
 
+from contextlib import closing
 import importlib.util
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -108,6 +110,51 @@ class HermesPluginTests(unittest.TestCase):
             plugin.on_session_end(session_id="unknown")
         self.assertEqual({json.loads(p.read_text())["event"] for p in plugin._lifecycle_directory().glob("*.json")},
                          {"agent.failed", "agent.waiting"})
+
+    def test_attention_link_requires_the_exact_stored_chat_in_this_profile(self):
+        database = Path(self.spool.name) / "state.db"
+        stored = "20261120_192305_b0a149"
+        wrong_profile = "20261120_192306_e072e5"
+        with closing(sqlite3.connect(database)) as state, state:
+            state.execute("CREATE TABLE sessions(id TEXT PRIMARY KEY)")
+            state.executemany("INSERT INTO sessions VALUES (?)", [(stored,), ("latest",), ("../settings",)])
+        events = []
+        with mock.patch.object(plugin, "_native_database", return_value=database), \
+             mock.patch.object(plugin, "_settings", return_value={"instanceId": "profile"}), \
+             mock.patch.object(plugin, "_send", side_effect=lambda value: events.append(value) or True):
+            opaque_id = plugin._session_key(stored)
+            plugin.on_session_start(session_id=stored)
+            for native_id in (stored, wrong_profile, "latest", "../settings"):
+                plugin.on_human_input_request(session_id=native_id, kind="approval", request_id="request",
+                                              session_key="PRIVATE", platform="telegram", prompt="PRIVATE",
+                                              target_url="hermes://mcp/install")
+            plugin.on_human_input_request(session_id=stored, kind="clarify", request_id="question")
+            plugin.post_api_request(session_id=stored, api_request_id="usage-id",
+                                    usage={"input_tokens": 1, "output_tokens": 1})
+        approvals = [event for event in events if event["event"] == "approval.request"]
+        self.assertEqual([event.get("target_url") for event in approvals],
+                         ["hermes://open/" + stored, None, None, None])
+        self.assertEqual(approvals[0]["session_id"], opaque_id)
+        self.assertEqual(next(event for event in events if event["event"] == "agent.waiting")["target_url"],
+                         approvals[0]["target_url"])
+        self.assertTrue(all("target_url" not in event for event in events
+                            if event["event"] in {"session.start", "usage.update"}))
+        self.assertNotIn("PRIVATE", json.dumps(events))
+        self.assertNotIn("hermes://mcp/install", json.dumps(events))
+
+    def test_failed_chat_destination_survives_disconnected_delivery(self):
+        database = Path(self.spool.name) / "state.db"
+        stored = "20261120_192305_b0a149"
+        with closing(sqlite3.connect(database)) as state, state:
+            state.execute("CREATE TABLE sessions(id TEXT PRIMARY KEY)")
+            state.execute("INSERT INTO sessions VALUES (?)", (stored,))
+        with mock.patch.object(plugin, "_native_database", return_value=database), \
+             mock.patch.object(plugin, "_send", return_value=False):
+            plugin.on_session_end(session_id=stored, failed=True)
+        with mock.patch.object(plugin, "_send", return_value=True) as send:
+            plugin._drain_lifecycle()
+        self.assertEqual(send.call_args.args[0]["event"], "agent.failed")
+        self.assertEqual(send.call_args.args[0]["target_url"], "hermes://open/" + stored)
 
     def test_auxiliary_calls_do_not_restart_completed_task_or_create_task(self):
         output = []

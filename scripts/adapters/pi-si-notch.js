@@ -1,11 +1,11 @@
 // Pi extension. Load explicitly with: pi --extension /absolute/path/pi-si-notch.js
 // Local task/result snippets only; never returns a decision or sends tool arguments/output.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MAX_QUEUE = 16;
 const TIMEOUT_MS = 1200;
@@ -77,6 +77,37 @@ export function makeSender({ cli = process.env.SI_NOTCH_CLI || defaultHelper, sp
   };
 }
 
+function appleTerminalTTY() {
+  return execFileSync("/usr/bin/tty", [], {
+    stdio: ["inherit", "pipe", "ignore"], encoding: "utf8", timeout: 200
+  }).trim();
+}
+
+function rexID(value, prefix) {
+  return typeof value === "string" && value.length === prefix.length + 36 && value.startsWith(prefix) &&
+    /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value.slice(prefix.length));
+}
+
+export function terminalOrigin({ environment = process.env, interactive = process.stdin.isTTY,
+  readTTY = appleTerminalTTY, pid = process.pid } = {}) {
+  if (!interactive ||
+      environment.SSH_CONNECTION !== undefined || environment.SSH_TTY !== undefined ||
+      environment.TMUX !== undefined || environment.STY !== undefined) return {};
+  const { REX_SESSION: session, REX_BLOCK: block } = environment;
+  if (rexID(session, "session:") && rexID(block, "block:")) {
+    return { terminal_bundle_id: "com.superlogical.rex", rex_session_id: session, rex_block_id: block };
+  }
+  if (environment.TERM_PROGRAM !== "Apple_Terminal") return {};
+  try {
+    const tty = readTTY();
+    return /^\/dev\/ttys[0-9]+$/.test(tty) ? {
+      terminal_bundle_id: "com.apple.Terminal", terminal_tty: tty, terminal_pid: pid
+    } : {};
+  } catch {
+    return {};
+  }
+}
+
 export function registerPiEvents(pi, send = makeSender()) {
   let sessionID;
   let cwd;
@@ -87,6 +118,7 @@ export function registerPiEvents(pi, send = makeSender()) {
   let taskSummary;
   let latestResult;
   let metadata = {};
+  const origin = terminalOrigin();
 
   function emit(kind, extra = {}) {
     if (!sessionID || sessionID.length > 256) return;
@@ -108,9 +140,14 @@ export function registerPiEvents(pi, send = makeSender()) {
     }
     const name = ctx?.model?.id;
     const effort = ctx?.thinkingLevel ?? pi.getThinkingLevel?.();
-    metadata = {};
+    metadata = { ...origin };
     if (typeof name === "string" && name.length > 0 && Buffer.byteLength(name) <= 256 && !/[\x00-\x1f\x7f]/.test(name)) metadata.model = name;
     if (["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(effort)) metadata.reasoning_effort = effort;
+    const file = ctx.sessionManager.getSessionFile?.();
+    if (typeof file === "string" && file.startsWith("/") && file.endsWith(".jsonl") && !/[\x00-\x1f\x7f]/.test(file)) {
+      const target = "pi-session://file" + pathToFileURL(file).pathname;
+      if (Buffer.byteLength(target) <= 4096) metadata.target_url = target;
+    }
     if (!started) { started = true; emit("session.start", { title: displaySummary(cwd && basename(cwd), 100) || "Pi" }); }
     return true;
   }

@@ -738,6 +738,10 @@
 "attention.sshSettings" = "SSH settings";
 "attention.remoteHost" = "Remote host";
 "session.navigation.openSession" = "Open session";
+"session.navigation.openHermesChat" = "Open Hermes chat";
+"session.navigation.openPiSession" = "Open Pi session";
+"session.navigation.openChatInTerminal" = "Open Hermes chat in Terminal";
+"session.navigation.openChatSSH" = "Open Hermes chat over SSH";
 "session.navigation.openApplication" = "Open application";
 "session.navigation.openFile" = "Open file";
 "session.navigation.exactUnavailable" = "Exact session link unavailable";

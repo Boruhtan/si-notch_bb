@@ -44,6 +44,10 @@ public struct AgentEvent: Codable, Equatable, Sendable {
     public var subagent: AgentSubagent?
     public var usage: AgentUsage?
     public var terminalBundleID: String?
+    public var terminalTTY: String?
+    public var terminalPID: Int?
+    public var rexSessionID: String?
+    public var rexBlockID: String?
     public var targetURL: String?
     public var approvalID: String?
     public var modelName: String?
@@ -69,7 +73,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
                 modelName: String? = nil, reasoningEffort: String? = nil, firstPrompt: String? = nil,
                 turnID: String? = nil, isInternalSession: Bool? = nil, attentionRequestID: String? = nil,
                 connectionID: String? = nil, connectionName: String? = nil, isWorkSession: Bool? = nil,
-                historyItems: [AgentHistoryItem]? = nil) {
+                historyItems: [AgentHistoryItem]? = nil, terminalTTY: String? = nil, terminalPID: Int? = nil,
+                rexSessionID: String? = nil, rexBlockID: String? = nil) {
         self.sessionID = sessionID
         self.provider = provider
         self.connectionID = connectionID
@@ -86,6 +91,10 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         self.subagent = subagent
         self.usage = usage
         self.terminalBundleID = terminalBundleID
+        self.terminalTTY = terminalTTY
+        self.terminalPID = terminalPID
+        self.rexSessionID = rexSessionID
+        self.rexBlockID = rexBlockID
         self.targetURL = targetURL
         self.approvalID = approvalID
         self.modelName = modelName
@@ -127,6 +136,9 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         if let approvalID { try Self.validateID(approvalID, field: "approval_id") }
         if let turnID { try Self.validateID(turnID, field: "turn_id") }
         if let attentionRequestID { try Self.validateID(attentionRequestID, field: "attention_request_id", maximum: 512) }
+        if let terminalPID, !(1...Int(Int32.max)).contains(terminalPID) {
+            throw AgentEventError.invalidField("terminal_pid")
+        }
         if let historyItems {
             guard historyItems.count <= 64, historyItems.reduce(0, { $0 + $1.text.utf8.count }) <= 128 * 1024 else {
                 throw AgentEventError.invalidField("history_items")
@@ -138,7 +150,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         }
         for (value, name, maximum) in [(connectionName, "connection_name", 512), (title, "title", 512), (projectPath, "cwd", 4096),
                                        (message, "message", 16384), (toolName, "tool_name", 512),
-                                       (terminalBundleID, "terminal_bundle_id", 256), (targetURL, "target_url", 4096),
+                                       (terminalBundleID, "terminal_bundle_id", 256), (terminalTTY, "terminal_tty", 64), (targetURL, "target_url", 4096),
+                                       (rexSessionID, "rex_session_id", 64), (rexBlockID, "rex_block_id", 64),
                                        (modelName, "model", 256), (reasoningEffort, "reasoning_effort", 128), (firstPrompt, "first_prompt", 16384)] {
             if let value { try Self.validateText(value, field: name, maximum: maximum) }
         }
@@ -183,6 +196,10 @@ public struct AgentEvent: Codable, Equatable, Sendable {
         message = try raw.string("message", "last-assistant-message", "last_assistant_message", "prompt", "error")
         toolName = try raw.string("tool_name", "toolName")
         terminalBundleID = try raw.string("terminal_bundle_id", "terminalBundleID")
+        terminalTTY = try raw.string("terminal_tty")
+        terminalPID = try raw.integer("terminal_pid")
+        rexSessionID = try raw.string("rex_session_id")
+        rexBlockID = try raw.string("rex_block_id")
         targetURL = try raw.string("target_url", "targetURL")
         approvalID = try raw.string("approval_id", "request_id", "tool_use_id")
         modelName = try raw.string("model", "model_name")
@@ -219,11 +236,13 @@ public struct AgentEvent: Codable, Equatable, Sendable {
                                       "event": .string(kind.rawValue), "timestamp": .number(timestamp.timeIntervalSince1970)]
         let strings = [("connection_id", connectionID), ("connection_name", connectionName),
                        ("id", id), ("title", title), ("cwd", projectPath), ("message", message),
-                       ("tool_name", toolName), ("terminal_bundle_id", terminalBundleID),
+                       ("tool_name", toolName), ("terminal_bundle_id", terminalBundleID), ("terminal_tty", terminalTTY),
+                       ("rex_session_id", rexSessionID), ("rex_block_id", rexBlockID),
                        ("target_url", targetURL), ("approval_id", approvalID),
                        ("model", modelName), ("reasoning_effort", reasoningEffort), ("first_prompt", firstPrompt), ("turn_id", turnID)]
         for (key, value) in strings { if let value { raw[key] = .string(value) } }
         if let sequence { raw["sequence"] = .number(Double(sequence)) }
+        if let terminalPID { raw["terminal_pid"] = .number(Double(terminalPID)) }
         if let isInternalSession { raw["is_internal_session"] = .bool(isInternalSession) }
         if let isWorkSession { raw["is_work_session"] = .bool(isWorkSession) }
         if let attentionRequestID { raw["attention_request_id"] = .string(attentionRequestID) }

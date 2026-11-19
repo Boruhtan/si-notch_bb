@@ -1104,11 +1104,35 @@ final class AppModel: ObservableObject {
     }
     func navigationAction(for session: AgentSession) -> SessionNavigationAction {
         guard !defaults.bool(forKey: "disableClickJump") else { return .disabled }
-        guard !isRemoteSession(session) else { return .unavailable(noticeKey: "session.remote") }
+        if isRemoteSession(session) {
+            guard let destination = remoteHermesDestination(for: session) else { return .unavailable(noticeKey: "session.remote") }
+            return .open(destination)
+        }
+        if let destination = localHermesDestination(for: session) { return .open(destination) }
         guard let destination = SessionDestination.resolve(session, hostBundleID: applicationSessionHosts[session.id]?.bundleID) else {
             return .unavailable(noticeKey: "session.noLocalTarget")
         }
         return .open(destination)
+    }
+    private func localHermesDestination(for session: AgentSession) -> SessionDestination? {
+        guard let chat = HermesChatRoute(session) else { return nil }
+        let profile = localHermesProfiles.first { $0.connectionID == session.connectionID }
+        guard session.connectionID == nil || profile != nil else { return nil }
+        let isDefault = profile?.isDefault ?? true
+        if isDefault, NSWorkspace.shared.urlForApplication(withBundleIdentifier: HermesChatRoute.bundleID) != nil {
+            return .link(chat.url, bundleID: HermesChatRoute.bundleID)
+        }
+        let home = profile?.home ?? localProfileRegistry.root
+        guard let target = HermesSessionTarget(chat: chat, profile: isDefault ? "default" : home.lastPathComponent,
+                                               home: home.path) else { return nil }
+        return .hermesTerminal(target)
+    }
+    private func remoteHermesDestination(for session: AgentSession) -> SessionDestination? {
+        guard let chat = HermesChatRoute(session), let profileID = session.connectionID,
+              case .remote(let id)? = connectionReceipts[AgentConnection.identity(for: session)]?.origin,
+              let connection = remoteConnections.connections.first(where: { $0.id == id }),
+              let target = HermesSessionTarget(chat: chat, connection: connection, profileID: profileID) else { return nil }
+        return .hermesTerminal(target)
     }
     func jump(_ session: AgentSession) {
         let action = navigationAction(for: session)
@@ -1127,8 +1151,11 @@ final class AppModel: ObservableObject {
         sessionNavigator.open(destination) { [weak self] success in
             guard let self, self.navigationGeneration == generation else { return }
             if success {
-                // A fallback cannot establish that the user reached the waiting request.
-                if destination.opensExactSession || self.attentionIdentity(session.id) == nil {
+                // Terminal launch and Hermes Desktop URL delivery do not confirm
+                // that a pending prompt was reached. Wait for the agent to resolve it.
+                if case .link(let url, _) = destination, url.scheme == "codex" {
+                    self.reminders.cancel(session.id)
+                } else if self.attentionIdentity(session.id) == nil {
                     self.reminders.cancel(session.id)
                 }
             } else {

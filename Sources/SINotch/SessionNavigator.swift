@@ -4,13 +4,23 @@ import SINotchCore
 enum SessionDestination: Equatable {
     case link(URL, bundleID: String)
     case application(String)
+    case pi(PiSessionTarget)
+    case hermesTerminal(HermesSessionTarget)
 
     var opensExactSession: Bool {
-        guard case let .link(url, _) = self else { return false }
-        return url.scheme?.lowercased() == "codex"
+        switch self {
+        case .link(let url, _): return ["codex", "hermes"].contains(url.scheme?.lowercased() ?? "")
+        case .pi, .hermesTerminal: return true
+        case .application: return false
+        }
     }
 
     static func resolve(_ session: AgentSession, hostBundleID: String? = nil) -> SessionDestination? {
+        if let pi = PiSessionTarget(session) { return .pi(pi) }
+        return ordinary(session, hostBundleID: hostBundleID)
+    }
+
+    static func ordinary(_ session: AgentSession, hostBundleID: String? = nil) -> SessionDestination? {
         if let raw = session.targetURL, let destination = navigationLink(raw) { return destination }
         guard let bundle = hostBundleID ?? session.terminalBundleID, validBundleID(bundle) else { return nil }
         return .application(bundle)
@@ -55,8 +65,14 @@ enum SessionNavigationAction: Equatable {
     var titleKey: String? {
         guard case let .open(destination) = self else { return nil }
         switch destination {
+        case .link(let url, _) where url.scheme == "hermes":
+            return "session.navigation.openHermesChat"
         case .link:
             return destination.opensExactSession ? "session.navigation.openSession" : "session.navigation.openFile"
+        case .pi:
+            return "session.navigation.openPiSession"
+        case .hermesTerminal(let target):
+            return target.remote == nil ? "session.navigation.openChatInTerminal" : "session.navigation.openChatSSH"
         case .application:
             return "session.navigation.openApplication"
         }
@@ -82,12 +98,26 @@ protocol SessionNavigating {
 @MainActor
 final class SessionNavigator: SessionNavigating {
     func open(_ destination: SessionDestination, completion: @escaping @MainActor @Sendable (Bool) -> Void) {
-        let workspace = NSWorkspace.shared
-        let bundle: String
         switch destination {
-        case .link(_, let identifier): bundle = identifier
-        case .application(let identifier): bundle = identifier
+        case .pi(let target):
+            if let original = target.rex, let rex = RexTerminal.installed() {
+                rex.focus(original) { focused in
+                    if focused { completion(true) }
+                    else { Self.resumePi(target, completion: completion) }
+                }
+                return
+            }
+            if let terminal = target.terminal, SessionTerminal.focus(terminal) { completion(true); return }
+            Self.resumePi(target, completion: completion)
+            return
+        case .hermesTerminal(let target):
+            guard let command = target.command() else { completion(false); return }
+            Self.launch(command, label: target.remote == nil ? "si-notch · Hermes" : "si-notch · Hermes SSH", completion: completion)
+            return
+        default: break
         }
+        let workspace = NSWorkspace.shared
+        guard let bundle = destination.applicationBundleID else { completion(false); return }
         // Activate the originating app; avoid spawning another terminal window.
         if case .application = destination,
            let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first {
@@ -110,6 +140,27 @@ final class SessionNavigator: SessionNavigating {
             workspace.open([url], withApplicationAt: applicationURL, configuration: configuration, completionHandler: finished)
         case .application:
             workspace.openApplication(at: applicationURL, configuration: configuration, completionHandler: finished)
+        case .pi, .hermesTerminal: break
+        }
+    }
+
+    private static func resumePi(_ target: PiSessionTarget, completion: @escaping @MainActor @Sendable (Bool) -> Void) {
+        guard let command = target.command() else { completion(false); return }
+        launch(command, label: "si-notch · Pi", completion: completion)
+    }
+
+    private static func launch(_ command: SessionTerminal.Command, label: String,
+                               completion: @escaping @MainActor @Sendable (Bool) -> Void) {
+        if let rex = RexTerminal.installed() { rex.launch(command, label: label, completion: completion) }
+        else { SessionTerminal.launch(command, completion: completion) }
+    }
+}
+
+private extension SessionDestination {
+    var applicationBundleID: String? {
+        switch self {
+        case .link(_, let id), .application(let id): return id
+        case .pi, .hermesTerminal: return nil
         }
     }
 }

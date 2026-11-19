@@ -173,6 +173,10 @@ public struct AgentSession: Identifiable, Codable, Equatable, Sendable {
     public var subagents: [AgentSubagent]
     public var usage: AgentUsage?
     public var terminalBundleID: String?
+    public var terminalTTY: String?
+    public var terminalPID: Int?
+    public var rexSessionID: String?
+    public var rexBlockID: String?
     public var targetURL: String?
     public var approvalID: String?
     public var modelName: String?

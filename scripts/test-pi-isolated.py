@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,7 +131,7 @@ def run(pi, helper):
     with tempfile.TemporaryDirectory(prefix="si-notch-pi-e2e-", dir="/private/tmp") as temp:
         base = Path(temp)
         base.chmod(0o700)
-        for folder in ("home", "config", "cache", "data", "state", "tmp", "work", "pi-config", "socket"):
+        for folder in ("home", "config", "cache", "data", "state", "tmp", "work", "pi-config", "sessions", "socket"):
             (base / folder).mkdir(mode=0o700)
         sock = None
         model = None
@@ -167,9 +168,9 @@ def run(pi, helper):
                    "XDG_STATE_HOME": str(base / "state"), "TMPDIR": str(base / "tmp"),
                    "PI_CODING_AGENT_DIR": str(base / "pi-config"), "PI_OFFLINE": "1",
                    "SI_NOTCH_SOCKET": str(base / "socket/events.sock"),
-                   "PATH": "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
+                   "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
             version = subprocess.check_output([str(pi), "--version"], env=env, cwd=base / "work", timeout=5).decode().strip()
-            cmd = [str(pi), "--mode", "rpc", "--no-session", "--no-mcp", "--no-skills",
+            cmd = [str(pi), "--mode", "rpc", "--session-dir", str(base / "sessions"), "--no-mcp", "--no-skills",
                    "--no-prompt-templates", "--no-themes", "--no-context-files",
                    "--no-approve", "--offline", "--provider", "fixture", "--model", "fixture-model"]
             process = subprocess.Popen(cmd, cwd=base / "work", env=env,
@@ -254,13 +255,35 @@ def run(pi, helper):
                     "Pi task summary exceeded display bounds")
             require(events[-1].get("message") == "fixture complete",
                     "Pi completed card lacks the final assistant text")
+            route = urlsplit(events[-1].get("target_url", ""))
+            require((route.scheme, route.netloc) == ("pi-session", "file"), "Pi did not emit a saved session route")
+            session_file = Path(unquote(route.path))
+            require(session_file.parent == base / "sessions" and session_file.suffix == ".jsonl",
+                    "Pi session route left the fixture session directory")
+            with session_file.open() as stream:
+                header = json.loads(stream.readline())
+            require(header.get("type") == "session" and header.get("id") == events[-1]["session_id"],
+                    "Pi route does not identify its own session file")
             require(all("pi-fixture-ok" not in json.dumps(event) and
                         "PI_PROMPT_SECRET_DO_NOT_FORWARD" not in json.dumps(event)
                         for event in events), "prompt or tool output leaked")
+            # Reopen only the validated path, with no observer loaded in the
+            # verification process and no request to the local model.
+            reopened = subprocess.check_output(
+                [*cmd, "--no-extensions", "--session", str(session_file)],
+                input=b'{"type":"get_state","id":"reopened"}\n',
+                env=env, cwd=base / "work", timeout=10,
+            )
+            states = [json.loads(line) for line in reopened.splitlines()]
+            state = next((entry for entry in states if entry.get("id") == "reopened"), {})
+            require(state.get("success") is True and state.get("data", {}).get("sessionId") == header["id"],
+                    "Pi CLI did not reopen the original session ID")
+            require(len(model.calls) == 2, "Reopening Pi requested another model turn")
             result = {"pi_version": version, "result": "passed", "launch": "settings.extensions (no --extension)",
                       "model": "local deterministic fixture",
                       "pi_rpc_tool_events": [kind for kind, _ in observed], "acknowledged_events": kinds,
                       "task_summary": "bounded and token-redacted", "last_result": "fixture complete",
+                      "session_route": "native transcript header and reopened Pi session ID match",
                       "model_requests": len(model.calls), "user_configuration_touched": False}
         finally:
             if process and process.poll() is None:

@@ -738,6 +738,10 @@
 "attention.sshSettings" = "Настройки SSH";
 "attention.remoteHost" = "Удалённый хост";
 "session.navigation.openSession" = "Открыть сессию";
+"session.navigation.openHermesChat" = "Открыть чат Hermes";
+"session.navigation.openPiSession" = "Открыть сессию Pi";
+"session.navigation.openChatInTerminal" = "Открыть чат Hermes в Терминале";
+"session.navigation.openChatSSH" = "Открыть чат Hermes по SSH";
 "session.navigation.openApplication" = "Открыть приложение";
 "session.navigation.openFile" = "Открыть файл";
 "session.navigation.exactUnavailable" = "Точная ссылка недоступна";

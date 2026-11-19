@@ -74,6 +74,18 @@ public struct SessionStore: Sendable {
         }
         if let message = event.message { session.lastMessage = message }
         if let terminalBundleID = event.terminalBundleID { session.terminalBundleID = terminalBundleID }
+        if let tty = event.terminalTTY, let pid = event.terminalPID {
+            session.terminalTTY = tty
+            session.terminalPID = pid
+            session.rexSessionID = nil
+            session.rexBlockID = nil
+        }
+        if let rex = event.rexSessionID, let block = event.rexBlockID {
+            session.rexSessionID = rex
+            session.rexBlockID = block
+            session.terminalTTY = nil
+            session.terminalPID = nil
+        }
         if let targetURL = event.targetURL { session.targetURL = targetURL }
         if let modelName = event.modelName {
             if modelName != session.modelName { session.reasoningEffort = nil }

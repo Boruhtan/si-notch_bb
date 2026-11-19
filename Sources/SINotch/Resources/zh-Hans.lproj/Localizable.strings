@@ -738,6 +738,10 @@
 "attention.sshSettings" = "SSH 设置";
 "attention.remoteHost" = "远程主机";
 "session.navigation.openSession" = "打开会话";
+"session.navigation.openHermesChat" = "打开 Hermes 对话";
+"session.navigation.openPiSession" = "打开 Pi 会话";
+"session.navigation.openChatInTerminal" = "在终端打开 Hermes 对话";
+"session.navigation.openChatSSH" = "通过 SSH 打开 Hermes 对话";
 "session.navigation.openApplication" = "打开应用";
 "session.navigation.openFile" = "打开文件";
 "session.navigation.exactUnavailable" = "会话直达链接不可用";

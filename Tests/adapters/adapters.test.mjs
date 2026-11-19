@@ -5,7 +5,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { registerPiEvents, displaySummary, makeSender as makePiSender } from "../../scripts/adapters/pi-si-notch.js";
+import { registerPiEvents, displaySummary, makeSender as makePiSender, terminalOrigin } from "../../scripts/adapters/pi-si-notch.js";
 import OpenCodeV2Plugin, { SINotchPlugin } from "../../scripts/adapters/opencode-si-notch.js";
 
 test("Pi forwards the active native model and thinking level without model configuration or thoughts", () => {
@@ -91,6 +91,59 @@ test("Pi extension maps real lifecycle boundaries without content", () => {
   fire("agent_before_settle", { outcome: "error" });
   fire("agent_settled", { aborted: false });
   assert.equal(events.at(-1).event, "agent.failed");
+});
+
+test("Pi emits the exact session file when a native prompt waits", () => {
+  const handlers = new Map(), events = [];
+  registerPiEvents({ on(name, handler) { handlers.set(name, handler); } }, (event) => events.push(event));
+  let file;
+  const ctx = { cwd: "/tmp/project", sessionManager: {
+    getSessionId: () => "pi-navigation",
+    getSessionFile: () => file
+  } };
+  handlers.get("session_start")({}, ctx);
+  assert.equal(events.at(-1).target_url, undefined);
+  file = "/tmp/Pi chats/задача #1.jsonl";
+  handlers.get("ui_prompt_start")({}, ctx);
+  assert.equal(events.at(-1).event, "agent.waiting");
+  assert.equal(events.at(-1).target_url, "pi-session://file" + pathToFileURL(file).pathname);
+  for (file of ["https://example.test/session.jsonl", "relative.jsonl", "/tmp/bad\npath.jsonl",
+                "/tmp/script.sh", "/tmp/" + "é".repeat(1500) + ".jsonl"]) {
+    handlers.get("ui_prompt_start")({}, ctx);
+    assert.equal(events.at(-1).target_url, undefined);
+  }
+});
+
+test("Pi reports a live Terminal tab only for a direct local Apple Terminal process", () => {
+  const environment = { TERM_PROGRAM: "Apple_Terminal" };
+  const options = { environment, interactive: true, readTTY: () => "/dev/ttys012", pid: 128 };
+  assert.deepEqual(terminalOrigin(options), {
+    terminal_bundle_id: "com.apple.Terminal", terminal_tty: "/dev/ttys012", terminal_pid: 128
+  });
+  for (const key of ["SSH_CONNECTION", "SSH_TTY", "TMUX", "STY"]) {
+    assert.deepEqual(terminalOrigin({ ...options, environment: { ...environment, [key]: "" } }), {});
+  }
+  assert.deepEqual(terminalOrigin({ ...options, interactive: false }), {});
+  assert.deepEqual(terminalOrigin({ ...options, environment: { TERM_PROGRAM: "iTerm.app" } }), {});
+  assert.deepEqual(terminalOrigin({ ...options, readTTY: () => "/dev/pts/77" }), {});
+  assert.deepEqual(terminalOrigin({ ...options, readTTY: () => { throw Error("fixture"); } }), {});
+});
+
+test("Pi identifies a direct local Rex pane with a full typed session and block pair", () => {
+  const session = "session:11111111-2222-7333-8444-555555555555";
+  const block = "block:aaaaaaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee";
+  const environment = { TERM_PROGRAM: "Rex", REX_SESSION: session, REX_BLOCK: block };
+  const options = { environment, interactive: true, readTTY: () => assert.fail("Rex must not query Terminal") };
+  assert.deepEqual(terminalOrigin(options), {
+    terminal_bundle_id: "com.superlogical.rex", rex_session_id: session, rex_block_id: block
+  });
+  for (const invalidBlock of [undefined, "--help", block + "\n", block.slice(6), session]) {
+    assert.deepEqual(terminalOrigin({ ...options, environment: { ...environment, REX_BLOCK: invalidBlock } }), {});
+  }
+  assert.deepEqual(terminalOrigin({ ...options, interactive: false }), {});
+  for (const key of ["SSH_CONNECTION", "SSH_TTY", "TMUX", "STY"]) {
+    assert.deepEqual(terminalOrigin({ ...options, environment: { ...environment, [key]: "" } }), {});
+  }
 });
 
 test("sender fails open when helper is unavailable or path is relative", async () => {

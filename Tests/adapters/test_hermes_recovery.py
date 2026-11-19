@@ -98,6 +98,16 @@ class WorkerRecoveryTests(unittest.TestCase):
                     self.assertEqual(self.events[-1]["event"], "agent.failed")
                 self.assertEqual(self.journal(), [])
 
+    def test_reconciled_failure_links_only_its_verified_native_chat(self):
+        session = "20261120_192305_b0a149"
+        with self.db() as db:
+            db.execute("INSERT INTO sessions VALUES(?,?)", (session, "desktop"))
+        self.start(session=session)
+        self.settle("failed")
+        self.events.clear()
+        plugin._reconcile_executions()
+        self.assertEqual([event.get("target_url") for event in self.events], ["hermes://open/" + session])
+
     def test_api_recovery_survives_observer_restart_and_disconnected_delivery(self):
         self.start_api(); self.settle("failed", admission="api-admission")
         plugin._TRACKED_EXECUTIONS.clear(); plugin._ACTIVE_STATES.clear()
