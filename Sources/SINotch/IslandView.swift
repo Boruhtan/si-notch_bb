@@ -247,6 +247,45 @@ struct IslandView: View {
                             .transaction { $0.animation = nil; $0.disablesAnimations = true }
                             .accessibilityIdentifier("agent-group-" + LocalHermesAgentGroup.id)
                     }
+                    ForEach(model.applicationAgentGroups, id: \.host) { group in
+                        DisclosureGroup(isExpanded: Binding(get: { model.applicationGroupExpanded(group.host) }, set: {
+                            model.setApplicationGroupExpanded(group.host, $0)
+                        })) {
+                            VStack(spacing: 0) {
+                                ForEach(group.sessions) { session in
+                                    Button { model.showApplicationSession(session.id) } label: {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: ProviderStyle(provider: session.provider).symbol)
+                                                .foregroundStyle(ProviderStyle(provider: session.provider).color).frame(width: 16)
+                                            Text(model.displayTitle(session)).lineLimit(1)
+                                            Spacer()
+                                            Text(session.status.label).foregroundStyle(session.status.isActive ? .green : NotchDesign.secondary)
+                                        }.font(.system(size: 11)).frame(height: 32).contentShape(Rectangle())
+                                    }.buttonStyle(.plain).accessibilityIdentifier("host-session-" + session.id)
+                                    ForEach(session.subagents) { child in
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "arrow.turn.down.right").frame(width: 16)
+                                            Text(child.name).lineLimit(1); Spacer()
+                                            Text(child.status.label)
+                                        }.font(.system(size: 11)).foregroundStyle(NotchDesign.secondary)
+                                            .padding(.leading, 16).frame(height: 32)
+                                    }
+                                }
+                                if group.sessions.isEmpty {
+                                    Text(L10n.tr(group.host == .zed ? "agents.hostEmpty.zed" : "agents.hostEmpty.rex"))
+                                        .font(.system(size: 11)).foregroundStyle(NotchDesign.secondary).frame(height: 32)
+                                }
+                            }.padding(.leading, 12)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: group.host == .rex ? "terminal" : "curlybraces").frame(width: 16)
+                                Text(group.host.name).fontWeight(.medium); Spacer()
+                                Text(L10n.tr("agents.hostTasks", group.sessions.count)).foregroundStyle(NotchDesign.secondary)
+                            }.font(.system(size: 11)).frame(height: 32)
+                        }.padding(.horizontal, 24).tint(NotchDesign.secondary)
+                            .transaction { $0.animation = nil; $0.disablesAnimations = true }
+                            .accessibilityIdentifier("agent-host-" + group.host.rawValue)
+                    }
                     ForEach(model.remoteConnections.connections.filter(\.showInAgents)) { connection in
                         let profiles = model.agents.filter { $0.connectorID == connection.id }
                         DisclosureGroup(isExpanded: Binding(get: { model.expandedConnectors.contains(connection.id) }, set: {
@@ -276,7 +315,7 @@ struct IslandView: View {
                             .transaction { $0.animation = nil; $0.disablesAnimations = true }
                             .accessibilityIdentifier("agent-connection-" + connection.id.uuidString)
                     }
-                    if model.agents.isEmpty && !model.remoteConnections.connections.contains(where: \.showInAgents) {
+                    if model.agents.isEmpty && model.applicationAgentGroups.isEmpty && !model.remoteConnections.connections.contains(where: \.showInAgents) {
                         Text(L10n.tr("agents.empty")).font(.system(size: 12)).foregroundStyle(NotchDesign.secondary).frame(height: 56)
                     }
                 }

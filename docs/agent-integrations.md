@@ -51,6 +51,45 @@ Both plugins record the installed helper’s absolute path, including custom app
 
 Absolute `CLAUDE_CONFIG_DIR`, `COPILOT_HOME`, `XDG_CONFIG_HOME` and `HERMES_HOME` values are respected when present in the app’s environment. Finder does not inherit a terminal’s shell configuration. For a custom home or Hermes profile, review the destination shown before connecting and configure that profile separately if needed.
 
+## Rex and Zed
+
+The **Agents** tab shows two collapsible groups on a Mac with Rex or Zed installed.
+A group lists tasks from that host and shows children reported by the agent.
+It shares the same sessions and agent counts with the main view. Clicking a
+task opens its details in **Sessions**.
+
+For **Rex**, launch a supported agent with its existing si-notch adapter in a
+local Rex terminal. The native helper recognizes the Rex environment and
+associates subsequent events with that group. This also works for supported
+agents launched in **Zed Terminal Threads**. Shell output and Rex program-status
+records are not imported. Rex is a terminal and does not identify the canonical
+session behind an arbitrary program-status record.
+
+For **Zed Agent Panel**, add a custom external agent using the bundled
+`zed-acp.py` observer and your existing Codex ACP executable. Keep the standard
+registry entry for sessions that do not use the observer. Example custom entry
+under `agent_servers` in Zed settings (adjust absolute paths for your Mac):
+
+```json
+"Codex (si-notch)": {
+  "type": "custom",
+  "command": "/absolute/path/to/python3",
+  "args": [
+    "/absolute/path/to/si-notch.app/Contents/Resources/adapters/zed-acp.py",
+    "--helper", "/absolute/path/to/si-notch.app/Contents/Helpers/si-notchctl",
+    "--", "/absolute/path/to/node", "/absolute/path/to/codex-acp"
+  ]
+}
+```
+
+Select **Codex (si-notch)** when starting a new external-agent thread. Existing
+registry threads keep using their original settings. The observer forwards
+ACP requests and responses unchanged, uses the Codex session ID, and forwards
+lifecycle metadata, tool names and child statuses to si-notch. Approvals remain
+in the client. It does not copy prompts, answers, tool arguments or credentials.
+Child rows require child-session updates from the agent. Zed's built-in agent
+has no supported telemetry connection in this integration.
+
 ## Custom API and remote agents
 
 Custom integrations send session events through the [JSON API](architecture.md). Use the [SSH relay](remote-connections.md) for agents running on another host.

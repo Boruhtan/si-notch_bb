@@ -726,3 +726,7 @@
 
 "agents.localGroup" = "本机";
 "agents.localGroup.online" = "%d/%d 在线";
+
+"agents.hostTasks" = "任务：%d";
+"agents.hostEmpty.rex" = "尚无代理会话";
+"agents.hostEmpty.zed" = "此处显示外部代理和终端会话";

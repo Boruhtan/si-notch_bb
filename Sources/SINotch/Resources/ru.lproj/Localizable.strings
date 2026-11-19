@@ -726,3 +726,7 @@
 
 "agents.localGroup" = "Локально";
 "agents.localGroup.online" = "В сети %d/%d";
+
+"agents.hostTasks" = "Задачи: %d";
+"agents.hostEmpty.rex" = "Нет сессий от агентов";
+"agents.hostEmpty.zed" = "Здесь появятся сессии внешних агентов и терминала";

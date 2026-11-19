@@ -726,3 +726,7 @@
 
 "agents.localGroup" = "Local";
 "agents.localGroup.online" = "%d/%d online";
+
+"agents.hostTasks" = "Tasks: %d";
+"agents.hostEmpty.rex" = "No reported agent sessions";
+"agents.hostEmpty.zed" = "External-agent and terminal sessions appear here";

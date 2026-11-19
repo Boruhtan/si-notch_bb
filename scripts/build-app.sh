@@ -28,6 +28,7 @@ cp "$bindir/si-notchctl" "$app/Contents/Helpers/si-notchctl"
 cp LICENSE "$app/Contents/Resources/LICENSE.txt"
 mkdir -p "$app/Contents/Resources/adapters"
 cp scripts/adapters/*.js scripts/adapters/package.json "$app/Contents/Resources/adapters/"
+cp scripts/adapters/zed-acp.py "$app/Contents/Resources/adapters/"
 if [[ -d plugins/hermes ]]; then
   mkdir -p "$app/Contents/Resources/adapters/hermes-si-notch"
   cp plugins/hermes/__init__.py plugins/hermes/plugin.yaml plugins/hermes/relay.py plugins/hermes/configure.py "$app/Contents/Resources/adapters/hermes-si-notch/"

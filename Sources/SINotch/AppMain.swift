@@ -59,6 +59,10 @@ final class AppModel: ObservableObject {
     @Published var showAgents = false
     @Published var expandedConnectors: Set<UUID> = []
     @Published private(set) var localHermesGroupExpanded = true
+    @Published var installedApplicationHosts = AgentHostApplication.installed()
+    @Published private(set) var applicationSessionHosts: [String: AgentHostApplication] = [:]
+    private var applicationHostClaimTimes: [String: Date] = [:]
+    @Published private(set) var expandedApplicationHosts: [String: Bool] = [:]
     @Published var detectedHarnesses: [HarnessDetection] = []
     @Published var runningAgentProviders: Set<String> = []
     @Published var presenceNow = Date()
@@ -136,6 +140,21 @@ final class AppModel: ObservableObject {
             configurations: remoteConnections.agentConfigurations(for: connectionReceipts), localDisplayNames: localAgentDisplayNames, localProfiles: localHermesProfiles)
     }
     var agentsSectionHeight: CGFloat { 40 }
+    var applicationAgentGroups: [ApplicationAgentGroup] {
+        ApplicationAgentGroup.project(sessions: sessions, claims: applicationSessionHosts, installed: installedApplicationHosts)
+    }
+    func applicationGroupExpanded(_ host: AgentHostApplication) -> Bool { expandedApplicationHosts[host.rawValue] ?? true }
+    func setApplicationGroupExpanded(_ host: AgentHostApplication, _ expanded: Bool) {
+        expandedApplicationHosts[host.rawValue] = expanded
+        defaults.set(expandedApplicationHosts, forKey: "expandedApplicationHosts.v1")
+        if showAgents { onLayout?() }
+    }
+    func showApplicationSession(_ id: String) {
+        showAgents = false
+        activeFilter = "Все"
+        search = ""
+        selectSession(id)
+    }
     var localHermesGroup: LocalHermesAgentGroup? {
         let saved = defaults.string(forKey: "localHermesHostName.v1")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hostName = saved.flatMap { name in
@@ -180,7 +199,10 @@ final class AppModel: ObservableObject {
         if showAgents {
             let connections = remoteConnections.connections.filter(\.showInAgents)
             let localRows = ungroupedLocalAgents.count + (localHermesGroup.map { 1 + (localHermesGroupExpanded ? $0.profiles.count : 0) } ?? 0)
-            let rows = localRows + connections.count +
+            let applicationRows = applicationAgentGroups.reduce(0) { count, group in
+                count + 1 + (applicationGroupExpanded(group.host) ? max(1, group.sessions.reduce(0) { $0 + 1 + $1.subagents.count }) : 0)
+            }
+            let rows = localRows + applicationRows + connections.count +
                 connections.filter { expandedConnectors.contains($0.id) }.reduce(0) { count, connection in
                     count + max(1, agents.filter { $0.connectorID == connection.id }.count)
                 }
@@ -259,6 +281,7 @@ final class AppModel: ObservableObject {
         self.defaults = defaults
         self.localProfileRegistry = localProfileRegistry
         self.localHermesGroupExpanded = defaults.object(forKey: "localHermesGroupExpanded.v1") as? Bool ?? true
+        self.expandedApplicationHosts = defaults.dictionary(forKey: "expandedApplicationHosts.v1") as? [String: Bool] ?? [:]
         self.quota = CodexQuotaController(defaults: defaults)
         self.remoteConnections = RemoteConnectionManager(defaults: defaults)
         self.soundPlayer = soundPlayer ?? EventSoundPlayer(defaults: defaults)
@@ -391,6 +414,9 @@ final class AppModel: ObservableObject {
                         "local_hermes_groups": localHermesGroup.map { group in [["id": LocalHermesAgentGroup.id,
                             "name": group.name, "expanded": localHermesGroupExpanded,
                             "online_count": group.onlineCount, "profile_ids": group.profiles.map(\.id)] as [String: Any]] } ?? [],
+                        "application_groups": applicationAgentGroups.map { ["id": $0.host.rawValue, "name": $0.host.name,
+                            "expanded": applicationGroupExpanded($0.host), "active_count": $0.activeCount,
+                            "session_ids": $0.sessions.map(\.id)] as [String: Any] },
                         "visible_session_count": showAgents ? 0 : filtered.count, "active_filter": activeFilter, "tab": showAgents ? "agents" : "sessions",
                         "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue,
                             "activity": $0.activity.rawValue, "active_task_count": $0.activeTaskCount,
@@ -403,6 +429,7 @@ final class AppModel: ObservableObject {
                         "providers": providerReceipts.mapValues { $0.timeIntervalSince1970 },
                         "sessions": sessions.map { ["id": $0.id, "provider": $0.provider, "status": $0.status.rawValue,
                             "connection_id": $0.connectionID as Any? ?? NSNull(),
+                            "host_application": applicationSessionHosts[$0.id]?.rawValue as Any? ?? NSNull(),
                             "subagents": $0.subagents.map { ["id": $0.id, "name": $0.name, "status": $0.status.rawValue] }, "turn_id": $0.turnID as Any? ?? NSNull(),
                             "last_event_at": $0.lastEventAt.timeIntervalSince1970,
                             "last_sequence": $0.lastSequence as Any? ?? NSNull(), "current_tool": $0.currentTool as Any? ?? NSNull()] }]))
@@ -531,6 +558,11 @@ final class AppModel: ObservableObject {
                 return
             }
             store = nextStore
+            if disposition == .applied, event.kind != .agentPresence, origin == .local, !connectionOrigin.isRemote,
+               let host = AgentHostApplication.identify(event.terminalBundleID) {
+                noteApplicationHost(host, sessionID: event.sessionID, at: event.timestamp)
+                if let child = event.subagent?.sessionID { noteApplicationHost(host, sessionID: child, at: event.timestamp) }
+            }
             if disposition == .applied {
                 usage.record(event)
                 if !suppressPresentation, !waitingForReply, !preservesPending,
@@ -798,6 +830,15 @@ final class AppModel: ObservableObject {
         reveal()
     }
     func dismiss(_ id: String) { dismissSessions([id]) }
+    private func noteApplicationHost(_ host: AgentHostApplication, sessionID: String, at time: Date) {
+        guard applicationHostClaimTimes[sessionID].map({ time >= $0 }) ?? true else { return }
+        applicationHostClaimTimes[sessionID] = time
+        if applicationSessionHosts[sessionID] != host { applicationSessionHosts[sessionID] = host }
+        while applicationHostClaimTimes.count > store.maximumSessions * 2,
+              let oldest = applicationHostClaimTimes.min(by: { $0.value < $1.value })?.key {
+            applicationHostClaimTimes[oldest] = nil; applicationSessionHosts[oldest] = nil
+        }
+    }
     private func dismissSessions(_ ids: [String]) {
         guard !ids.isEmpty else { return }
         for id in ids {
@@ -806,6 +847,7 @@ final class AppModel: ObservableObject {
             codexInteractions[id] = nil
             observedAttention[id] = nil
             store.removeSession(id: id)
+            applicationSessionHosts[id] = nil; applicationHostClaimTimes[id] = nil
             appOwnedTitles[id] = nil
             appOwnedMessages[id] = nil
             measuredSessionHeights[id] = nil
@@ -953,7 +995,7 @@ final class AppModel: ObservableObject {
             showNavigationNotice(session.id, key: "session.remote", generation: generation)
             return
         }
-        guard let destination = SessionDestination.resolve(session) else {
+        guard let destination = applicationSessionHosts[session.id].map({ SessionDestination.application($0.bundleID) }) ?? SessionDestination.resolve(session) else {
             showNavigationNotice(session.id, key: "session.noLocalTarget", generation: generation)
             return
         }

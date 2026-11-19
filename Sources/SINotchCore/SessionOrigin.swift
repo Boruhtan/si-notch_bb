@@ -8,7 +8,9 @@ public enum SessionOrigin {
         "ghostty": "com.mitchellh.ghostty",
         "wezterm": "com.github.wez.wezterm",
         "vscode": "com.microsoft.VSCode",
-        "warpterminal": "dev.warp.Warp-Stable"
+        "warpterminal": "dev.warp.Warp-Stable",
+        "rex": "com.superlogical.rex",
+        "zed": "dev.zed.Zed"
     ]
     private static let knownBundles: Set<String> = Set(terminals.values).union([
         "com.microsoft.VSCodeInsiders", "com.todesktop.230313mzl4w4u92", "dev.zed.Zed",
@@ -17,6 +19,8 @@ public enum SessionOrigin {
 
     public static func bundleID(environment: [String: String]) -> String? {
         guard environment["SSH_CONNECTION"] == nil, environment["SSH_TTY"] == nil else { return nil }
+        if environment["REX_SESSION"]?.hasPrefix("session:") == true,
+           environment["REX_BLOCK"]?.hasPrefix("block:") == true { return "com.superlogical.rex" }
         if let bundle = environment["__CFBundleIdentifier"], knownBundles.contains(bundle) { return bundle }
         return environment["TERM_PROGRAM"].flatMap { terminals[$0.lowercased()] }
     }
