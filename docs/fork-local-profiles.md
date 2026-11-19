@@ -43,6 +43,11 @@ Build normally with `scripts/build-app.sh release`. With Command Line Tools, an 
 `SI_NOTCH_ICON_SOURCE=/absolute/path/AppIcon.icns` uses an explicitly selected existing
 icon; executables and resources are still rebuilt. These overrides do not alter dependencies.
 
+`SI_NOTCH_SDK_PATH=/absolute/path/MacOSX26.5.sdk` explicitly selects an installed SDK.
+On Command Line Tools with SDK 27.2, SwiftUI requires a `SwiftUIMacros` plugin that
+is not bundled there. Selecting the installed SDK 26.5 avoids that toolchain mismatch;
+it does not change the app's minimum macOS version or its sources.
+
 Run `scripts/test.sh` with Xcode for the complete XCTest suite. Regression tests cover
 inventory, profile freshness/tasks, local/remote collisions, installer backups and updater
 policy. Local fallback contract runs must be reported separately from full XCTest results.

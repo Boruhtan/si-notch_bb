@@ -1,7 +1,16 @@
 {
-  "version": "0.4.37-bb.2",
-  "build": "64",
+  "version": "0.4.39-bb.3",
+  "build": "66",
   "repository": "Boruhtan/si-notch_bb",
   "updatePublicKey": "elQVhD2kVKKYeCZ0yFusGF50I1JZSQCNd7H6xMovJAY=",
+  "pluginUpdates": [
+    {
+      "id": "hermes",
+      "name": "Hermes",
+      "version": "1.17",
+      "change": "updated",
+      "installURL": "https://github.com/eugeneb1ack/si-notch/tree/v0.4.39/plugins/hermes#native-hermes-installation"
+    }
+  ],
   "updatesDisabled": true
 }

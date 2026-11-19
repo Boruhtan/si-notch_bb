@@ -11,6 +11,10 @@ trap 'rm -rf "$scratch"' EXIT
 export CLANG_MODULE_CACHE_PATH="$scratch/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$scratch/modules"
 build_args=(--disable-sandbox --cache-path "$scratch/cache" --scratch-path "$scratch/work" -c "$configuration")
+if [[ -n "${SI_NOTCH_SDK_PATH:-}" ]]; then
+  [[ -f "$SI_NOTCH_SDK_PATH/SDKSettings.plist" ]] || { echo 'Explicit SDK does not exist' >&2; exit 2; }
+  build_args+=(--sdk "$SI_NOTCH_SDK_PATH")
+fi
 if [[ -n "${SI_NOTCH_BUILD_SYSTEM:-}" ]]; then
   [[ "$SI_NOTCH_BUILD_SYSTEM" == native ]] || { echo "Only native is supported as an explicit build override" >&2; exit 2; }
   build_args+=(--build-system native)
