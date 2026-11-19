@@ -60,7 +60,9 @@ task opens its details in **Sessions**.
 
 For **Rex**, launch a supported agent with its existing si-notch adapter in a
 local Rex terminal. The native helper recognizes the Rex environment and
-associates subsequent events with that group. This also works for supported
+associates subsequent events with that group. If a plugin loses those environment
+variables, the helper can identify an ancestor executable from a known local
+Rex or Zed installation. This also works for supported
 agents launched in **Zed Terminal Threads**. Shell output and Rex program-status
 records are not imported. Rex is a terminal and does not identify the canonical
 session behind an arbitrary program-status record.
@@ -83,8 +85,9 @@ under `agent_servers` in Zed settings (adjust absolute paths for your Mac):
 ```
 
 Select **Codex (si-notch)** when starting a new external-agent thread. Existing
-registry threads keep using their original settings. The observer forwards
-ACP requests and responses unchanged, uses the Codex session ID, and forwards
+registry threads keep using their original settings. During ACP initialization,
+the observer advertises support for Codex ACP's child-session notifications.
+It passes other traffic through as received, uses the Codex session ID, and forwards
 lifecycle metadata, tool names and child statuses to si-notch. Approvals remain
 in the client. It does not copy prompts, answers, tool arguments or credentials.
 Child rows require child-session updates from the agent. Zed's built-in agent

@@ -61,3 +61,12 @@ class ZedACPTests(unittest.TestCase):
         BRIDGE.copy_frames(io.BytesIO(raw), output, seen.append)
         self.assertEqual(output.getvalue(), raw)
         self.assertEqual(seen, [{"unknown": "forwarded"}])
+
+    def test_negotiation_adds_only_child_reporting_capability(self):
+        params = {"protocolVersion": 2, "capabilities": {"fs": {"readTextFile": True}}}
+        frame = {"id": 1, "method": "initialize", "params": params}
+        new = BRIDGE.report_children_request(frame)
+        reported = new["params"]["capabilities"].pop("_meta")
+        self.assertEqual(new, frame)
+        self.assertEqual(reported["jetbrains"]["air"]["capabilities"], ["nativeSubagentSessions"])
+        self.assertIsNone(BRIDGE.report_children_request({"method": "session/request_permission"}))

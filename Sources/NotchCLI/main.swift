@@ -95,10 +95,30 @@ private func writeJSON(_ data: Data) {
     FileHandle.standardOutput.write(Data([0x0a]))
 }
 
+private func ancestorHost() -> String? {
+    var pid = getppid()
+    var executables: [String] = []
+    for _ in 0..<12 {
+        guard pid > 1 else { break }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
+              info.pbi_uid == getuid() else { break }
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { break }
+        executables.append(String(cString: path))
+        let parent = pid_t(info.pbi_ppid)
+        guard parent != pid else { break }
+        pid = parent
+    }
+    return SessionOrigin.ancestorHost(executables: executables, home: FileManager.default.homeDirectoryForCurrentUser.path)
+}
+
 private func sendObservation(_ data: Data, client: IPCClient) throws {
     // Observation events never ask for a permission decision. The ordinary app
     // acknowledgement proves the event reached receive() before this process exits.
-    let outgoing = try json(SessionOrigin.enriching(dictionary(data), environment: ProcessInfo.processInfo.environment))
+    let outgoing = try json(SessionOrigin.enriching(dictionary(data), environment: ProcessInfo.processInfo.environment,
+                                                    ancestor: ancestorHost()))
     guard let response = try client.send(outgoing, awaitReply: true, timeout: 1) else { throw IPCError.disconnected }
     let acknowledgement = try dictionary(response)
     guard acknowledgement["ok"] as? Bool == true else {
@@ -275,7 +295,7 @@ private func main() throws -> Int32 {
         }
         object["await_response"] = true
         object["response_timeout"] = timeout
-        object = SessionOrigin.enriching(object, environment: ProcessInfo.processInfo.environment)
+        object = SessionOrigin.enriching(object, environment: ProcessInfo.processInfo.environment, ancestor: ancestorHost())
         let data = try json(object)
         _ = try AgentEvent.parse(data: data)
         guard let response = try client.send(data, awaitReply: true, timeout: timeout) else { throw IPCError.disconnected }

@@ -2,6 +2,7 @@
 """Transparent ACP observer for si-notch. Never logs or persists protocol content."""
 import argparse
 from collections import OrderedDict
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,31 @@ def outcome(reason):
     if reason in ("error", "refusal", "max_tokens", "max_turn_requests"):
         return "agent.failed"
     return "session.end"
+
+
+def report_children_request(value):
+    """Request Codex ACP's metadata-only child notifications for this observer."""
+    if value.get("method") != "initialize":
+        return None
+    params = value.get("params")
+    if not isinstance(params, dict) or params.get("protocolVersion") not in (1, 2):
+        return None
+    result = deepcopy(value)
+    params = result["params"]
+    key = "clientCapabilities" if params["protocolVersion"] == 1 else "capabilities"
+    cursor = params
+    for name in (key, "_meta", "jetbrains", "air"):
+        cursor = cursor.setdefault(name, {})
+        if not isinstance(cursor, dict):
+            return None
+    version = cursor.setdefault("version", 1)
+    capabilities = cursor.setdefault("capabilities", [])
+    if type(version) is not int or version < 1 or not isinstance(capabilities, list):
+        return None
+    if "nativeSubagentSessions" in capabilities:
+        return None
+    capabilities.append("nativeSubagentSessions")
+    return result
 
 
 class Observer:
@@ -236,7 +262,7 @@ class Sink:
         self.thread.join(timeout=2)
 
 
-def copy_frames(source, destination, observe):
+def copy_frames(source, destination, observe, transform=None):
     oversized = False
     while True:
         frame = source.readline(MAX_FRAME + 1)
@@ -247,6 +273,8 @@ def copy_frames(source, destination, observe):
                 value = json.loads(frame)
                 if isinstance(value, dict):
                     observe(value)
+                    if transform and (changed := transform(value)) is not None:
+                        frame = json.dumps(changed, separators=(",", ":")).encode() + b"\n"
             except (ValueError, TypeError, KeyError, IndexError, RecursionError):
                 pass
         destination.write(frame)
@@ -280,7 +308,7 @@ def main():
     signal.signal(signal.SIGTERM, interrupt); signal.signal(signal.SIGINT, interrupt)
     def frontend():
         try:
-            copy_frames(sys.stdin.buffer, child.stdin, observe(observer.frontend))
+            copy_frames(sys.stdin.buffer, child.stdin, observe(observer.frontend), report_children_request)
         except (BrokenPipeError, OSError):
             pass
         finally:

@@ -25,10 +25,31 @@ public enum SessionOrigin {
         return environment["TERM_PROGRAM"].flatMap { terminals[$0.lowercased()] }
     }
 
-    public static func enriching(_ object: [String: Any], environment: [String: String]) -> [String: Any] {
+    public static func ancestorHost(executables: [String], home: String) -> String? {
+        let applications = ["/Applications/", home + "/Applications/"]
+        let rexServerRoot = home + "/Library/Application Support/com.superlogical.rex/RexServer/Versions/"
+        for path in executables {
+            if ["/usr/bin/ssh", "/usr/sbin/sshd", "/usr/libexec/sshd-session"].contains(path) { return nil }
+            if path.hasPrefix(rexServerRoot), path.hasSuffix("/Rex Server.app/Contents/MacOS/rex") {
+                return "com.superlogical.rex"
+            }
+            for root in applications {
+                for name in ["Rex.app", "Rex Beta.app"] where path == root + name + "/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex" {
+                    return "com.superlogical.rex"
+                }
+                if path == root + "Zed.app/Contents/MacOS/zed" { return "dev.zed.Zed" }
+                if path == root + "Zed Preview.app/Contents/MacOS/zed" { return "dev.zed.Zed-Preview" }
+            }
+        }
+        return nil
+    }
+
+    public static func enriching(_ object: [String: Any], environment: [String: String],
+                                 ancestor: @autoclosure () -> String? = nil) -> [String: Any] {
         var result = object
         if result["terminal_bundle_id"] == nil, result["terminalBundleID"] == nil,
-           let bundle = bundleID(environment: environment) {
+           environment["SSH_CONNECTION"] == nil, environment["SSH_TTY"] == nil,
+           let bundle = bundleID(environment: environment) ?? ancestor() {
             result["terminal_bundle_id"] = bundle
         }
         return result

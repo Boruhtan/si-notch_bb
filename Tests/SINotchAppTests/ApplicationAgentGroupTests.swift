@@ -39,4 +39,14 @@ final class ApplicationAgentGroupTests: XCTestCase {
         XCTAssertNil(SessionOrigin.bundleID(environment: remote))
         XCTAssertEqual(SessionOrigin.bundleID(environment: ["TERM_PROGRAM": "zed"]), "dev.zed.Zed")
     }
+
+    func testAncestorFallbackIsLimitedToKnownLocalHosts() {
+        let rex = "/User/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+        XCTAssertEqual(SessionOrigin.ancestorHost(executables: ["/bin/sh", rex], home: "/User"), "com.superlogical.rex")
+        XCTAssertNil(SessionOrigin.ancestorHost(executables: ["/usr/bin/ssh", rex], home: "/User"))
+        XCTAssertNil(SessionOrigin.ancestorHost(executables: ["/tmp/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex"], home: "/User"))
+        let remote = SessionOrigin.enriching(["event": "agent.working"], environment: ["SSH_TTY": "/dev/ttys001"],
+                                             ancestor: "com.superlogical.rex")
+        XCTAssertNil(remote["terminal_bundle_id"])
+    }
 }
