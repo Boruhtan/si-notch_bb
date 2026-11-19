@@ -37,7 +37,7 @@ class CodexAuthorizeRunnerTests(unittest.TestCase):
             hooks = directory / "hooks.json"
             command = f"/usr/bin/python3 '{adapter}' --cli '{helper}'"
             names = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-                     "PermissionRequest", "Stop", "Interrupt", "SessionEnd")
+                     "PermissionRequest", "SubagentStart", "SubagentStop", "Stop", "Interrupt", "SessionEnd")
             hooks.write_text(json.dumps({"hooks": {name: [{"hooks": [
                 {"type": "command", "command": command, "timeout": 80 if name == "PermissionRequest" else 3}
             ]}] for name in names}}))
@@ -47,8 +47,7 @@ class CodexAuthorizeRunnerTests(unittest.TestCase):
             mock = directory / "codex-mock"
             mock.write_text(f"#!{sys.executable}\n" + '''
 import json, os, sys
-names = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-         "PermissionRequest", "Stop", "Interrupt", "SessionEnd")
+names = tuple(json.load(open(os.environ["FAKE_HOOKS"]))["hooks"])
 for line in sys.stdin:
     request = json.loads(line)
     if "id" not in request:
@@ -84,7 +83,7 @@ for line in sys.stdin:
             base = [str(runner), "preview", str(mock), str(adapter), str(helper), str(hooks)]
             preview = subprocess.run(base, check=True, capture_output=True, text=True,
                                      env=env, timeout=15)
-            self.assertIn("Pending definitions: 8", preview.stdout)
+            self.assertIn(f"Pending definitions: {len(names)}", preview.stdout)
             digest = next(line.split(": ", 1)[1] for line in preview.stdout.splitlines()
                           if line.startswith("Review SHA-256: "))
             apply = [str(runner), "apply", str(mock), str(adapter), str(helper), str(hooks)]
@@ -101,7 +100,7 @@ for line in sys.stdin:
             edit = writes[0]["params"]["edits"][0]
             self.assertEqual(edit["keyPath"], "hooks.state")
             self.assertEqual(edit["mergeStrategy"], "upsert")
-            self.assertEqual(len(edit["value"]), 8)
+            self.assertEqual(len(edit["value"]), len(names))
             self.assertTrue(all(value == {"trusted_hash": "sha256:fixture"}
                                 for value in edit["value"].values()))
 
