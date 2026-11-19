@@ -4,6 +4,14 @@ The fork keeps configured local Hermes profiles visible even when they are not r
 The inventory reads only `plugins/si-notch/si-notch.json` in the default Hermes home and
 its `profiles/*` directories. It refreshes at startup and every five seconds.
 
+In Agents, local Hermes profiles appear inside a collapsible host group, separately
+from SSH connections. The group title uses the Mac name and the default Hermes
+profile's configured display name. Its expanded state survives app restarts.
+The group is a presentation container: it does not add an agent to the online
+count, change profile identities, or combine tasks. Independent unscoped agents
+and other providers remain outside it. `localHermesHostName.v1` in the app's
+preferences can override the host label; the status API exposes `local_hermes_groups`.
+
 Each profile must have its own stable `instanceId` and `displayName`. The connection ID
 uses the same SHA-256 derivation as the Hermes observer. Symlinked, oversized, malformed,
 wrong-socket and duplicate-identity settings do not establish a local profile identity.

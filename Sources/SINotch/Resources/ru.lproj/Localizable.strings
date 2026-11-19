@@ -723,3 +723,6 @@
 "settings.reminders" = "Напоминания";
 
 "updates.forkDisabled" = "Обновления основной версии отключены для этой сборки. Новые сборки si-notch_bb устанавливаются вручную.";
+
+"agents.localGroup" = "Локально";
+"agents.localGroup.online" = "В сети %d/%d";

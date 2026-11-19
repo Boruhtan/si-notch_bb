@@ -4,6 +4,7 @@ import Foundation
 struct LocalHermesProfile: Equatable {
     let connectionID: String
     let name: String
+    var isDefault = false
     var provider: String { "hermes" }
     var id: String { provider + "/" + connectionID }
 }
@@ -40,7 +41,8 @@ struct LocalHermesProfileRegistry {
             let socket = settings["socketPath"] as? String ?? expected
             guard socket == expected else { return nil }
             let digest = SHA256.hash(data: Data(instance.utf8)).map { String(format: "%02x", $0) }.joined()
-            return LocalHermesProfile(connectionID: "hermes-instance-" + digest.prefix(32), name: trimmed)
+            return LocalHermesProfile(connectionID: "hermes-instance-" + digest.prefix(32), name: trimmed,
+                                      isDefault: home.path == root.path)
         }
         // Cloned identities are ambiguous. Never silently combine their tasks.
         let grouped = Dictionary(grouping: profiles, by: \.id)

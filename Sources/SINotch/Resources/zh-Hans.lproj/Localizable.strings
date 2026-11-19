@@ -723,3 +723,6 @@
 "settings.reminders" = "提醒";
 
 "updates.forkDisabled" = "此分支构建已禁用上游更新。请手动安装 si-notch_bb 的新构建。";
+
+"agents.localGroup" = "本机";
+"agents.localGroup.online" = "%d/%d 在线";

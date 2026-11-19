@@ -33,6 +33,7 @@ final class AppModel: ObservableObject {
     @Published var legacyProviderReceipts: [String: Date] = [:]
     @Published var localHermesProfiles: [LocalHermesProfile] = []
     private let localProfileRegistry: LocalHermesProfileRegistry
+    private let localHermesFallbackHostName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     private var monitorsLocalProfiles = false
     private var nextLocalProfileScan: TimeInterval = 0
     @Published var connectionReceipts: [String: AgentConnection.Observation] = [:]
@@ -57,6 +58,7 @@ final class AppModel: ObservableObject {
     }
     @Published var showAgents = false
     @Published var expandedConnectors: Set<UUID> = []
+    @Published private(set) var localHermesGroupExpanded = true
     @Published var detectedHarnesses: [HarnessDetection] = []
     @Published var runningAgentProviders: Set<String> = []
     @Published var presenceNow = Date()
@@ -134,6 +136,19 @@ final class AppModel: ObservableObject {
             configurations: remoteConnections.agentConfigurations(for: connectionReceipts), localDisplayNames: localAgentDisplayNames, localProfiles: localHermesProfiles)
     }
     var agentsSectionHeight: CGFloat { 40 }
+    var localHermesGroup: LocalHermesAgentGroup? {
+        let saved = defaults.string(forKey: "localHermesHostName.v1")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hostName = saved.flatMap { name in
+            !name.isEmpty && name.count <= 128 && !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+                ? name : nil
+        } ?? localHermesFallbackHostName
+        return LocalHermesAgentGroup.project(agents: agents, inventory: localHermesProfiles,
+                                            observations: connectionReceipts, hostName: hostName)
+    }
+    var ungroupedLocalAgents: [AgentConnection] {
+        let grouped = Set(localHermesGroup?.profiles.map(\.id) ?? [])
+        return agents.filter { $0.connectorID == nil && !grouped.contains($0.id) }
+    }
     func displayTitle(_ session: AgentSession) -> String {
         guard let key = appOwnedTitles[session.id], session.title == key else { return session.title }
         return L10n.tr(key)
@@ -164,7 +179,8 @@ final class AppModel: ObservableObject {
     var desiredPanelHeight: CGFloat {
         if showAgents {
             let connections = remoteConnections.connections.filter(\.showInAgents)
-            let rows = agents.filter { $0.connectorID == nil }.count + connections.count +
+            let localRows = ungroupedLocalAgents.count + (localHermesGroup.map { 1 + (localHermesGroupExpanded ? $0.profiles.count : 0) } ?? 0)
+            let rows = localRows + connections.count +
                 connections.filter { expandedConnectors.contains($0.id) }.reduce(0) { count, connection in
                     count + max(1, agents.filter { $0.connectorID == connection.id }.count)
                 }
@@ -203,6 +219,13 @@ final class AppModel: ObservableObject {
         if showAgents { onLayout?() }
     }
 
+    func setLocalHermesGroupExpanded(_ value: Bool) {
+        guard localHermesGroupExpanded != value else { return }
+        localHermesGroupExpanded = value
+        defaults.set(value, forKey: "localHermesGroupExpanded.v1")
+        if showAgents { onLayout?() }
+    }
+
     private func sessionQueryChanged() {
         // Filters sit at the top, so their hit targets stay put while the panel
         // resizes. Do not wait for a card measurement or the next agent event.
@@ -235,6 +258,7 @@ final class AppModel: ObservableObject {
          localProfileRegistry: LocalHermesProfileRegistry = .init()) {
         self.defaults = defaults
         self.localProfileRegistry = localProfileRegistry
+        self.localHermesGroupExpanded = defaults.object(forKey: "localHermesGroupExpanded.v1") as? Bool ?? true
         self.quota = CodexQuotaController(defaults: defaults)
         self.remoteConnections = RemoteConnectionManager(defaults: defaults)
         self.soundPlayer = soundPlayer ?? EventSoundPlayer(defaults: defaults)
@@ -364,6 +388,9 @@ final class AppModel: ObservableObject {
                         "paused": paused, "session_count": sessions.count,
                         "updates_disabled": ForkUpdatePolicy.disabled(),
                         "local_profiles": localHermesProfiles.map { ["id": $0.id, "name": $0.name] },
+                        "local_hermes_groups": localHermesGroup.map { group in [["id": LocalHermesAgentGroup.id,
+                            "name": group.name, "expanded": localHermesGroupExpanded,
+                            "online_count": group.onlineCount, "profile_ids": group.profiles.map(\.id)] as [String: Any]] } ?? [],
                         "visible_session_count": showAgents ? 0 : filtered.count, "active_filter": activeFilter, "tab": showAgents ? "agents" : "sessions",
                         "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue,
                             "activity": $0.activity.rawValue, "active_task_count": $0.activeTaskCount,

@@ -224,7 +224,29 @@ struct IslandView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(model.agents.filter { $0.connectorID == nil }) { agent in agentRow(agent) }
+                    ForEach(model.ungroupedLocalAgents) { agent in agentRow(agent) }
+                    if let group = model.localHermesGroup {
+                        DisclosureGroup(isExpanded: Binding(get: { model.localHermesGroupExpanded }, set: {
+                            model.setLocalHermesGroupExpanded($0)
+                        })) {
+                            VStack(spacing: 0) {
+                                ForEach(group.profiles) { agent in agentRow(agent).padding(.leading, 12) }
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "desktopcomputer").frame(width: 16)
+                                Text(group.name).fontWeight(.medium).lineLimit(1)
+                                Spacer()
+                                Text(L10n.tr("agents.localGroup")).foregroundStyle(NotchDesign.secondary)
+                                Text(L10n.tr("agents.localGroup.online", group.onlineCount, group.profiles.count))
+                                    .foregroundStyle(NotchDesign.secondary)
+                                Circle().fill(group.onlineCount > 0 ? Color.green : Color.gray.opacity(0.5))
+                                    .frame(width: 5, height: 5)
+                            }.font(.system(size: 11)).frame(height: 32)
+                        }.padding(.horizontal, 24).tint(NotchDesign.secondary)
+                            .transaction { $0.animation = nil; $0.disablesAnimations = true }
+                            .accessibilityIdentifier("agent-group-" + LocalHermesAgentGroup.id)
+                    }
                     ForEach(model.remoteConnections.connections.filter(\.showInAgents)) { connection in
                         let profiles = model.agents.filter { $0.connectorID == connection.id }
                         DisclosureGroup(isExpanded: Binding(get: { model.expandedConnectors.contains(connection.id) }, set: {

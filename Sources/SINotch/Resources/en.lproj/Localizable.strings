@@ -723,3 +723,6 @@
 "settings.reminders" = "Reminders";
 
 "updates.forkDisabled" = "Upstream updates are disabled for this fork build. Install new builds from si-notch_bb manually.";
+
+"agents.localGroup" = "Local";
+"agents.localGroup.online" = "%d/%d online";
