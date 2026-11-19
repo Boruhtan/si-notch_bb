@@ -6,6 +6,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -42,6 +43,11 @@ class CodexHookTests(unittest.TestCase):
             self.assertEqual(event["subagent"], {"id": "child", "sessionID": "child", "name": "worker", "status": status})
             self.assertNotIn("private", json.dumps(event))
         self.assertIsNone(hook_adapter.event_from_hook(dict(base, hook_event_name="SubagentStart", agent_id="parent")))
+
+        with patch.dict(os.environ, {"SI_NOTCH_ACP_OBSERVES_SUBAGENTS": "1"}):
+            for name in ("SubagentStart", "SubagentStop"):
+                self.assertIsNone(hook_adapter.event_from_hook(dict(base, hook_event_name=name)))
+            self.assertEqual(hook_adapter.event_from_hook(dict(base, hook_event_name="SessionStart"))["event"], "session.start")
 
     def test_auto_review_and_noninteractive_modes_never_create_native_request(self):
         for reviewer, policy in (("auto_review", "on-request"), ("user", "never"), (None, "on-request"),

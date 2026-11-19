@@ -101,6 +101,8 @@ def event_from_hook(hook):
         # This is observation only. A decision must remain in Codex itself.
         event["message"] = "Approval requested in Codex"
     if name in ("SubagentStart", "SubagentStop"):
+        if os.environ.get("SI_NOTCH_ACP_OBSERVES_SUBAGENTS") == "1":
+            return None
         child = safe_identifier(hook.get("agent_id"))
         if not child or child == session:
             return None

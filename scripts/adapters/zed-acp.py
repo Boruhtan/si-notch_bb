@@ -291,7 +291,10 @@ def main():
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("an existing ACP agent command is required")
-    child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True)
+    # The ACP feed owns the child identity and display name for this process.
+    environment = {**os.environ, "SI_NOTCH_ACP_OBSERVES_SUBAGENTS": "1"}
+    child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             start_new_session=True, env=environment)
     sink = Sink(args.helper)
     observer = Observer(sink.emit, args.provider)
     lock = threading.Lock()
