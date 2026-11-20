@@ -733,6 +733,11 @@
 
 "attention.requests" = "等待你的回复";
 "attention.allGroups" = "所有分组";
+"attention.rexBlocked" = "Rex 中的程序正在等待操作";
+"attention.rexError" = "Rex 中的程序报告了错误";
+"attention.rexOpen" = "打开 Rex 窗格";
+"attention.rexUnavailable" = "Rex 窗格当前不可用";
+"agents.group.errors" = "错误 · %d";
 "agents.group.waiting" = "等待回复 · %d";
 "agents.group.working" = "进行中 · %d";
 "agents.group.completed" = "已完成 · %d";

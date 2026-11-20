@@ -229,6 +229,41 @@ final class AttentionQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testRexReportsAppearInAttentionAndClearWithTheTerminalSnapshot() throws {
+        let model = makeModel()
+        defer { model.shutdown() }
+        let block = try XCTUnwrap(RexTerminal.Block(session: "session:11111111-1111-1111-1111-111111111111",
+                                                    block: "block:22222222-2222-2222-2222-222222222222"))
+        let items = RexAttentionItem.items(from: ["records": [
+            ["state": "working", "app": "codex"],
+            ["state": "blocked", "effective_app": "codex", "msg": "private"],
+            ["state": "blocked", "app": "codex"],
+            ["state": "error", "app": "codex"],
+            ["state": "done"],
+        ]], block: block)
+        model.updateRexAttention(items)
+        XCTAssertEqual(model.attentionQueue.rexWaiting.count, 1)
+        XCTAssertEqual(model.attentionQueue.rexErrors.count, 1)
+        XCTAssertEqual(model.attentionQueue.rexErrors.first?.provider, "codex")
+        XCTAssertEqual(model.agentGroupCounts[.application(.rex)], AgentGroupCounts(waiting: 1, errors: 1))
+        XCTAssertTrue(model.sessions.isEmpty)
+        model.selectAttention(group: .application(.zed))
+        XCTAssertTrue(model.visibleAttentionQueue.rex.isEmpty)
+        model.selectAttention(group: .application(.rex))
+        XCTAssertEqual(model.visibleAttentionQueue.count, 2)
+
+        let event = AgentEvent(sessionID: "cli-session", provider: "codex", kind: .approvalRequested,
+            terminalBundleID: "com.superlogical.rex", attentionRequestID: "actual-request",
+            rexSessionID: block.session, rexBlockID: block.block)
+        model.receive(try JSONEncoder().encode(event), origin: .local) { _ in }
+        XCTAssertEqual(model.visibleAttentionQueue.requests.map(\.id), ["cli-session"])
+        XCTAssertTrue(model.visibleAttentionQueue.rexWaiting.isEmpty)
+        XCTAssertEqual(model.visibleAttentionQueue.rexErrors.count, 1)
+        model.updateRexAttention([])
+        XCTAssertEqual(model.visibleAttentionQueue.count, 1)
+    }
+
+    @MainActor
     private func makeModel() -> AppModel {
         let suite = "si-notch.attention-tests." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!

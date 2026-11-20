@@ -52,6 +52,17 @@ public enum SessionOrigin {
            let bundle = bundleID(environment: environment) ?? ancestor() {
             result["terminal_bundle_id"] = bundle
         }
+        if (result["terminal_bundle_id"] ?? result["terminalBundleID"]) as? String == "com.superlogical.rex",
+           environment["SSH_CONNECTION"] == nil, environment["SSH_TTY"] == nil,
+           environment["TMUX"] == nil, environment["STY"] == nil,
+           result["rex_session_id"] == nil, result["rex_block_id"] == nil,
+           let session = environment["REX_SESSION"], session.hasPrefix("session:"),
+           UUID(uuidString: String(session.dropFirst(8))) != nil,
+           let block = environment["REX_BLOCK"], block.hasPrefix("block:"),
+           UUID(uuidString: String(block.dropFirst(6))) != nil {
+            result["rex_session_id"] = session
+            result["rex_block_id"] = block
+        }
         return result
     }
 }

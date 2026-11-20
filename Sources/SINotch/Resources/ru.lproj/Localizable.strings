@@ -733,6 +733,11 @@
 
 "attention.requests" = "Ждут вашего ответа";
 "attention.allGroups" = "Все группы";
+"attention.rexBlocked" = "Программа ждёт действия в Rex";
+"attention.rexError" = "Программа в Rex сообщила об ошибке";
+"attention.rexOpen" = "Открыть панель Rex";
+"attention.rexUnavailable" = "Панель Rex сейчас недоступна";
+"agents.group.errors" = "Ошибки · %d";
 "agents.group.waiting" = "Ждут ответа · %d";
 "agents.group.working" = "В работе · %d";
 "agents.group.completed" = "Готово · %d";

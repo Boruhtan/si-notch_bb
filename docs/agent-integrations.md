@@ -70,9 +70,10 @@ Rex or Zed installation. This also works for supported
 agents launched in **Zed Terminal Threads**. Reconnect Codex in si-notch to register
 and review its `SubagentStart` and `SubagentStop` hooks. An agent that forwards a
 turn to a separate gateway without reporting the originating terminal still
-appears under its own provider. Shell output and Rex program-status
-records are not imported. Rex is a terminal and does not identify the canonical
-session behind an arbitrary program-status record.
+appears under its own provider. Attention also reads blocked and error statuses
+reported by programs in the active local Rex session. The card opens the
+reporting pane. Only the status and pane identity are used, and the terminal
+retains the action that the program is waiting for.
 
 For **Zed Agent Panel**, add a custom external agent using the bundled
 `zed-acp.py` observer and your existing Codex ACP executable. Keep the standard

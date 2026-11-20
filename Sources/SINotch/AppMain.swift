@@ -35,6 +35,9 @@ final class AppModel: ObservableObject {
     private let localProfileRegistry: LocalHermesProfileRegistry
     private let localHermesFallbackHostName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     private var monitorsLocalProfiles = false
+    @Published private(set) var rexAttention: [RexAttentionItem] = []
+    private var rexAttentionPoll: Task<Void, Never>?
+    private var nextRexAttentionScan: TimeInterval = 0
     private var nextLocalProfileScan: TimeInterval = 0
     @Published var connectionReceipts: [String: AgentConnection.Observation] = [:]
     @Published var activity: [String: [SessionActivity]] = [:]
@@ -251,7 +254,8 @@ final class AppModel: ObservableObject {
                 return height + 116 + controls.reduce(0) { $0 + 86 + CGFloat($1.questions.count * 38) }
             }
             return headerHeight + agentsSectionHeight + 45 + (attentionGroup == nil ? 0 : 34) +
-                (queue.count == 0 ? 76 : requests + CGFloat(queue.errors.prefix(4).count * 106 + queue.ssh.prefix(4).count * 60))
+                (queue.count == 0 ? 76 : requests + CGFloat(queue.errors.prefix(4).count * 106 +
+                    queue.ssh.prefix(4).count * 60 + queue.rex.prefix(6).count * 64))
         }
         if showingHistory { return headerHeight + agentsSectionHeight + 420 }
         if sessions.isEmpty { return headerHeight + (quiet ? 204 : 180) + agentsSectionHeight }
@@ -370,7 +374,8 @@ final class AppModel: ObservableObject {
             default: return nil
             }
         }
-        return AttentionQueue(requests: AttentionSessionItem.prioritized(requests, at: now), errors: errors, ssh: ssh)
+        return AttentionQueue(requests: AttentionSessionItem.prioritized(requests, at: now), errors: errors, ssh: ssh,
+                              rex: rexAttentionRows)
     }
 
     var visibleAttentionQueue: AttentionQueue {
@@ -398,7 +403,40 @@ final class AppModel: ObservableObject {
             }
             result[group] = counts
         }
+        for item in rexAttentionRows {
+            switch item.state {
+            case .blocked: result[.application(.rex), default: AgentGroupCounts()].waiting += 1
+            case .error: result[.application(.rex), default: AgentGroupCounts()].errors += 1
+            }
+        }
         return result
+    }
+
+    private var rexAttentionRows: [RexAttentionItem] {
+        guard !paused, !rexAttention.isEmpty else { return [] }
+        let canonical = sessions
+        let now = Date()
+        let uptime = ProcessInfo.processInfo.systemUptime
+        return rexAttention.filter { item in
+            !canonical.contains { session in
+                guard item.matches(session, in: applicationSessionHosts[session.id].map(AgentGroupID.application)) else { return false }
+                return item.state == .error ? session.status == .failed : attentionTiming(session, now: now, uptime: uptime) != nil
+            }
+        }
+    }
+
+    func updateRexAttention(_ items: [RexAttentionItem]) {
+        let current = items.sorted { $0.id < $1.id }
+        guard current != rexAttention else { return }
+        let prior = Set(rexAttention.map(\.id))
+        rexAttention = current
+        let newRequest = rexAttentionRows.contains { $0.state == .blocked && !prior.contains($0.id) }
+        if newRequest, !quiet, defaults.bool(forKey: "autoExpand"), defaults.bool(forKey: "attentionReveal"),
+           presentationPolicy?.canAutomaticallyReveal(for: nil) ?? true {
+            if !expanded || expansionOrigin == .automatic { showAttention() }
+            reveal(reason: "response-needed")
+        }
+        onLayout?()
     }
 
     private func groupsByProfile(_ agents: [AgentConnection]) -> [String: AgentGroupID] {
@@ -481,6 +519,7 @@ final class AppModel: ObservableObject {
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions", isDirectory: true) : nil)
         detectedHarnesses = HarnessDiscoveryService().scan().detected
         refreshAgentPresence()
+        pollRexAttention(at: ProcessInfo.processInfo.systemUptime)
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             presenceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.refreshAgentPresence() }
@@ -576,7 +615,7 @@ final class AppModel: ObservableObject {
             let visibleCount: Int
             if showingAttention {
                 let queue = visibleAttentionQueue
-                visibleCount = queue.requests.count + queue.errors.count
+                visibleCount = queue.requests.count + queue.errors.count + queue.rex.count
             } else { visibleCount = showAgents ? 0 : filtered.count }
             reply(json(["ok": true, "protocol_version": 1, "received_count": receivedCount,
                         "paused": paused, "session_count": sessions.count,
@@ -590,6 +629,7 @@ final class AppModel: ObservableObject {
                             "session_ids": $0.sessions.map(\.id)] as [String: Any] },
                         "visible_session_count": visibleCount,
                         "attention_group": (showingAttention ? attentionGroup?.key : nil) as Any? ?? NSNull(),
+                        "rex_attention": rexAttentionRows.map { ["block_id": $0.block.block, "state": $0.state.rawValue] },
                         "active_filter": activeFilter, "tab": showAgents ? "agents" : showingAttention ? "attention" : "sessions",
                         "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue,
                             "activity": $0.activity.rawValue, "active_task_count": $0.activeTaskCount,
@@ -872,6 +912,7 @@ final class AppModel: ObservableObject {
         var changed = false
         let visibleBefore = sessions.map { $0.id }
         if monitorsLocalProfiles && monotonicNow >= nextLocalProfileScan { refreshLocalProfiles() }
+        if monitorsLocalProfiles { pollRexAttention(at: monotonicNow) }
         let now = Date()
         let currentAgents = AgentConnection.project(detected: detectedHarnesses, sessions: store.orderedSessions,
             receipts: legacyProviderReceipts, running: runningAgentProviders, now: now, connections: connectionReceipts,
@@ -911,6 +952,18 @@ final class AppModel: ObservableObject {
         }
         if let selectedID, !sessions.contains(where: { $0.id == selectedID }) { self.selectedID = nil; changed = true }
         if changed || visibleBefore != sessions.map({ $0.id }) { revision += 1; onLayout?() }
+    }
+
+    private func pollRexAttention(at now: TimeInterval) {
+        guard !paused, rexAttentionPoll == nil, now >= nextRexAttentionScan else { return }
+        nextRexAttentionScan = now + 6
+        guard let rex = RexTerminal.installed() else { updateRexAttention([]); return }
+        rexAttentionPoll = Task { @MainActor [weak self] in
+            let items = await Task.detached(priority: .utility) { rex.attention() }.value
+            guard !Task.isCancelled, let self else { return }
+            self.rexAttentionPoll = nil
+            self.updateRexAttention(items)
+        }
     }
 
     private func refreshAgentPresence() {
@@ -1061,7 +1114,10 @@ final class AppModel: ObservableObject {
         cancelExpansionTimer()
         cancelRevealTimer()
         if value { expansionOrigin = origin }
-        if value && !expanded && preferAttention && !attentionQueue.requests.isEmpty { showAttention() }
+        if value && !expanded && preferAttention {
+            let queue = attentionQueue
+            if queue.waitingCount > 0 || !queue.rexErrors.isEmpty { showAttention() }
+        }
         guard expanded != value else { presentationPolicy?.expansionChanged(value, origin: origin); return }
         if !value {
             let overPill = compactHoverRegion?.contains(hoverLocation()) ?? pointerInside
@@ -1291,6 +1347,7 @@ final class AppModel: ObservableObject {
     }
 
     func shutdown() {
+        rexAttentionPoll?.cancel()
         history.shutdown()
         usage.shutdown(); quota.stop()
         remoteConnections.disconnectAll(); codexObserver?.stop(); piObserver?.stop(); timer?.invalidate()

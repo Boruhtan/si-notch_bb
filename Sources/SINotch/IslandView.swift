@@ -91,25 +91,28 @@ struct IslandView: View {
     }
 
     var compactContent: some View {
-        let requests = model.attentionQueue.requests.count
-        let count = requests > 0 ? requests : model.sessions.count
+        let queue = model.attentionQueue
+        let count = queue.count > 0 ? queue.count : model.sessions.count
+        let primary = model.dominantStatus
+        let status: AgentStatus = queue.waitingCount > 0 ? .waiting : queue.count > 0 ? .failed :
+            ([.waiting, .approval].contains(primary) ? (model.workingCount > 0 ? .working : .idle) : primary)
         return HStack(spacing: 0) {
             HStack(spacing: 6) {
                 if model.paused {
                     Image(systemName: "pause.fill").foregroundStyle(.orange)
                 } else if showCompanion {
-                    CompanionView(status: model.dominantStatus, size: 20, interactive: false).allowsHitTesting(false)
+                    CompanionView(status: status, size: 20, interactive: false).allowsHitTesting(false)
                 } else {
-                    Image(systemName: model.dominantStatus.symbol).foregroundStyle(model.dominantStatus.tint)
+                    Image(systemName: status.symbol).foregroundStyle(status.tint)
                 }
             }.padding(.horizontal, 3).frame(width: model.compactWingWidth)
             Color.clear.frame(width: model.cameraWidth)
             Group {
-                if count == 0 { Circle().fill(model.dominantStatus.tint).frame(width: 5, height: 5) }
+                if count == 0 { Circle().fill(status.tint).frame(width: 5, height: 5) }
                 else {
                     Text(count > 99 ? "99+" : "\(count)")
                         .monospacedDigit().font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(requests > 0 ? .orange : model.dominantStatus.tint).lineLimit(1).minimumScaleFactor(0.8)
+                        .foregroundStyle(status.tint).lineLimit(1).minimumScaleFactor(0.8)
                 }
             }.frame(width: model.compactStatusWidth)
         }
@@ -119,8 +122,8 @@ struct IslandView: View {
         .contentShape(Rectangle())
         .onTapGesture { model.setExpanded(true) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L10n.tr("Открыть si-notch, %@, %@", L10n.count("sessions", model.sessions.count), model.dominantStatus.label))
-        .accessibilityHint(requests > 0 ? L10n.tr("Внимание") + " · \(requests)" : "")
+        .accessibilityLabel(L10n.tr("Открыть si-notch, %@, %@", L10n.count("sessions", model.sessions.count), status.label))
+        .accessibilityHint(queue.count > 0 ? L10n.tr("Внимание") + " · \(queue.count)" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.setExpanded(true) }
         .help(shortcutLabel)
@@ -366,6 +369,17 @@ struct IslandView: View {
                 .help(L10n.tr("agents.group.openAttention", model.groupName(id)))
                 .accessibilityLabel(L10n.tr("agents.group.waiting", counts.waiting))
                 .accessibilityIdentifier("group-attention-" + id.key)
+            }
+            if counts.errors > 0 {
+                Button { model.selectAttention(group: id) } label: {
+                    counterLabel("agents.group.errors", count: counts.errors, symbol: "exclamationmark.triangle", compact: compact)
+                        .foregroundStyle(AgentStatus.failed.tint)
+                        .padding(.horizontal, 6).padding(.vertical, 4)
+                        .background(AgentStatus.failed.tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("group-errors-" + id.key)
             }
             if counts.working > 0 {
                 counterLabel("agents.group.working", count: counts.working, symbol: "waveform", compact: compact)

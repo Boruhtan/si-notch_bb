@@ -733,6 +733,11 @@
 
 "attention.requests" = "Needs your response";
 "attention.allGroups" = "All groups";
+"attention.rexBlocked" = "A program is waiting in Rex";
+"attention.rexError" = "A program in Rex reported an error";
+"attention.rexOpen" = "Open Rex pane";
+"attention.rexUnavailable" = "The Rex pane is unavailable";
+"agents.group.errors" = "Errors · %d";
 "agents.group.waiting" = "Waiting · %d";
 "agents.group.working" = "Working · %d";
 "agents.group.completed" = "Done · %d";

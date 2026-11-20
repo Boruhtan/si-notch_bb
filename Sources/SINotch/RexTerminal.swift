@@ -6,7 +6,7 @@ import Foundation
 struct RexTerminal: Sendable {
     static let bundleID = "com.superlogical.rex"
 
-    struct Block: Equatable, Sendable {
+    struct Block: Hashable, Sendable {
         let session: String
         let block: String
 
@@ -14,6 +14,21 @@ struct RexTerminal: Sendable {
             guard RexTerminal.validID(session, kind: "session"), RexTerminal.validID(block, kind: "block") else { return nil }
             self.session = session
             self.block = block
+        }
+    }
+
+    func attention() -> [RexAttentionItem] {
+        guard FileManager.default.fileExists(atPath: endpoint),
+              let session = selectedSession(),
+              let host = read(["whoami"])?["host_id"] as? String,
+              let blocks = read(["block", "ls", "-s", session])?["blocks"] as? [[String: Any]] else { return [] }
+        return blocks.lazy.filter {
+            $0["host_id"] as? String == host && $0["flavor"] as? String == "com.superlogical.terminal.shell"
+        }.prefix(48).flatMap { item -> [RexAttentionItem] in
+            guard let id = item["block_id"] as? String, let block = Block(session: session, block: id),
+                  let data = call(["block", "call", "-s", session, "-b", id, "program_status"]),
+                  let snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [] }
+            return RexAttentionItem.items(from: snapshot, block: block)
         }
     }
 
