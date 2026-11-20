@@ -155,6 +155,80 @@ final class AttentionQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testCollapsedGroupCountersAndAttentionUseTheSameMembership() throws {
+        let model = makeModel()
+        defer { model.shutdown() }
+        model.localHermesProfiles = [LocalHermesProfile(connectionID: "local-profile", name: "Don Digidon", isDefault: true)]
+        let connector = try XCTUnwrap(model.remoteConnections.add())
+        var connection = try XCTUnwrap(model.remoteConnections.connections.first)
+        connection.name = "Pupsik"
+        connection.profiles = [RemoteHermesProfile(id: "default", home: "/home/fixture", displayName: "Don David",
+            enabled: true, showSessionText: false, pluginInstalled: true, connectionId: "remote-profile")]
+        model.remoteConnections.update(connection)
+        model.setLocalHermesGroupExpanded(false)
+        model.setConnectorExpanded(connector, false)
+        model.setApplicationGroupExpanded(.rex, false)
+        model.setApplicationGroupExpanded(.zed, false)
+
+        func event(_ kind: String, _ id: String, profile: String? = nil, host: AgentHostApplication? = nil,
+                   origin: AgentConnection.Origin = .local, request: Bool = false) {
+            var value = ["event": kind, "provider": profile == nil ? "codex" : "hermes", "session_id": id]
+            if let profile { value["connection_id"] = profile }
+            if let host { value["terminal_bundle_id"] = host.bundleID }
+            if request { value["attention_request_id"] = id + "-request" }
+            model.receive(model.json(value), origin: origin) { _ in }
+        }
+        event("agent.waiting", "karabas-question", profile: "local-profile", request: true)
+        event("agent.working", "karabas-working", profile: "local-profile")
+        event("agent.working", "karabas-done", profile: "local-profile")
+        event("agent.completed", "karabas-done", profile: "local-profile")
+        event("agent.waiting", "karabas-passive", profile: "local-profile")
+        event("agent.working", "karabas-error", profile: "local-profile")
+        event("agent.failed", "karabas-error", profile: "local-profile")
+        event("approval.request", "pupsik-question", profile: "remote-profile", host: .rex, origin: .remote(connector), request: true)
+        event("agent.waiting", "rex-question", profile: "local-profile", host: .rex, request: true)
+        event("agent.waiting", "zed-question", host: .zed, request: true)
+        event("agent.waiting", "ungrouped", request: true)
+
+        let groups: [AgentGroupID: String] = [.localHermes: "karabas-question", .remote(connector): "pupsik-question",
+            .application(.rex): "rex-question", .application(.zed): "zed-question"]
+        XCTAssertEqual(model.agentGroupCounts[.localHermes], AgentGroupCounts(waiting: 1, working: 1, completed: 1))
+        model.selectAgents(true)
+        for (group, request) in groups {
+            XCTAssertEqual(model.agentGroupCounts[group]?.waiting, 1)
+            model.selectAttention(group: group)
+            XCTAssertTrue(model.showingAttention)
+            XCTAssertEqual(model.attentionGroup, group)
+            XCTAssertEqual(model.visibleAttentionQueue.requests.map(\.id), [request])
+            XCTAssertEqual(model.visibleAttentionQueue.errors.map(\.id), group == .localHermes ? ["karabas-error"] : [])
+            XCTAssertTrue(model.handlePanelKey(18, characters: "1"))
+            XCTAssertEqual(model.selectedID, request)
+        }
+        model.selectAttention()
+        XCTAssertNil(model.attentionGroup)
+        XCTAssertNil(model.selectedID)
+        XCTAssertEqual(Set(model.visibleAttentionQueue.requests.map(\.id)), Set(Array(groups.values) + ["ungrouped"]))
+        XCTAssertFalse(model.localHermesGroupExpanded)
+        XCTAssertFalse(model.connectorExpanded(connector))
+        XCTAssertFalse(model.applicationGroupExpanded(.rex))
+        XCTAssertFalse(model.applicationGroupExpanded(.zed))
+
+        event("agent.working", "pupsik-question", profile: "remote-profile", origin: .remote(connector))
+        model.selectAttention(group: .remote(connector))
+        XCTAssertTrue(model.visibleAttentionQueue.requests.isEmpty)
+        XCTAssertEqual(model.agentGroupCounts[.remote(connector)], AgentGroupCounts(working: 1))
+    }
+
+    func testScopedQueueIncludesOnlyItsOwnSSHError() {
+        let failed = AttentionSSHItem(id: UUID(), name: "Pupsik", state: .failed(.authenticationFailed))
+        let other = AttentionSSHItem(id: UUID(), name: "Other", state: .retrying)
+        let queue = AttentionQueue(requests: [], errors: [], ssh: [failed, other])
+        XCTAssertEqual(queue.filtered(to: .remote(failed.id)).ssh.map(\.id), [failed.id])
+        XCTAssertTrue(queue.filtered(to: .localHermes).ssh.isEmpty)
+        XCTAssertTrue(queue.filtered(to: .application(.rex)).ssh.isEmpty)
+    }
+
+    @MainActor
     private func makeModel() -> AppModel {
         let suite = "si-notch.attention-tests." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!

@@ -732,6 +732,11 @@
 "agents.hostEmpty.zed" = "Здесь появятся сессии внешних агентов и терминала";
 
 "attention.requests" = "Ждут вашего ответа";
+"attention.allGroups" = "Все группы";
+"agents.group.waiting" = "Ждут ответа · %d";
+"agents.group.working" = "В работе · %d";
+"agents.group.completed" = "Готово · %d";
+"agents.group.openAttention" = "Открыть «Внимание» для группы %@";
 "attention.problems" = "Ошибки и подключения";
 "attention.empty" = "Ничего не требует внимания";
 "attention.waitingSince" = "Ждёт";

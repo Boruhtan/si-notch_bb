@@ -732,6 +732,11 @@
 "agents.hostEmpty.zed" = "External-agent and terminal sessions appear here";
 
 "attention.requests" = "Needs your response";
+"attention.allGroups" = "All groups";
+"agents.group.waiting" = "Waiting · %d";
+"agents.group.working" = "Working · %d";
+"agents.group.completed" = "Done · %d";
+"agents.group.openAttention" = "Open Attention for %@";
 "attention.problems" = "Errors and connections";
 "attention.empty" = "Nothing needs your attention";
 "attention.waitingSince" = "Waiting";

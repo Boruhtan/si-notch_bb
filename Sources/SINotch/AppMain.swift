@@ -56,6 +56,7 @@ final class AppModel: ObservableObject {
     @Published var search = "" {
         didSet { if oldValue != search { sessionQueryChanged() } }
     }
+    @Published private(set) var attentionGroup: AgentGroupID?
     @Published var showAgents = false
     @Published private var collapsedConnectors: Set<UUID> = []
     @Published private(set) var localHermesGroupExpanded = true
@@ -163,7 +164,8 @@ final class AppModel: ObservableObject {
         search = ""
         selectSession(id)
     }
-    var localHermesGroup: LocalHermesAgentGroup? {
+    var localHermesGroup: LocalHermesAgentGroup? { localHermesGroup(agents: agents) }
+    private func localHermesGroup(agents: [AgentConnection]) -> LocalHermesAgentGroup? {
         let saved = defaults.string(forKey: "localHermesHostName.v1")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hostName = saved.flatMap { name in
             !name.isEmpty && name.count <= 128 && !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
@@ -243,12 +245,12 @@ final class AppModel: ObservableObject {
             return agentPanelContent.height(columns: agentPanelColumns)
         }
         if showingAttention {
-            let queue = attentionQueue
+            let queue = visibleAttentionQueue
             let requests = queue.requests.prefix(4).reduce(CGFloat(0)) { height, item in
                 let controls = interactions(for: item.id)
                 return height + 116 + controls.reduce(0) { $0 + 86 + CGFloat($1.questions.count * 38) }
             }
-            return headerHeight + agentsSectionHeight + 45 +
+            return headerHeight + agentsSectionHeight + 45 + (attentionGroup == nil ? 0 : 34) +
                 (queue.count == 0 ? 76 : requests + CGFloat(queue.errors.prefix(4).count * 106 + queue.ssh.prefix(4).count * 60))
         }
         if showingHistory { return headerHeight + agentsSectionHeight + 420 }
@@ -280,15 +282,28 @@ final class AppModel: ObservableObject {
         onLayout?()
     }
 
-    func selectAttention() {
-        showAttention()
+    func selectAttention(group: AgentGroupID? = nil) {
+        showAttention(group: group)
         setExpanded(true, preferAttention: false)
         onLayout?()
     }
 
-    private func showAttention() {
+    private func showAttention(group: AgentGroupID? = nil) {
+        if attentionGroup != group {
+            attentionGroup = group
+            selectedID = nil
+        }
         showAgents = false
         activeFilter = "Внимание"
+    }
+
+    func groupName(_ group: AgentGroupID) -> String {
+        switch group {
+        case .localHermes: localHermesGroup?.name ?? localHermesFallbackHostName
+        case .remote(let id):
+            remoteConnections.connections.first(where: { $0.id == id })?.displayName ?? L10n.tr("attention.remoteHost")
+        case .application(let host): host.name
+        }
     }
 
     func connectorExpanded(_ id: UUID) -> Bool { !collapsedConnectors.contains(id) }
@@ -326,6 +341,8 @@ final class AppModel: ObservableObject {
     var attentionQueue: AttentionQueue {
         let now = Date()
         let uptime = ProcessInfo.processInfo.systemUptime
+        let agents = agents
+        let groups = groupsByProfile(agents)
         let profiles = Dictionary(agents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let connectorNames = Dictionary(uniqueKeysWithValues: remoteConnections.connections.map { ($0.id, $0.displayName) })
         var requests: [AttentionSessionItem] = []
@@ -342,6 +359,7 @@ final class AppModel: ObservableObject {
                 (observedOrigin?.isRemote == true ? L10n.tr("attention.remoteHost") : localHermesFallbackHostName)
             let name = profile?.name ?? session.connectionName ?? HarnessKind(rawValue: session.provider)?.displayName ?? session.provider
             let item = AttentionSessionItem(session: session, profileName: name, machineName: machine,
+                                            group: agentGroup(for: session, byProfile: groups),
                                             waitingSince: timing?.start, deadline: timing?.deadline)
             if timing != nil { requests.append(item) } else { errors.append(item) }
         }
@@ -353,6 +371,49 @@ final class AppModel: ObservableObject {
             }
         }
         return AttentionQueue(requests: AttentionSessionItem.prioritized(requests, at: now), errors: errors, ssh: ssh)
+    }
+
+    var visibleAttentionQueue: AttentionQueue {
+        let queue = attentionQueue
+        return attentionGroup.map { queue.filtered(to: $0) } ?? queue
+    }
+
+    var agentGroupCounts: [AgentGroupID: AgentGroupCounts] {
+        let groups = groupsByProfile(agents)
+        let now = Date()
+        let uptime = ProcessInfo.processInfo.systemUptime
+        let grouped = Dictionary(grouping: sessions) { agentGroup(for: $0, byProfile: groups) }
+        var result: [AgentGroupID: AgentGroupCounts] = [:]
+        for (key, sessions) in grouped {
+            guard let group = key else { continue }
+            let waiting = Set(sessions.filter { attentionTiming($0, now: now, uptime: uptime) != nil }.map(\.id))
+            var counts = AgentGroupCounts(waiting: waiting.count)
+            for session in AgentPanelSession.roots(sessions) where !waiting.contains(session.id) {
+                if session.status == .working || session.tasks.contains(where: { $0.status == .working }) ||
+                    session.subagents.contains(where: { $0.status == .working }) {
+                    counts.working += 1
+                } else if session.status == .completed {
+                    counts.completed += 1
+                }
+            }
+            result[group] = counts
+        }
+        return result
+    }
+
+    private func groupsByProfile(_ agents: [AgentConnection]) -> [String: AgentGroupID] {
+        var groups: [String: AgentGroupID] = [:]
+        for profile in localHermesGroup(agents: agents)?.profiles ?? [] { groups[profile.id] = .localHermes }
+        let visible = Set(remoteConnections.connections.filter(\.showInAgents).map(\.id))
+        for agent in agents {
+            if let connector = agent.connectorID, visible.contains(connector) { groups[agent.id] = .remote(connector) }
+        }
+        return groups
+    }
+
+    private func agentGroup(for session: AgentSession, byProfile groups: [String: AgentGroupID]) -> AgentGroupID? {
+        if let host = applicationSessionHosts[session.id] { return .application(host) }
+        return groups[AgentConnection.identity(for: session)]
     }
 
     private func attentionTiming(_ session: AgentSession, now: Date, uptime: TimeInterval) -> (start: Date?, deadline: Date?)? {
@@ -514,7 +575,7 @@ final class AppModel: ObservableObject {
            control["protocol_version"] as? Int == 1 {
             let visibleCount: Int
             if showingAttention {
-                let queue = attentionQueue
+                let queue = visibleAttentionQueue
                 visibleCount = queue.requests.count + queue.errors.count
             } else { visibleCount = showAgents ? 0 : filtered.count }
             reply(json(["ok": true, "protocol_version": 1, "received_count": receivedCount,
@@ -528,6 +589,7 @@ final class AppModel: ObservableObject {
                             "expanded": applicationGroupExpanded($0.host), "active_count": $0.activeCount,
                             "session_ids": $0.sessions.map(\.id)] as [String: Any] },
                         "visible_session_count": visibleCount,
+                        "attention_group": (showingAttention ? attentionGroup?.key : nil) as Any? ?? NSNull(),
                         "active_filter": activeFilter, "tab": showAgents ? "agents" : showingAttention ? "attention" : "sessions",
                         "agents": agents.map { ["id": $0.id, "provider": $0.provider, "name": $0.name, "state": $0.state.rawValue,
                             "activity": $0.activity.rawValue, "active_task_count": $0.activeTaskCount,
@@ -1224,7 +1286,7 @@ final class AppModel: ObservableObject {
 
     private var visibleSessionSelection: [AgentSession] {
         guard showingAttention else { return filtered }
-        let queue = attentionQueue
+        let queue = visibleAttentionQueue
         return (queue.requests + queue.errors).map(\.session)
     }
 

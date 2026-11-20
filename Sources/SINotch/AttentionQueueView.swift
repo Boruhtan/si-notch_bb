@@ -4,33 +4,48 @@ struct AttentionQueueView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            let queue = model.attentionQueue
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    if queue.count == 0 {
-                        Text(L10n.tr("attention.empty"))
-                            .font(.system(size: 12)).foregroundStyle(NotchDesign.secondary)
-                            .padding(.vertical, 24).frame(maxWidth: .infinity)
-                    }
-                    if !queue.requests.isEmpty {
-                        sectionTitle("attention.requests", id: "attention-requests")
-                        ForEach(queue.requests) { item in
-                            SessionCard(session: item.session, model: model, attention: item)
+        VStack(spacing: 0) {
+            if let group = model.attentionGroup { groupFilter(group) }
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                let queue = model.visibleAttentionQueue
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        if queue.count == 0 {
+                            Text(L10n.tr("attention.empty"))
+                                .font(.system(size: 12)).foregroundStyle(NotchDesign.secondary)
+                                .padding(.vertical, 24).frame(maxWidth: .infinity)
                         }
-                    }
-                    if !queue.errors.isEmpty || !queue.ssh.isEmpty {
-                        sectionTitle("attention.problems", id: "attention-problems")
-                        ForEach(queue.errors) { item in
-                            SessionCard(session: item.session, model: model, attention: item)
+                        if !queue.requests.isEmpty {
+                            sectionTitle("attention.requests", id: "attention-requests")
+                            ForEach(queue.requests) { item in
+                                SessionCard(session: item.session, model: model, attention: item)
+                            }
                         }
-                        ForEach(queue.ssh) { connection in
-                            sshCard(connection)
+                        if !queue.errors.isEmpty || !queue.ssh.isEmpty {
+                            sectionTitle("attention.problems", id: "attention-problems")
+                            ForEach(queue.errors) { item in
+                                SessionCard(session: item.session, model: model, attention: item)
+                            }
+                            ForEach(queue.ssh) { connection in
+                                sshCard(connection)
+                            }
                         }
-                    }
-                }.padding(.horizontal, 16).padding(.vertical, 10)
-            }.accessibilityIdentifier("attention-queue")
+                    }.padding(.horizontal, 16).padding(.vertical, 10)
+                }.accessibilityIdentifier("attention-queue").id(model.attentionGroup)
+            }
         }
+    }
+
+    private func groupFilter(_ group: AgentGroupID) -> some View {
+        HStack(spacing: 10) {
+            Label(model.groupName(group), systemImage: "line.3.horizontal.decrease")
+                .font(.system(size: 11, weight: .medium)).lineLimit(1)
+                .accessibilityIdentifier("attention-group-filter-" + group.key)
+            Spacer(minLength: 8)
+            Button(L10n.tr("attention.allGroups")) { model.selectAttention() }
+                .buttonStyle(AttentionActionButtonStyle())
+                .accessibilityIdentifier("attention-clear-group")
+        }.padding(.horizontal, 20).frame(height: 34)
     }
 
     private func sectionTitle(_ key: String, id: String) -> some View {

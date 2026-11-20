@@ -732,6 +732,11 @@
 "agents.hostEmpty.zed" = "此处显示外部代理和终端会话";
 
 "attention.requests" = "等待你的回复";
+"attention.allGroups" = "所有分组";
+"agents.group.waiting" = "等待回复 · %d";
+"agents.group.working" = "进行中 · %d";
+"agents.group.completed" = "已完成 · %d";
+"agents.group.openAttention" = "打开 %@ 的待处理事项";
 "attention.problems" = "错误和连接";
 "attention.empty" = "暂无需要处理的事项";
 "attention.waitingSince" = "已等待";
